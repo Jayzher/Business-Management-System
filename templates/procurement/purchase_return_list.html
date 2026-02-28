@@ -1,0 +1,38 @@
+{% extends "theme/base.html" %}
+{% block title %}Purchase Returns{% endblock %}
+{% block page_title %}Purchase Returns{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Purchase Returns</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header d-flex justify-content-between">
+    <h3 class="card-title"><i class="fas fa-undo-alt mr-1"></i> Purchase Returns</h3>
+    <a href="#" data-modal-url="{% url 'purchase_return_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Return</a>
+  </div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover wis-datatable">
+      <thead>
+        <tr><th>Doc #</th><th>Supplier</th><th>Warehouse</th><th>Return Date</th><th>Status</th><th>Created By</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in returns %}
+        <tr>
+          <td><strong>{{ r.document_number }}</strong></td>
+          <td>{{ r.supplier.name }}</td>
+          <td>{{ r.warehouse.name }}</td>
+          <td>{{ r.return_date|date:"M d, Y" }}</td>
+          <td>
+            {% if r.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif r.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif r.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td>
+          <td>{{ r.created_by.username }}</td>
+          <td><a href="{% url 'purchase_return_detail' r.pk %}" class="btn btn-xs btn-outline-primary"><i class="fas fa-eye"></i></a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

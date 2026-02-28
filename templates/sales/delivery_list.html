@@ -1,0 +1,46 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Deliveries{% endblock %}
+{% block page_title %}Deliveries{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Deliveries</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Delivery List</h3>
+    <div class="card-tools"><a href="#" data-modal-url="{% url 'delivery_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Delivery</a></div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr><th>DN #</th><th>SO #</th><th>Customer</th><th>Warehouse</th><th>Delivery Date</th><th>Status</th><th>Created By</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for d in deliveries %}
+        <tr>
+          <td><a href="{% url 'delivery_detail' d.pk %}">{{ d.document_number }}</a></td>
+          <td>{{ d.sales_order.document_number|default:"-" }}</td>
+          <td>{{ d.customer.name }}</td>
+          <td>{{ d.warehouse.code }}</td>
+          <td>{{ d.delivery_date|date:"M d, Y" }}</td>
+          <td>
+            {% if d.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif d.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif d.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td>
+          <td>{{ d.created_by.get_full_name|default:d.created_by.username }}</td>
+          <td>
+            <a href="{% url 'delivery_detail' d.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
+            {% if d.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'delivery_edit' d.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>{% endif %}
+            <a href="#" data-modal-url="{% url 'delivery_delete' d.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="text-center text-muted">No deliveries.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,141 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Shift #{{ shift.pk }} Summary{% endblock %}
+{% block page_title %}Shift #{{ shift.pk }} Summary{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'pos_shift_list' %}">Shifts</a></li>
+<li class="breadcrumb-item active">Summary</li>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Shift Details</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0">
+          <tr><th>Register</th><td>{{ shift.register.name }}</td></tr>
+          <tr><th>Opened By</th><td>{{ shift.opened_by }}</td></tr>
+          <tr><th>Opened At</th><td>{{ shift.opened_at|date:"M d, Y H:i" }}</td></tr>
+          <tr><th>Opening Cash</th><td>{{ shift.opening_cash }}</td></tr>
+          <tr><th>Status</th><td>
+            {% if shift.status == 'OPEN' %}<span class="badge bg-success">Open</span>
+            {% else %}<span class="badge bg-secondary">Closed</span>{% endif %}
+          </td></tr>
+          {% if shift.status == 'CLOSED' %}
+          <tr><th>Closed By</th><td>{{ shift.closed_by }}</td></tr>
+          <tr><th>Closed At</th><td>{{ shift.closed_at|date:"M d, Y H:i" }}</td></tr>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Cash Summary</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0">
+          <tr><th>Cash Sales</th><td>{{ shift.cash_sales_total }}</td></tr>
+          <tr><th>Non-Cash Sales</th><td>{{ shift.noncash_sales_total }}</td></tr>
+          <tr><th>Refunds</th><td class="text-danger">{{ shift.refund_total }}</td></tr>
+          <tr><th>Cash In/Out</th><td>{{ shift.cash_in_out_total }}</td></tr>
+          <tr class="table-info"><th>Expected Cash</th><td><strong>{{ shift.expected_cash }}</strong></td></tr>
+          {% if shift.status == 'CLOSED' %}
+          <tr><th>Declared Cash</th><td>{{ shift.closing_cash_declared }}</td></tr>
+          <tr class="{% if shift.variance < 0 %}table-danger{% elif shift.variance > 0 %}table-warning{% else %}table-success{% endif %}">
+            <th>Variance</th><td><strong>{{ shift.variance }}</strong></td>
+          </tr>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Actions</h3></div>
+      <div class="card-body">
+        {% if shift.status == 'OPEN' %}
+        <a href="{% url 'pos_terminal' shift_id=shift.pk %}" class="btn btn-primary btn-block mb-2"><i class="fas fa-cash-register mr-1"></i> Go to Terminal</a>
+        <a href="{% url 'pos_shift_close' pk=shift.pk %}" class="btn btn-warning btn-block mb-2"><i class="fas fa-lock mr-1"></i> Close Shift</a>
+        {% endif %}
+        <a href="{% url 'pos_shift_list' %}" class="btn btn-secondary btn-block"><i class="fas fa-arrow-left mr-1"></i> Back to Shifts</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Sales in this shift -->
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Sales</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover table-striped">
+      <thead>
+        <tr><th>Sale #</th><th>Customer</th><th>Status</th><th>Grand Total</th><th>Created By</th><th>Time</th></tr>
+      </thead>
+      <tbody>
+        {% for sale in sales %}
+        <tr>
+          <td><a href="{% url 'pos_receipt_detail' pk=sale.pk %}">{{ sale.sale_no }}</a></td>
+          <td>{{ sale.customer|default:"Walk-in" }}</td>
+          <td>
+            {% if sale.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif sale.status == 'PAID' %}<span class="badge bg-info">Paid</span>
+            {% elif sale.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif sale.status == 'VOID' %}<span class="badge bg-danger">Void</span>
+            {% elif sale.status == 'REFUNDED' %}<span class="badge bg-warning">Refunded</span>
+            {% endif %}
+          </td>
+          <td>{{ sale.grand_total }}</td>
+          <td>{{ sale.created_by }}</td>
+          <td>{{ sale.created_at|date:"H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted">No sales in this shift.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if refunds %}
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Refunds</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover">
+      <thead><tr><th>Refund #</th><th>Original Sale</th><th>Status</th><th>Total</th></tr></thead>
+      <tbody>
+        {% for r in refunds %}
+        <tr>
+          <td>{{ r.refund_no }}</td>
+          <td>{{ r.original_sale.sale_no }}</td>
+          <td>{% if r.status == 'POSTED' %}<span class="badge bg-success">Posted</span>{% else %}{{ r.status }}{% endif %}</td>
+          <td>{{ r.grand_total }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if cash_entries %}
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Cash Entries</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover">
+      <thead><tr><th>Type</th><th>Amount</th><th>Reason</th><th>By</th></tr></thead>
+      <tbody>
+        {% for entry in cash_entries %}
+        <tr>
+          <td>{% if entry.entry_type == 'CASH_IN' %}<span class="badge bg-success">In</span>{% else %}<span class="badge bg-danger">Out</span>{% endif %}</td>
+          <td>{{ entry.amount }}</td>
+          <td>{{ entry.reason }}</td>
+          <td>{{ entry.created_by }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

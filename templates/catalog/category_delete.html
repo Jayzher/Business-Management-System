@@ -1,0 +1,21 @@
+{% extends "theme/partials/delete_confirm.html" %}
+
+{% block title %}Delete Category{% endblock %}
+{% block page_title %}Delete Category{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'category_list' %}">Categories</a></li>
+<li class="breadcrumb-item active">Delete</li>
+{% endblock %}
+{% block object_name %}{{ object.code }} - {{ object.name }}{% endblock %}
+{% block cancel_url %}{% url 'category_list' %}{% endblock %}
+{% block delete_details %}
+  {% if relation_summary %}
+  <div class="d-flex align-items-start gap-2 p-3 rounded" title="{{ relation_summary }}" style="background:#eef7ff;border:1px solid #c9e4ff;color:#0b3a67;">
+    <i class="fas fa-link mt-1"></i>
+    <div>
+      <strong>References found:</strong>
+      <div class="small" style="color:#0b3a67;opacity:0.8;">{{ relation_summary }}</div>
+    </div>
+  </div>
+  {% endif %}
+{% endblock %}

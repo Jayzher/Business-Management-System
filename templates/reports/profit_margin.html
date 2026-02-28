@@ -1,0 +1,89 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+
+{% block title %}Profit Margins{% endblock %}
+{% block page_title %}Profit Margin Report{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'reports_dashboard' %}">Reports</a></li>
+<li class="breadcrumb-item active">Profit Margins</li>
+{% endblock %}
+
+{% block content %}
+<div class="card card-outline card-success">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-chart-line mr-2 text-success"></i> Profit Margins (POS Sales)</h3>
+  </div>
+  <div class="card-body pb-0">
+    <form method="get" class="row g-2 align-items-end mb-3">
+      <div class="col-md-2">
+        <label class="small">From</label>
+        <input type="date" name="date_from" value="{{ filters.date_from }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-2">
+        <label class="small">To</label>
+        <input type="date" name="date_to" value="{{ filters.date_to }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-4">
+        <label class="small">&nbsp;</label>
+        <div class="d-flex flex-wrap">
+          <button type="submit" class="btn btn-sm btn-primary mr-1 mb-1"><i class="fas fa-filter mr-1"></i>Filter</button>
+          <a href="{% url 'report_profit_margin' %}" class="btn btn-sm btn-secondary mr-1 mb-1">Clear</a>
+          <button type="button" class="btn btn-sm btn-success mr-1 mb-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
+          <button type="button" class="btn btn-sm btn-outline-danger mb-1 wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+        </div>
+      </div>
+    </form>
+  </div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover table-striped text-nowrap" id="report-table">
+      <thead>
+        <tr>
+          <th>Item Code</th>
+          <th>Item Name</th>
+          <th class="text-right">Qty Sold</th>
+          <th class="text-right">Revenue</th>
+          <th class="text-right">COGS</th>
+          <th class="text-right">Gross Profit</th>
+          <th class="text-right">Margin %</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.item_code }}</td>
+          <td>{{ row.item_name }}</td>
+          <td class="text-right">{{ row.qty_sold|floatformat:2 }}</td>
+          <td class="text-right">{{ row.revenue|floatformat:2|intcomma }}</td>
+          <td class="text-right">{{ row.cogs|floatformat:2|intcomma }}</td>
+          <td class="text-right {% if row.profit > 0 %}text-success{% elif row.profit < 0 %}text-danger{% endif %} font-weight-bold">
+            {{ row.profit|floatformat:2|intcomma }}
+          </td>
+          <td class="text-right">
+            <span class="badge {% if row.margin >= 20 %}bg-success{% elif row.margin >= 10 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+              {{ row.margin|floatformat:1 }}%
+            </span>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No POS sales data found for the selected period.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if rows %}
+      <tfoot>
+        <tr class="font-weight-bold bg-light">
+          <td colspan="3" class="text-right">Totals:</td>
+          <td class="text-right">{{ grand_revenue|floatformat:2|intcomma }}</td>
+          <td class="text-right">{{ grand_cogs|floatformat:2|intcomma }}</td>
+          <td class="text-right {% if grand_profit > 0 %}text-success{% elif grand_profit < 0 %}text-danger{% endif %}">{{ grand_profit|floatformat:2|intcomma }}</td>
+          <td class="text-right">
+            <span class="badge {% if grand_margin >= 20 %}bg-success{% elif grand_margin >= 10 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+              {{ grand_margin|floatformat:1 }}%
+            </span>
+          </td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+{% endblock %}

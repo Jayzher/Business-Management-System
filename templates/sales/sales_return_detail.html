@@ -1,0 +1,76 @@
+{% extends "theme/base.html" %}
+
+{% block title %}{{ sr.document_number }}{% endblock %}
+{% block page_title %}{{ sr.document_number }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'sales_return_list' %}">Sales Returns</a></li>
+<li class="breadcrumb-item active">{{ sr.document_number }}</li>
+{% endblock %}
+
+{% block content %}
+{% include "theme/partials/status_workflow.html" with status=sr.status doc_type="SR" %}
+{% include "theme/partials/doc_actions.html" with obj=sr delete_url_name="sales_return_delete" post_url_name="sales_return_post" cancel_url_name="sales_return_cancel" list_url_name="sales_return_list" %}
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-undo mr-2 text-primary"></i>Return Details</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Return #</th><td><strong>{{ sr.document_number }}</strong></td></tr>
+          <tr><th>Status</th><td>
+            {% if sr.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif sr.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif sr.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td></tr>
+          <tr><th>SO #</th><td>{% if sr.sales_order %}<a href="{% url 'sales_order_detail' sr.sales_order.pk %}">{{ sr.sales_order.document_number }}</a>{% else %}-{% endif %}</td></tr>
+          <tr><th>DN #</th><td>{% if sr.delivery_note %}<a href="{% url 'delivery_detail' sr.delivery_note.pk %}">{{ sr.delivery_note.document_number }}</a>{% else %}-{% endif %}</td></tr>
+          <tr><th>Customer</th><td>{{ sr.customer.name }}</td></tr>
+          <tr><th>Warehouse</th><td>{{ sr.warehouse.name }}</td></tr>
+          <tr><th>Return Date</th><td>{{ sr.return_date|date:"M d, Y" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle mr-2 text-secondary"></i>Additional Info</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Reason</th><td>{{ sr.reason|default:"-" }}</td></tr>
+          <tr><th>Created By</th><td>{{ sr.created_by.get_full_name|default:sr.created_by.username }}</td></tr>
+          <tr><th>Created At</th><td>{{ sr.created_at|date:"M d, Y H:i" }}</td></tr>
+          <tr><th>Posted By</th><td>{{ sr.posted_by.get_full_name|default:"-" }}</td></tr>
+          <tr><th>Posted At</th><td>{{ sr.posted_at|date:"M d, Y H:i"|default:"-" }}</td></tr>
+          <tr><th>Notes</th><td>{{ sr.notes|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-list mr-2 text-success"></i>Return Lines</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover detail-lines-table mb-0">
+      <thead>
+        <tr><th>Item</th><th>Location</th><th class="text-end">Qty</th><th>Unit</th><th>Reason</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for line in sr.lines.all %}
+        <tr>
+          <td>{% include "theme/partials/item_cell.html" with item=line.item %}</td>
+          <td>{{ line.location.code }}</td>
+          <td class="text-end">{{ line.qty }}</td>
+          <td>{{ line.unit.abbreviation }}</td>
+          <td>{{ line.reason|default:"-" }}</td>
+          <td>{{ line.notes|default:"-" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

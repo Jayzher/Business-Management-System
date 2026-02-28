@@ -1,0 +1,76 @@
+{% extends "theme/base.html" %}
+
+{% block extra_css %}{{ block.super }}
+<style>
+  .help-tooltip { color: #17a2b8; cursor: help; font-size: .8rem; margin-left: 4px; }
+  .help-tooltip:hover { color: #0d6efd; }
+  .wis-form-card { max-width: 720px; }
+  .wis-form-card.wis-form-wide { max-width: 960px; }
+  .wis-form-card .form-control,
+  .wis-form-card .form-select,
+  .wis-form-card select { font-size: .88rem; padding: .45rem .7rem; border-radius: 6px; }
+  .wis-form-card textarea.form-control { min-height: 80px; }
+  .wis-form-card .form-label { font-weight: 600; font-size: .82rem; margin-bottom: .25rem; color: #495057; }
+  .wis-form-card .card-header { background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%); border-bottom: 2px solid #e9ecef; }
+  .wis-form-card .card-footer { background: #f8f9fa; border-top: 2px solid #e9ecef; }
+  .wis-form-row { display: flex; gap: 1rem; }
+  .wis-form-row > .form-group { flex: 1; min-width: 0; }
+  @media (max-width: 576px) { .wis-form-row { flex-direction: column; gap: 0; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card wis-form-card {% block form_card_class %}{% endblock %}">
+  <div class="card-header">
+    <h3 class="card-title"><i class="{% block form_icon %}fas fa-edit{% endblock %} mr-2"></i>{% block form_title %}Form{% endblock %}</h3>
+  </div>
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    <div class="card-body py-4 px-4">
+      {% if form.non_field_errors %}
+      <div class="alert alert-danger alert-dismissible fade show">
+        {% for error in form.non_field_errors %}
+        <p class="mb-0">{{ error }}</p>
+        {% endfor %}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endif %}
+      {% block form_fields %}
+      {% for field in form %}
+      <div class="form-group mb-3">
+        <label for="{{ field.id_for_label }}" class="form-label">
+          {{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}
+          {% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}
+        </label>
+        {% if field.field.widget.input_type == 'checkbox' %}
+          <div class="form-check">
+            {{ field }}
+            {% if field.help_text %}<small class="form-text text-muted ms-2">{{ field.help_text }}</small>{% endif %}
+          </div>
+        {% else %}
+          {{ field }}
+        {% endif %}
+        {% if field.errors %}
+        <div class="text-danger small mt-1">
+          {% for error in field.errors %}{{ error }}{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% endblock %}
+      {% block extra_form_fields %}{% endblock %}
+    </div>
+    <div class="card-footer d-flex justify-content-end gap-2 pb-0 pr-0">
+      <a href="{% block cancel_url %}{% url 'dashboard' %}{% endblock %}" class="btn btn-outline-secondary"><i class="fas fa-times mr-1"></i> Cancel</a>
+      <button type="submit" class="btn btn-primary"><i class="fas fa-save mr-1"></i> {% block submit_label %}Save{% endblock %}</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}{{ block.super }}
+<script>
+var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+tooltipTriggerList.map(function(el) { return new bootstrap.Tooltip(el); });
+</script>
+{% endblock %}

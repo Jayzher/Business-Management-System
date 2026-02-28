@@ -1,0 +1,28 @@
+{% extends "theme/base.html" %}
+{% load crispy_forms_tags %}
+
+{% block title %}{{ title }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'sales_return_list' %}">Sales Returns</a></li>
+<li class="breadcrumb-item active">{{ title }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-undo mr-2"></i>{{ title }}</h3></div>
+  <div class="card-body">
+    <form method="post">
+      {% csrf_token %}
+      {% include "theme/partials/form.html" with form=form %}
+      <hr>
+      <h5><i class="fas fa-list mr-1"></i> Return Lines</h5>
+      {% include "theme/partials/formset_table.html" with formset=formset %}
+      <div class="mt-3">
+        <button type="submit" class="btn btn-primary"><i class="fas fa-save mr-1"></i> Save</button>
+        <a href="{% url 'sales_return_list' %}" class="btn btn-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

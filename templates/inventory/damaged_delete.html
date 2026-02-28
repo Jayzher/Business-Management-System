@@ -1,0 +1,10 @@
+{% extends "theme/partials/delete_confirm.html" %}
+
+{% block title %}Delete Damaged Report{% endblock %}
+{% block page_title %}Delete Damaged Report{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'damaged_list' %}">Damaged Stock</a></li>
+<li class="breadcrumb-item active">Delete</li>
+{% endblock %}
+{% block object_name %}{{ object.document_number }}{% endblock %}
+{% block cancel_url %}{% url 'damaged_list' %}{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "theme/partials/doc_print.html" %}
+{% load humanize %}
+
+{% block doc_header_info %}
+<p>Date: {{ doc.order_date|date:"F d, Y" }}</p>
+{% if doc.expected_date %}<p>Expected: {{ doc.expected_date|date:"F d, Y" }}</p>{% endif %}
+{% if doc.currency != 'PHP' %}<p>Currency: {{ doc.currency }} (Rate: {{ doc.exchange_rate }})</p>{% endif %}
+{% endblock %}
+
+{% block info_boxes %}
+<div class="info-box">
+  <strong>Supplier</strong>
+  {{ doc.supplier.name }}<br>
+  {% if doc.supplier.contact_person %}{{ doc.supplier.contact_person }}<br>{% endif %}
+  {% if doc.supplier.phone %}{{ doc.supplier.phone }}<br>{% endif %}
+  {% if doc.supplier.email %}{{ doc.supplier.email }}{% endif %}
+</div>
+<div class="info-box" style="text-align:right;">
+  <strong>Ship To (Warehouse)</strong>
+  {{ doc.warehouse.name }}<br>
+  {{ doc.warehouse.code }}
+</div>
+{% endblock %}
+
+{% block doc_table %}
+<table>
+  <thead>
+    <tr><th>#</th><th>Item Code</th><th>Description</th><th class="text-right">Qty Ordered</th><th>Unit</th><th class="text-right">Unit Price</th><th class="text-right">Total</th></tr>
+  </thead>
+  <tbody>
+    {% for line in doc.lines.all %}
+    <tr>
+      <td>{{ forloop.counter }}</td>
+      <td>{{ line.item.code }}</td>
+      <td>{{ line.item.name }}</td>
+      <td class="text-right">{{ line.qty_ordered|floatformat:2 }}</td>
+      <td>{{ line.unit.abbreviation }}</td>
+      <td class="text-right">{{ line.unit_price|floatformat:2|intcomma }}</td>
+      <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<table class="totals" style="width:300px;margin-left:auto;">
+  {% with total=doc.lines.all|length %}
+  <tr><td class="text-right">Items: {{ total }}</td><td></td></tr>
+  {% endwith %}
+</table>
+{% endblock %}

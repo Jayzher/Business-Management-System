@@ -1,0 +1,55 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}Supply Movements{% endblock %}
+{% block page_title %}Supply Movement Log{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'supply_item_list' %}">Supplies</a></li><li class="breadcrumb-item active">Movements</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-history mr-1"></i> Supply Movements</h3>
+    <div class="card-tools">
+      <a href="#" data-modal-url="{% url 'procurement_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import Stock-In</a>
+      <a href="#" data-modal-url="{% url 'supply_movement_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Movement</a>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="row g-2 mb-3">
+      <div class="col-md-3">
+        <select name="item" class="form-control form-control-sm">
+          <option value="">All Items</option>
+          {% for it in items %}<option value="{{ it.pk }}" {% if filters.item == it.pk|stringformat:"d" %}selected{% endif %}>{{ it.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="type" class="form-control form-control-sm">
+          <option value="">All Types</option>
+          <option value="IN" {% if filters.type == "IN" %}selected{% endif %}>Stock In</option>
+          <option value="OUT" {% if filters.type == "OUT" %}selected{% endif %}>Usage Out</option>
+        </select>
+      </div>
+      <div class="col-md-2"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-filter mr-1"></i> Filter</button></div>
+    </form>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover table-striped text-nowrap wis-table">
+      <thead><tr><th>Date</th><th>Item</th><th>Type</th><th class="text-right">Qty</th><th class="text-right">Unit Cost</th><th>Notes</th><th>By</th></tr></thead>
+      <tbody>
+        {% for mv in movements %}
+        <tr>
+          <td>{{ mv.date|date:"M d, Y" }}</td>
+          <td>{{ mv.supply_item.name }}</td>
+          <td>{% if mv.movement_type == "IN" %}<span class="badge bg-success">IN</span>{% else %}<span class="badge bg-danger">OUT</span>{% endif %}</td>
+          <td class="text-right">{{ mv.qty|floatformat:2 }}</td>
+          <td class="text-right">{{ mv.unit_cost|floatformat:2|intcomma }}</td>
+          <td><small>{{ mv.notes|truncatewords:8 }}</small></td>
+          <td>{{ mv.created_by.get_short_name|default:mv.created_by.username }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-3">No movements yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

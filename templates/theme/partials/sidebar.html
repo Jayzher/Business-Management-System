@@ -1,0 +1,54 @@
+<!-- Main Sidebar Container -->
+<aside class="main-sidebar sidebar-dark-primary elevation-4">
+  <!-- Brand Logo -->
+  <a href="{% url 'dashboard' %}" class="brand-link">
+    <i class="fas fa-warehouse brand-image img-circle elevation-3 ml-3 mt-2" style="font-size:1.5rem;color:#fff;"></i>
+    <span class="brand-text font-weight-light">WIS</span>
+  </a>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <!-- Sidebar user panel -->
+    <div class="user-panel mt-3 pb-3 mb-3 d-flex">
+      <div class="image">
+        <i class="fas fa-user-circle fa-2x text-light"></i>
+      </div>
+      <div class="info">
+        <a href="#" class="d-block text-light">{{ request.user.get_full_name|default:request.user.username }}</a>
+      </div>
+    </div>
+
+    <!-- Sidebar Menu -->
+    <nav class="mt-2">
+      <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" data-accordion="true">
+        {% for item in sidebar_menu %}
+          {% if item.children %}
+          <li class="nav-item{% if item.is_open %} menu-open{% endif %}"{% if item.tour_id %} data-tour-id="{{ item.tour_id }}"{% endif %}>
+            <a href="#" class="nav-link{% if item.is_open %} active{% endif %}">
+              <i class="nav-icon {{ item.icon }}"></i>
+              <p>{{ item.label }}<i class="right fas fa-angle-left"></i></p>
+            </a>
+            <ul class="nav nav-treeview">
+              {% for child in item.children %}
+              <li class="nav-item">
+                <a href="{{ child.url }}" class="nav-link{% if child.is_active %} active{% endif %}">
+                  <i class="nav-icon child-icon {{ child.icon|default:'far fa-circle' }}"></i>
+                  <p class="child-label">{{ child.label }}</p>
+                </a>
+              </li>
+              {% endfor %}
+            </ul>
+          </li>
+          {% else %}
+          <li class="nav-item"{% if item.tour_id %} data-tour-id="{{ item.tour_id }}"{% endif %}>
+            <a href="{{ item.url }}" class="nav-link{% if item.is_active %} active{% endif %}">
+              <i class="nav-icon {{ item.icon }}"></i>
+              <p>{{ item.label }}</p>
+            </a>
+          </li>
+          {% endif %}
+        {% endfor %}
+      </ul>
+    </nav>
+  </div>
+</aside>

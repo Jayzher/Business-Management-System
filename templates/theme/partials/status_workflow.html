@@ -1,0 +1,66 @@
+{% comment %}
+Include this partial on document detail pages to show a visual workflow stepper.
+Required context:
+  - status: the document's current status string (DRAFT, APPROVED, POSTED, CANCELLED)
+  - doc_type: short label like "PO", "GRN", "SO", "DN", "Transfer", "Adjustment", "Damaged"
+Optional:
+  - show_approved: if True, show the APPROVED step (PO/SO only)
+{% endcomment %}
+
+{% with show_approved=show_approved|default:False %}
+<div class="card card-outline card-primary mb-3">
+  <div class="card-body py-2 px-3">
+    <div class="d-flex align-items-center justify-content-center flex-wrap" style="gap:.25rem;">
+
+      {# DRAFT #}
+      <span class="badge {% if status == 'DRAFT' %}bg-secondary{% else %}bg-light text-muted border{% endif %} px-3 py-2" style="font-size:.85rem;">
+        <i class="fas fa-file-alt mr-1"></i> Draft
+      </span>
+
+      <i class="fas fa-chevron-right text-muted mx-1"></i>
+
+      {% if show_approved %}
+      {# APPROVED (optional) #}
+      <span class="badge {% if status == 'APPROVED' %}bg-info{% elif status == 'POSTED' or status == 'CANCELLED' %}bg-light text-success border{% else %}bg-light text-muted border{% endif %} px-3 py-2" style="font-size:.85rem;">
+        <i class="fas fa-thumbs-up mr-1"></i> Approved
+      </span>
+      <i class="fas fa-chevron-right text-muted mx-1"></i>
+      {% endif %}
+
+      {# POSTED #}
+      <span class="badge {% if status == 'POSTED' %}bg-success{% elif status == 'CANCELLED' %}bg-light text-muted border{% else %}bg-light text-muted border{% endif %} px-3 py-2" style="font-size:.85rem;">
+        <i class="fas fa-check-circle mr-1"></i> Posted
+      </span>
+
+      {% if status == 'CANCELLED' %}
+      <i class="fas fa-chevron-right text-muted mx-1"></i>
+      <span class="badge bg-danger px-3 py-2" style="font-size:.85rem;">
+        <i class="fas fa-ban mr-1"></i> Cancelled
+      </span>
+      {% endif %}
+
+    </div>
+
+    {# Contextual help text #}
+    <div class="text-center mt-2" style="font-size:.78rem;">
+      {% if status == 'DRAFT' %}
+        <span class="text-muted"><i class="fas fa-info-circle me-1"></i>
+          This {{ doc_type }} is a draft. You can edit it, add lines, then {% if show_approved %}approve{% else %}post{% endif %} when ready.
+        </span>
+      {% elif status == 'APPROVED' %}
+        <span class="text-info"><i class="fas fa-info-circle me-1"></i>
+          This {{ doc_type }} is approved and locked for editing. Post it to execute stock movements.
+        </span>
+      {% elif status == 'POSTED' %}
+        <span class="text-success"><i class="fas fa-check me-1"></i>
+          This {{ doc_type }} has been posted. Stock balances have been updated. Cancel to reverse.
+        </span>
+      {% elif status == 'CANCELLED' %}
+        <span class="text-danger"><i class="fas fa-ban me-1"></i>
+          This {{ doc_type }} is cancelled. Any posted stock moves have been reversed.
+        </span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endwith %}

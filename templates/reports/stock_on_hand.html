@@ -1,0 +1,82 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+
+{% block title %}Stock On Hand{% endblock %}
+{% block page_title %}Stock On Hand Report{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'reports_dashboard' %}">Reports</a></li>
+<li class="breadcrumb-item active">Stock On Hand</li>
+{% endblock %}
+
+{% block content %}
+<div class="card card-outline card-primary">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-boxes mr-2 text-primary"></i> Stock On Hand</h3>
+    <div class="card-tools">
+      <form method="get" class="form-inline">
+        <select name="warehouse" class="form-control form-control-sm mr-2">
+          <option value="">All Warehouses</option>
+          {% for wh in warehouses %}
+          <option value="{{ wh.pk }}" {% if selected_warehouse == wh.pk|stringformat:"d" %}selected{% endif %}>{{ wh.code }} - {{ wh.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-primary mr-1"><i class="fas fa-filter mr-1"></i>Filter</button>
+        <button type="button" class="btn btn-sm btn-success mr-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
+        <button type="button" class="btn btn-sm btn-outline-danger wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+      </form>
+    </div>
+  </div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover table-striped text-nowrap" id="report-table">
+      <thead>
+        <tr>
+          <th>Image</th>
+          <th>Item Code</th>
+          <th>Item Name</th>
+          <th>Warehouse</th>
+          <th>Location</th>
+          <th>Unit</th>
+          <th class="text-right">On Hand</th>
+          <th class="text-right">Reserved</th>
+          <th class="text-right">Available</th>
+          <th class="text-right">Cost Price</th>
+          <th class="text-right">Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for bal in balances %}
+        <tr>
+          <td class="text-center">
+            {% if bal.item.image %}
+              <img src="{{ bal.item.image.url }}" alt="{{ bal.item.name }}" class="item-thumb" loading="lazy">
+            {% else %}
+              <span class="item-thumb-placeholder"><i class="fas fa-box"></i></span>
+            {% endif %}
+          </td>
+          <td><a href="{% url 'item_detail' bal.item.pk %}">{{ bal.item.code }}</a></td>
+          <td>{{ bal.item.name }}</td>
+          <td>{{ bal.location.warehouse.code }}</td>
+          <td>{{ bal.location.code }}</td>
+          <td>{{ bal.item.default_unit.abbreviation }}</td>
+          <td class="text-right">{{ bal.qty_on_hand|floatformat:2 }}</td>
+          <td class="text-right">{{ bal.qty_reserved|floatformat:2 }}</td>
+          <td class="text-right">{{ bal.qty_available|floatformat:2 }}</td>
+          <td class="text-right">{{ bal.item.cost_price|floatformat:2 }}</td>
+          <td class="text-right font-weight-bold">{{ bal.line_value|floatformat:2|intcomma }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="11" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No stock found.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if balances %}
+      <tfoot>
+        <tr class="font-weight-bold bg-light">
+          <td colspan="10" class="text-right">Total Inventory Value:</td>
+          <td class="text-right">{{ total_value|floatformat:2|intcomma }}</td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "theme/base.html" %}
+
+{% block title %}{{ receipt.document_number }}{% endblock %}
+{% block page_title %}{{ receipt.document_number }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'goods_receipt_list' %}">Goods Receipts</a></li>
+<li class="breadcrumb-item active">{{ receipt.document_number }}</li>
+{% endblock %}
+
+{% block content %}
+{% include "theme/partials/status_workflow.html" with status=receipt.status doc_type="GRN" %}
+{% include "theme/partials/doc_actions.html" with obj=receipt edit_url_name="goods_receipt_edit" delete_url_name="goods_receipt_delete" post_url_name="goods_receipt_post" cancel_url_name="goods_receipt_cancel" print_url_name="goods_receipt_print" list_url_name="goods_receipt_list" %}
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-truck-loading mr-2 text-primary"></i>GRN Details</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>GRN #</th><td><strong>{{ receipt.document_number }}</strong></td></tr>
+          <tr><th>Status</th><td>
+            {% if receipt.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif receipt.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif receipt.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td></tr>
+          <tr><th>PO #</th><td>{{ receipt.purchase_order.document_number|default:"-" }}</td></tr>
+          <tr><th>Supplier</th><td>{{ receipt.supplier.name }}</td></tr>
+          <tr><th>Warehouse</th><td>{{ receipt.warehouse.name }}</td></tr>
+          <tr><th>Receipt Date</th><td>{{ receipt.receipt_date|date:"M d, Y" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle mr-2 text-secondary"></i>Additional Info</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Created By</th><td>{{ receipt.created_by.get_full_name|default:receipt.created_by.username }}</td></tr>
+          <tr><th>Created At</th><td>{{ receipt.created_at|date:"M d, Y H:i" }}</td></tr>
+          <tr><th>Posted By</th><td>{{ receipt.posted_by.get_full_name|default:"-" }}</td></tr>
+          <tr><th>Posted At</th><td>{{ receipt.posted_at|date:"M d, Y H:i"|default:"-" }}</td></tr>
+          <tr><th>Notes</th><td>{{ receipt.notes|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-list mr-2 text-success"></i>Receipt Lines</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover detail-lines-table mb-0">
+      <thead>
+        <tr><th>Item</th><th>Location</th><th class="text-end">Qty</th><th>Unit</th><th>Batch</th><th>Serial</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for line in receipt.lines.all %}
+        <tr>
+          <td>{% include "theme/partials/item_cell.html" with item=line.item %}</td>
+          <td>{{ line.location.code }}</td>
+          <td class="text-end">{{ line.qty }}</td>
+          <td>{{ line.unit.abbreviation }}</td>
+          <td>{{ line.batch_number|default:"-" }}</td>
+          <td>{{ line.serial_number|default:"-" }}</td>
+          <td>{{ line.notes|default:"-" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No lines added yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

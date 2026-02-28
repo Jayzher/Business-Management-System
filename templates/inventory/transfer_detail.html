@@ -1,0 +1,72 @@
+{% extends "theme/base.html" %}
+
+{% block title %}{{ transfer.document_number }}{% endblock %}
+{% block page_title %}{{ transfer.document_number }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'transfer_list' %}">Transfers</a></li>
+<li class="breadcrumb-item active">{{ transfer.document_number }}</li>
+{% endblock %}
+
+{% block content %}
+{% include "theme/partials/status_workflow.html" with status=transfer.status doc_type="Transfer" %}
+{% include "theme/partials/doc_actions.html" with obj=transfer edit_url_name="transfer_edit" delete_url_name="transfer_delete" post_url_name="transfer_post" cancel_url_name="transfer_cancel" list_url_name="transfer_list" %}
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-exchange-alt me-2 text-primary"></i>Transfer Details</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Transfer #</th><td><strong>{{ transfer.document_number }}</strong></td></tr>
+          <tr><th>Status</th><td>
+            {% if transfer.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif transfer.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif transfer.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td></tr>
+          <tr><th>From Warehouse</th><td>{{ transfer.from_warehouse.code }} - {{ transfer.from_warehouse.name }}</td></tr>
+          <tr><th>To Warehouse</th><td>{{ transfer.to_warehouse.code }} - {{ transfer.to_warehouse.name }}</td></tr>
+          <tr><th>Notes</th><td>{{ transfer.notes|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle me-2 text-secondary"></i>Audit Trail</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Created By</th><td>{{ transfer.created_by.get_full_name|default:transfer.created_by.username }}</td></tr>
+          <tr><th>Created At</th><td>{{ transfer.created_at|date:"M d, Y H:i" }}</td></tr>
+          <tr><th>Posted By</th><td>{{ transfer.posted_by.get_full_name|default:"-" }}</td></tr>
+          <tr><th>Posted At</th><td>{{ transfer.posted_at|date:"M d, Y H:i"|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-list me-2 text-success"></i>Transfer Lines</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover detail-lines-table mb-0">
+      <thead>
+        <tr><th>Item</th><th>From Location</th><th>To Location</th><th class="text-end">Qty</th><th>Unit</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for line in transfer.lines.all %}
+        <tr>
+          <td>{% include "theme/partials/item_cell.html" with item=line.item %}</td>
+          <td>{{ line.from_location.code }}</td>
+          <td>{{ line.to_location.code }}</td>
+          <td class="text-end">{{ line.qty }}</td>
+          <td>{{ line.unit.abbreviation }}</td>
+          <td>{{ line.notes|default:"-" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

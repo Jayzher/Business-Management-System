@@ -1,0 +1,529 @@
+{% extends "theme/base.html" %}
+{% block title %}Dictionary{% endblock %}
+{% block page_title %}Dictionary{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Dictionary</li>{% endblock %}
+
+{% block extra_css %}
+<style>
+  .dict-search { max-width: 520px; margin: 0 auto 1.5rem; }
+  .dict-search input { border-radius: 30px; padding: .6rem 1.2rem; font-size: .95rem; border: 2px solid #dee2e6; }
+  .dict-search input:focus { border-color: #86b7fe; box-shadow: 0 0 0 .2rem rgba(13,110,253,.15); }
+  .dict-tabs { border-bottom: 2px solid #dee2e6; margin-bottom: 1.5rem; }
+  .dict-tabs .nav-link { border: none; border-bottom: 3px solid transparent; padding: .75rem 1.25rem; font-weight: 600; font-size: .88rem; color: #6c757d; transition: all .2s; }
+  .dict-tabs .nav-link:hover { color: #495057; background: #f8f9fa; }
+  .dict-tabs .nav-link.active { color: #0d6efd; border-bottom-color: #0d6efd; background: transparent; }
+  .dict-tabs .nav-link .badge { font-size: .7rem; margin-left: .3rem; }
+  .dict-term { border-bottom: 1px solid #f0f0f0; padding: 1rem 1.25rem; transition: background .15s; }
+  .dict-term:last-child { border-bottom: none; }
+  .dict-term:hover { background: #fafbfc; }
+  .dict-term-name { font-weight: 700; font-size: .95rem; color: #212529; display: flex; align-items: center; gap: .5rem; }
+  .dict-term-name i { color: #0d6efd; font-size: .8rem; }
+  .dict-term-desc { font-size: .86rem; color: #495057; margin-top: .4rem; line-height: 1.5; }
+  .dict-term-example { font-size: .82rem; color: #6c757d; margin-top: .5rem; padding: .5rem .75rem; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #0d6efd; }
+  .dict-term-example strong { color: #495057; }
+  .dict-no-results { display: none; text-align: center; padding: 3rem; color: #6c757d; }
+  .dict-count { font-size: .8rem; color: #6c757d; text-align: center; margin-bottom: 1rem; font-weight: 500; }
+  .tab-content { background: #fff; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,.05); }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Search -->
+<div class="dict-search" id="dictSearchBox">
+  <div class="input-group">
+    <span class="input-group-text bg-white border-end-0" style="border-radius:30px 0 0 30px; border:2px solid #dee2e6; border-right:none;"><i class="fas fa-search text-muted"></i></span>
+    <input type="text" id="dictSearch" class="form-control border-start-0" placeholder="Search terms, descriptions, or examples..." style="border-radius:0 30px 30px 0; border:2px solid #dee2e6; border-left:none;">
+  </div>
+</div>
+<div class="dict-count" id="dictCount"></div>
+
+<!-- No results -->
+<div class="dict-no-results" id="dictNoResults">
+  <i class="fas fa-search fa-3x mb-3 d-block text-muted"></i>
+  <h5>No matching terms found</h5>
+  <p class="text-muted">Try a different keyword</p>
+</div>
+
+<!-- Tabs Navigation -->
+<ul class="nav nav-tabs dict-tabs" id="dictTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-catalog" data-bs-toggle="tab" data-bs-target="#mod-catalog" type="button" role="tab">
+      <i class="fas fa-boxes me-1"></i> Catalog <span class="badge bg-primary term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-partners" data-bs-toggle="tab" data-bs-target="#mod-partners" type="button" role="tab">
+      <i class="fas fa-handshake me-1"></i> Partners <span class="badge bg-success term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-warehouses" data-bs-toggle="tab" data-bs-target="#mod-warehouses" type="button" role="tab">
+      <i class="fas fa-warehouse me-1"></i> Warehouses <span class="badge bg-secondary term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-procurement" data-bs-toggle="tab" data-bs-target="#mod-procurement" type="button" role="tab">
+      <i class="fas fa-truck-loading me-1"></i> Procurement <span class="badge bg-warning text-dark term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-sales" data-bs-toggle="tab" data-bs-target="#mod-sales" type="button" role="tab">
+      <i class="fas fa-shopping-cart me-1"></i> Sales <span class="badge bg-info term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-inventory" data-bs-toggle="tab" data-bs-target="#mod-inventory" type="button" role="tab">
+      <i class="fas fa-exchange-alt me-1"></i> Inventory <span class="badge bg-danger term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-pos" data-bs-toggle="tab" data-bs-target="#mod-pos" type="button" role="tab">
+      <i class="fas fa-cash-register me-1"></i> POS <span class="badge bg-dark term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-pricing" data-bs-toggle="tab" data-bs-target="#mod-pricing" type="button" role="tab">
+      <i class="fas fa-tags me-1"></i> Pricing <span class="badge bg-secondary term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-expenses" data-bs-toggle="tab" data-bs-target="#mod-expenses" type="button" role="tab">
+      <i class="fas fa-receipt me-1"></i> Expenses <span class="badge bg-danger term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-supplies" data-bs-toggle="tab" data-bs-target="#mod-supplies" type="button" role="tab">
+      <i class="fas fa-box-open me-1"></i> Supplies <span class="badge bg-secondary term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-qr" data-bs-toggle="tab" data-bs-target="#mod-qr" type="button" role="tab">
+      <i class="fas fa-qrcode me-1"></i> QR Codes <span class="badge bg-primary term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-reports" data-bs-toggle="tab" data-bs-target="#mod-reports" type="button" role="tab">
+      <i class="fas fa-chart-bar me-1"></i> Reports <span class="badge bg-warning text-dark term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-general" data-bs-toggle="tab" data-bs-target="#mod-general" type="button" role="tab">
+      <i class="fas fa-cog me-1"></i> General <span class="badge bg-secondary term-count"></span>
+    </button>
+  </li>
+</ul>
+
+<!-- Tab Content -->
+<div class="tab-content" id="dictTabContent">
+  <!-- CATALOG -->
+  <div class="tab-pane fade show active" id="mod-catalog" role="tabpanel" data-module="Catalog">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-tag"></i> Item</div>
+      <div class="dict-term-desc">A product, raw material, or finished good tracked in the system. Each item has a unique code, name, type, category, and unit of measure.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Item code <em>FP-001</em>, name "Chocolate Cake", type Finished Product, category Bakery, unit Piece (pc).</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-layer-group"></i> Item Type</div>
+      <div class="dict-term-desc">Classification of an item: <strong>Raw Material</strong> (ingredients/components), <strong>Finished Product</strong> (sellable goods), or <strong>Service</strong>.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Flour is a Raw Material; a Chocolate Cake is a Finished Product.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-folder"></i> Category</div>
+      <div class="dict-term-desc">A grouping label for items to organize your catalog. Categories help filter and report on similar products.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Categories like "Bakery", "Beverages", "Electronics" help group items for easier browsing.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-ruler"></i> Unit of Measure (UoM)</div>
+      <div class="dict-term-desc">The standard measurement unit for tracking item quantities. Each item has a default unit.</div>
+      <div class="dict-term-example"><strong>Example:</strong> "kg" for flour, "pc" for cakes, "L" for milk, "box" for packaged goods.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-dollar-sign"></i> Cost Price</div>
+      <div class="dict-term-desc">The purchase or production cost of one unit of an item. Used to calculate COGS and profit margins.</div>
+      <div class="dict-term-example"><strong>Example:</strong> If you buy flour at 50.00 per kg, the cost price is 50.00.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-money-bill-wave"></i> Selling Price</div>
+      <div class="dict-term-desc">The default retail price of one unit of an item. Can be overridden by Price Lists.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Chocolate Cake selling price is 350.00 per piece.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-bell"></i> Reorder Point</div>
+      <div class="dict-term-desc">The minimum stock level that triggers a low-stock alert. When on-hand quantity falls to or below this number, the item appears in the Low Stock report.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Reorder point of 10 for flour means you get alerted when stock drops to 10 kg or less.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-barcode"></i> SKU</div>
+      <div class="dict-term-desc">Stock Keeping Unit — a unique identifier for each distinct item. In this system, the Item Code serves as the SKU.</div>
+      <div class="dict-term-example"><strong>Example:</strong> SKU "RM-FLOUR-001" uniquely identifies All-Purpose Flour 1kg.</div>
+    </div>
+  </div>
+
+  <!-- PARTNERS -->
+  <div class="tab-pane fade" id="mod-partners" role="tabpanel" data-module="Partners">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-truck"></i> Supplier</div>
+      <div class="dict-term-desc">A vendor or company from whom you purchase raw materials or goods. Linked to Purchase Orders and Goods Receipts.</div>
+      <div class="dict-term-example"><strong>Example:</strong> "ABC Flour Mills" is a supplier who provides flour and sugar for your bakery.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-user-tie"></i> Customer</div>
+      <div class="dict-term-desc">A person or business who buys your products. Linked to Sales Orders and Invoices.</div>
+      <div class="dict-term-example"><strong>Example:</strong> "Maria's Cafe" is a customer who orders cakes weekly via Sales Orders.</div>
+    </div>
+  </div>
+
+  <!-- WAREHOUSES -->
+  <div class="tab-pane fade" id="mod-warehouses" role="tabpanel" data-module="Warehouses">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-warehouse"></i> Warehouse</div>
+      <div class="dict-term-desc">A physical storage facility where inventory is kept. Each warehouse can have multiple locations (bins/shelves).</div>
+      <div class="dict-term-example"><strong>Example:</strong> "Main Warehouse" (code WH-MAIN) is your primary storage building.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-map-pin"></i> Location (Bin)</div>
+      <div class="dict-term-desc">A specific spot within a warehouse where items are stored. Stock balances are tracked per location.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Location "A-01" in Main Warehouse is Shelf A, Bin 1 where flour is stored.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-balance-scale"></i> Stock Balance</div>
+      <div class="dict-term-desc">The current quantity of an item at a specific location. Includes on-hand, reserved, and available quantities.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Flour at WH-MAIN/A-01: On Hand = 100 kg, Reserved = 20 kg, Available = 80 kg.</div>
+    </div>
+  </div>
+
+  <!-- PROCUREMENT -->
+  <div class="tab-pane fade" id="mod-procurement" role="tabpanel" data-module="Procurement">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-file-invoice"></i> Purchase Order (PO)</div>
+      <div class="dict-term-desc">A document sent to a supplier requesting items. Contains line items with quantities and prices. Starts as DRAFT, then can be POSTED.</div>
+      <div class="dict-term-example"><strong>Example:</strong> PO-2026-001 to ABC Flour Mills for 500 kg flour at 50.00/kg and 200 kg sugar at 45.00/kg.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-clipboard-check"></i> Goods Receipt Note (GRN)</div>
+      <div class="dict-term-desc">A document confirming that ordered items have been physically received at a warehouse location. Posting a GRN increases stock balances.</div>
+      <div class="dict-term-example"><strong>Example:</strong> GRN-2026-001 receives 500 kg flour into WH-MAIN/A-01. After posting, stock balance increases by 500.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-edit"></i> DRAFT Status</div>
+      <div class="dict-term-desc">The initial state of a document (PO, GRN, SO, etc.) that can still be edited. No stock movements occur until the document is posted.</div>
+      <div class="dict-term-example"><strong>Example:</strong> A DRAFT GRN can have lines added or removed. Once posted, it becomes final and stock is updated.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-check-circle"></i> POSTED Status</div>
+      <div class="dict-term-desc">A finalized document that has been confirmed. Posting triggers stock movements (increases or decreases). Posted documents cannot be edited, only cancelled.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Posting GRN-2026-001 creates RECEIVE stock moves and adds quantities to the warehouse.</div>
+    </div>
+  </div>
+
+  <!-- SALES -->
+  <div class="tab-pane fade" id="mod-sales" role="tabpanel" data-module="Sales">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-file-alt"></i> Sales Order (SO)</div>
+      <div class="dict-term-desc">A document recording a customer's order for products. Contains line items with quantities and prices. Linked to a customer and optionally a sales channel.</div>
+      <div class="dict-term-example"><strong>Example:</strong> SO-2026-001 from Maria's Cafe for 10 Chocolate Cakes at 350.00 each.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-shipping-fast"></i> Delivery Note</div>
+      <div class="dict-term-desc">A document confirming that sold items have been shipped/delivered from a warehouse. Posting a Delivery Note decreases stock balances.</div>
+      <div class="dict-term-example"><strong>Example:</strong> DN-2026-001 delivers 10 Chocolate Cakes from WH-MAIN/B-01 to Maria's Cafe.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-broadcast-tower"></i> Sales Channel</div>
+      <div class="dict-term-desc">The method or platform through which a sale is made. Used to track revenue by source.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Channels like "Walk-in", "Online Store", "GrabFood" help you see which platform generates the most revenue.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-file-invoice-dollar"></i> Invoice</div>
+      <div class="dict-term-desc">A billing document generated from a Sales Order or POS Sale. Contains line items, totals, and payment terms. Can be printed for the customer.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Invoice INV-2026-001 for Maria's Cafe totaling 3,500.00 for 10 cakes.</div>
+    </div>
+  </div>
+
+  <!-- INVENTORY -->
+  <div class="tab-pane fade" id="mod-inventory" role="tabpanel" data-module="Inventory">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-arrows-alt"></i> Stock Move</div>
+      <div class="dict-term-desc">A single record of inventory movement — items moving in or out of a location. Created automatically when documents are posted.</div>
+      <div class="dict-term-example"><strong>Example:</strong> A RECEIVE move of 500 kg flour into WH-MAIN/A-01 from posting a GRN.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-list-ul"></i> Move Type</div>
+      <div class="dict-term-desc">The reason for a stock movement: <strong>RECEIVE</strong> (goods in), <strong>DELIVER</strong> (goods out), <strong>TRANSFER</strong> (between locations), <strong>ADJUST</strong> (correction), <strong>DAMAGE</strong> (write-off), <strong>POS_SALE</strong> (point-of-sale deduction), <strong>RETURN_IN</strong> / <strong>RETURN_OUT</strong> (refunds).</div>
+      <div class="dict-term-example"><strong>Example:</strong> Posting a Delivery Note creates a DELIVER move; posting a GRN creates a RECEIVE move.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-exchange-alt"></i> Stock Transfer</div>
+      <div class="dict-term-desc">Moving items from one warehouse location to another. Both source and destination must be specified.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Transfer 50 kg flour from WH-MAIN/A-01 to WH-BRANCH/A-01.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-sliders-h"></i> Stock Adjustment</div>
+      <div class="dict-term-desc">A correction to inventory quantities when physical count differs from system records. Can increase or decrease stock.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Physical count shows 95 kg flour but system says 100 kg — adjust by -5 kg with reason "Cycle count variance".</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-exclamation-triangle"></i> Damaged Stock Report</div>
+      <div class="dict-term-desc">A document recording items that are damaged, expired, or unusable. Posting removes the quantity from available stock.</div>
+      <div class="dict-term-example"><strong>Example:</strong> 3 Chocolate Cakes damaged during delivery — report and write off from WH-MAIN/B-01.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-cubes"></i> On Hand Quantity</div>
+      <div class="dict-term-desc">The total physical quantity of an item at a location, including reserved stock.</div>
+      <div class="dict-term-example"><strong>Example:</strong> 100 kg flour on hand = 80 kg available + 20 kg reserved for pending orders.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-lock"></i> Reserved Quantity</div>
+      <div class="dict-term-desc">Stock that is allocated to pending sales orders or deliveries but not yet shipped.</div>
+      <div class="dict-term-example"><strong>Example:</strong> 20 kg flour reserved for SO-2026-005 that hasn't been delivered yet.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-check"></i> Available Quantity</div>
+      <div class="dict-term-desc">On Hand minus Reserved — the quantity actually free to sell or use.</div>
+      <div class="dict-term-example"><strong>Example:</strong> On Hand 100 - Reserved 20 = 80 kg available for new orders.</div>
+    </div>
+  </div>
+
+  <!-- POS -->
+  <div class="tab-pane fade" id="mod-pos" role="tabpanel" data-module="POS">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-cash-register"></i> POS Register</div>
+      <div class="dict-term-desc">A checkout station (physical or virtual) where sales transactions are processed. Each register is linked to a warehouse location for stock deduction.</div>
+      <div class="dict-term-example"><strong>Example:</strong> "Counter 1" register at the front of the store, linked to WH-MAIN/COUNTER location.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-clock"></i> POS Shift</div>
+      <div class="dict-term-desc">A work session on a register. A shift is opened with a starting cash amount and closed with a final count. All sales during the shift are tracked.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Open shift at 8:00 AM with 1,000.00 cash. Close at 5:00 PM — system calculates expected vs actual cash.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-shopping-basket"></i> POS Sale</div>
+      <div class="dict-term-desc">A real-time sales transaction at the register. Contains line items, payments, and is posted immediately to deduct stock.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Walk-in customer buys 2 Chocolate Cakes (700.00) and pays 700.00 cash.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-desktop"></i> POS Terminal</div>
+      <div class="dict-term-desc">The checkout screen where cashiers scan/add items, apply discounts, and process payments during an open shift.</div>
+      <div class="dict-term-example"><strong>Example:</strong> The terminal shows a product search, cart with running total, and payment buttons.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-calculator"></i> Cash Variance</div>
+      <div class="dict-term-desc">The difference between expected cash (opening + sales - refunds) and the actual cash counted when closing a shift.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Expected 5,200.00 but counted 5,150.00 — variance is -50.00 (short).</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-ban"></i> Void Sale</div>
+      <div class="dict-term-desc">Cancelling a posted POS sale. Creates reversal stock moves to return items to inventory.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Customer returns immediately — void the sale, stock is restored, and payment is reversed.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-undo"></i> POS Refund</div>
+      <div class="dict-term-desc">A return transaction for previously sold items. Creates RETURN_IN stock moves and records the refund amount.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Customer returns 1 defective cake — refund 350.00 and add 1 pc back to stock.</div>
+    </div>
+  </div>
+
+  <!-- PRICING -->
+  <div class="tab-pane fade" id="mod-pricing" role="tabpanel" data-module="Pricing">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-list-alt"></i> Price List</div>
+      <div class="dict-term-desc">A named set of custom prices for items. Allows different pricing for wholesale, retail, or special customers. Overrides the item's default selling price.</div>
+      <div class="dict-term-example"><strong>Example:</strong> "Wholesale Prices" list sets Chocolate Cake at 280.00 instead of the default 350.00.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-percent"></i> Discount Rule</div>
+      <div class="dict-term-desc">An automatic discount applied based on conditions like minimum quantity, date range, or customer type.</div>
+      <div class="dict-term-example"><strong>Example:</strong> "Buy 10+ cakes, get 10% off" — applies automatically at POS when quantity threshold is met.</div>
+    </div>
+  </div>
+
+  <!-- EXPENSES -->
+  <div class="tab-pane fade" id="mod-expenses" role="tabpanel" data-module="Expenses">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-receipt"></i> Expense</div>
+      <div class="dict-term-desc">A recorded business cost such as rent, utilities, or ingredient purchases. Each expense has an amount, date, and category.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Electricity bill of 5,000.00 on Jan 15, categorized under "Utilities".</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-folder-open"></i> Expense Category</div>
+      <div class="dict-term-desc">A classification for expenses. Categories can be marked as <strong>COGS</strong> (Cost of Goods Sold) or <strong>OPEX</strong> (Operating Expense) for financial reporting.</div>
+      <div class="dict-term-example"><strong>Example:</strong> "Ingredients" (COGS) vs "Rent" (OPEX) — COGS is subtracted from revenue to get gross profit.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-chart-pie"></i> COGS (Cost of Goods Sold)</div>
+      <div class="dict-term-desc">Direct costs attributable to producing the goods sold. Includes raw materials and direct labor. Subtracted from revenue to calculate gross profit.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Flour, sugar, and eggs used to make cakes are COGS expenses.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-briefcase"></i> OPEX (Operating Expenses)</div>
+      <div class="dict-term-desc">Indirect business costs not directly tied to production. Includes rent, utilities, salaries, and marketing.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Monthly rent of 25,000.00 and electricity of 5,000.00 are operating expenses.</div>
+    </div>
+  </div>
+
+  <!-- SUPPLIES -->
+  <div class="tab-pane fade" id="mod-supplies" role="tabpanel" data-module="Supplies">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-box"></i> Supply Item</div>
+      <div class="dict-term-desc">Non-inventory consumables used in daily operations — not tracked as stock but monitored for usage and reordering.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Paper cups, napkins, cleaning supplies, printer paper.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-dolly"></i> Supply Movement</div>
+      <div class="dict-term-desc">A record of supply usage or restocking. Tracks when supplies are consumed or replenished.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Used 200 paper cups today (OUT movement); received 1,000 cups from supplier (IN movement).</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-th-large"></i> Supply Category</div>
+      <div class="dict-term-desc">A grouping for supply items to organize non-inventory consumables.</div>
+      <div class="dict-term-example"><strong>Example:</strong> "Packaging", "Cleaning", "Office Supplies" help categorize different supply types.</div>
+    </div>
+  </div>
+
+  <!-- QR CODES -->
+  <div class="tab-pane fade" id="mod-qr" role="tabpanel" data-module="QR Codes">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-qrcode"></i> QR Tag</div>
+      <div class="dict-term-desc">A QR code label linked to an item. Scanning it shows item details, stock levels, and location information.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Print a QR tag for "Chocolate Cake" and stick it on the shelf — scan to see current stock across all locations.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-camera"></i> QR Scan</div>
+      <div class="dict-term-desc">Using a camera or scanner to read a QR tag and instantly look up item information and availability.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Scan a QR code on a box to see: Item "Flour 1kg", On Hand: 100, Location: WH-MAIN/A-01.</div>
+    </div>
+  </div>
+
+  <!-- REPORTS -->
+  <div class="tab-pane fade" id="mod-reports" role="tabpanel" data-module="Reports">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-dollar-sign"></i> Revenue</div>
+      <div class="dict-term-desc">Total income from POS sales and sales orders for a given period. Displayed on the dashboard and sales report.</div>
+      <div class="dict-term-example"><strong>Example:</strong> January revenue of 150,000.00 from 200 POS transactions.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-chart-line"></i> Gross Profit</div>
+      <div class="dict-term-desc">Revenue minus Cost of Goods Sold (COGS). Shows how much you earn after direct production costs.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Revenue 150,000 - COGS 90,000 = Gross Profit 60,000 (40% margin).</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-coins"></i> Net Profit</div>
+      <div class="dict-term-desc">Gross Profit minus all Operating Expenses. The bottom line — positive means profitable, negative means loss.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Gross Profit 60,000 - OPEX 35,000 = Net Profit 25,000.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-percentage"></i> Gross Margin</div>
+      <div class="dict-term-desc">Gross Profit as a percentage of Revenue. Indicates pricing efficiency.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Gross Profit 60,000 / Revenue 150,000 = 40% gross margin.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-warehouse"></i> Inventory Valuation</div>
+      <div class="dict-term-desc">The total monetary value of all stock on hand, calculated as cost price multiplied by quantity for each item across all locations.</div>
+      <div class="dict-term-example"><strong>Example:</strong> 100 kg flour at 50.00/kg + 50 cakes at 120.00/cake = Total valuation 11,000.00.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-file-invoice"></i> Financial Statement (P&amp;L)</div>
+      <div class="dict-term-desc">Profit and Loss statement showing Revenue, COGS, Gross Profit, Operating Expenses, and Net Profit for a period.</div>
+      <div class="dict-term-example"><strong>Example:</strong> January P&L: Revenue 150K, COGS 90K, Gross Profit 60K, OPEX 35K, Net Profit 25K.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-exclamation-circle"></i> Low Stock Alert</div>
+      <div class="dict-term-desc">A warning that an item's on-hand quantity has fallen to or below its reorder point.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Flour has 8 kg on hand but reorder point is 10 — appears in the Low Stock report.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-calendar-alt"></i> Fiscal Year</div>
+      <div class="dict-term-desc">The 12-month accounting period used for financial reporting. The start month is configured in Settings.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Fiscal year starting January means Jan 1 – Dec 31 is one reporting year.</div>
+    </div>
+  </div>
+
+  <!-- GENERAL -->
+  <div class="tab-pane fade" id="mod-general" role="tabpanel" data-module="General">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-building"></i> Business Profile</div>
+      <div class="dict-term-desc">Your company's core information: name, address, contact details, logo, currency, and fiscal year settings.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Business name "Sweet Bakes PH", currency PHP, fiscal year starts January.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-bullseye"></i> Target Goal</div>
+      <div class="dict-term-desc">A business objective with a target value and deadline. Track progress toward revenue, sales count, or custom metrics.</div>
+      <div class="dict-term-example"><strong>Example:</strong> "Reach 500K monthly revenue by March 2026" — progress bar shows current vs target.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-file-excel"></i> Export to Excel</div>
+      <div class="dict-term-desc">Download the current table data as an Excel (.xlsx) file. Available on all list pages via the green Export button.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Click Export on the Items list to download all items with their codes, names, and statuses.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-file-pdf"></i> Export to PDF</div>
+      <div class="dict-term-desc">Print the current report page as a PDF using the browser's print dialog. Available on all report pages via the red PDF button.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Click PDF on the Sales Report to save a clean printable version without navigation elements.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(function(){
+  var $search = $('#dictSearch');
+  var $tabs = $('.dict-tabs .nav-link');
+  var $tabPanes = $('.tab-pane');
+  var $noResults = $('#dictNoResults');
+  var $count = $('#dictCount');
+  var allTerms = $('.dict-term');
+  var totalTerms = allTerms.length;
+
+  function updateCounts(options) {
+    var opts = options || {};
+    var useVisible = !!opts.visibleOnly;
+    $tabPanes.each(function(){
+      var terms = $(this).find('.dict-term');
+      var count = useVisible ? terms.filter(':visible').length : terms.length;
+      var tabId = $(this).attr('id');
+      $('[data-bs-target="#' + tabId + '"] .term-count').text(count);
+    });
+  }
+
+  $count.text(totalTerms + ' terms across ' + $tabPanes.length + ' modules');
+  updateCounts({ visibleOnly: false });
+
+  $search.on('input', function(){
+    var q = $(this).val().toLowerCase().trim();
+    if (!q) {
+      allTerms.show();
+      $tabPanes.show();
+      $tabs.show();
+      $noResults.hide();
+      $count.text(totalTerms + ' terms across ' + $tabPanes.length + ' modules');
+      updateCounts({ visibleOnly: false });
+      return;
+    }
+    var visibleCount = 0;
+    $tabPanes.each(function(){
+      var $pane = $(this);
+      var modName = ($pane.data('module') || '').toLowerCase();
+      var paneVisible = 0;
+      $pane.find('.dict-term').each(function(){
+        var $term = $(this);
+        var text = $term.text().toLowerCase();
+        if (text.indexOf(q) !== -1 || modName.indexOf(q) !== -1) {
+          $term.show();
+          paneVisible++;
+          visibleCount++;
+        } else {
+          $term.hide();
+        }
+      });
+      var tabId = $pane.attr('id');
+      var $tab = $('[data-bs-target="#' + tabId + '"]');
+      $tab.parent().toggle(paneVisible > 0);
+    });
+    $noResults.toggle(visibleCount === 0);
+    $count.text(visibleCount + ' of ' + totalTerms + ' terms');
+    updateCounts({ visibleOnly: true });
+  });
+});
+</script>
+{% endblock %}

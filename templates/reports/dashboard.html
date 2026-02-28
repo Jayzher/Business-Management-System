@@ -1,0 +1,55 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Reports{% endblock %}
+{% block page_title %}Reports{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Reports</li>{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-md-4 col-sm-6">
+    <div class="card card-outline card-info">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-boxes mr-1"></i> Stock On Hand</h3></div>
+      <div class="card-body">
+        <p class="text-muted">Current stock levels by item, location, and warehouse with valuation totals.</p>
+        <a href="{% url 'report_stock_on_hand' %}" class="btn btn-info btn-sm"><i class="fas fa-eye mr-1"></i>View Report</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4 col-sm-6">
+    <div class="card card-outline card-primary">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-exchange-alt mr-1"></i> Stock Movements</h3></div>
+      <div class="card-body">
+        <p class="text-muted">All posted stock movements with item, type, and date filters.</p>
+        <a href="{% url 'report_stock_movement' %}" class="btn btn-primary btn-sm"><i class="fas fa-eye mr-1"></i>View Report</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4 col-sm-6">
+    <div class="card card-outline card-warning">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-arrow-down mr-1"></i> Low Stock Alerts</h3></div>
+      <div class="card-body">
+        <p class="text-muted">Items whose total on-hand quantity is at or below the reorder point.</p>
+        <a href="{% url 'report_low_stock' %}" class="btn btn-warning btn-sm"><i class="fas fa-eye mr-1"></i>View Report</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4 col-sm-6">
+    <div class="card card-outline card-success">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-line mr-1"></i> Profit Margins</h3></div>
+      <div class="card-body">
+        <p class="text-muted">Revenue, COGS, profit, and margin % per item from POS sales.</p>
+        <a href="{% url 'report_profit_margin' %}" class="btn btn-success btn-sm"><i class="fas fa-eye mr-1"></i>View Report</a>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4 col-sm-6">
+    <div class="card card-outline card-secondary">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-warehouse mr-1"></i> Inventory Valuation</h3></div>
+      <div class="card-body">
+        <p class="text-muted">Total stock value at cost by warehouse and location.</p>
+        <a href="{% url 'report_inventory_valuation' %}" class="btn btn-secondary btn-sm"><i class="fas fa-eye mr-1"></i>View Report</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

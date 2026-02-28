@@ -1,0 +1,56 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}Invoices{% endblock %}
+{% block page_title %}Invoice Generator{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Invoices</li>{% endblock %}
+
+{% block content %}
+{% if invoice_summary %}
+<div class="row mb-3">
+  <div class="col-lg-3 col-md-6">
+    <div class="small-box bg-info">
+      <div class="inner"><h3>{{ invoice_summary.count }}</h3><p>Total Invoices</p></div>
+      <div class="icon"><i class="fas fa-file-invoice"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <div class="small-box bg-success">
+      <div class="inner"><h3>&#8369; {{ invoice_summary.total|floatformat:2|intcomma }}</h3><p>Total Billed</p></div>
+      <div class="icon"><i class="fas fa-peso-sign"></i></div>
+    </div>
+  </div>
+</div>
+{% endif %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-file-invoice mr-1"></i> Invoices</h3>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover table-striped text-nowrap wis-table">
+      <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th class="text-right">Total</th><th>Status</th><th>Source</th><th></th></tr></thead>
+      <tbody>
+        {% for inv in invoices %}
+        <tr>
+          <td><a href="{% url 'invoice_detail' inv.pk %}"><strong>INV-{{ inv.invoice_number }}</strong></a></td>
+          <td>{{ inv.date|date:"M d, Y" }}</td>
+          <td>{{ inv.customer_name|default:"Walk-in" }}</td>
+          <td class="text-right"><strong>&#8369; {{ inv.grand_total|floatformat:2|intcomma }}</strong></td>
+          <td>{% if inv.is_paid %}<span class="badge bg-success"><i class="fas fa-check-circle mr-1"></i>Paid</span>{% else %}<span class="badge bg-warning text-dark"><i class="fas fa-clock mr-1"></i>Unpaid</span>{% endif %}</td>
+          <td>
+            {% if inv.pos_sale %}<span class="badge bg-dark">POS #{{ inv.pos_sale.sale_no }}</span>
+            {% elif inv.sales_order %}<span class="badge bg-primary">SO #{{ inv.sales_order.document_number }}</span>
+            {% else %}<span class="text-muted">-</span>{% endif %}
+          </td>
+          <td>
+            <a href="{% url 'invoice_detail' inv.pk %}" class="btn btn-xs btn-info"><i class="fas fa-eye"></i></a>
+            <a href="{% url 'invoice_print' inv.pk %}" class="btn btn-xs btn-outline-primary" target="_blank"><i class="fas fa-print"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-3">No invoices yet. Generate one from a POS Sale or Sales Order.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "theme/base.html" %}
+
+{% block title %}{{ order.document_number }}{% endblock %}
+{% block page_title %}{{ order.document_number }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'sales_order_list' %}">Sales Orders</a></li>
+<li class="breadcrumb-item active">{{ order.document_number }}</li>
+{% endblock %}
+
+{% block content %}
+{% include "theme/partials/status_workflow.html" with status=order.status doc_type="SO" show_approved=True %}
+{% include "theme/partials/doc_actions.html" with obj=order edit_url_name="sales_order_edit" delete_url_name="sales_order_delete" approve_url_name="sales_order_approve" cancel_url_name="sales_order_cancel" print_url_name="sales_order_print" list_url_name="sales_order_list" %}
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-shopping-cart me-2 text-primary"></i>SO Details</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>SO #</th><td><strong>{{ order.document_number }}</strong></td></tr>
+          <tr><th>Status</th><td>
+            {% if order.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif order.status == 'APPROVED' %}<span class="badge bg-info">Approved</span>
+            {% elif order.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif order.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td></tr>
+          <tr><th>Customer</th><td>{{ order.customer.name }}</td></tr>
+          <tr><th>Warehouse</th><td>{{ order.warehouse.name }}</td></tr>
+          <tr><th>Order Date</th><td>{{ order.order_date|date:"M d, Y" }}</td></tr>
+          <tr><th>Delivery Date</th><td>{{ order.delivery_date|date:"M d, Y"|default:"-" }}</td></tr>
+          <tr><th>Fulfillment</th><td>{{ order.get_fulfillment_type_display }}</td></tr>
+          {% if order.currency != 'PHP' %}<tr><th>Currency</th><td>{{ order.currency }} (Rate: {{ order.exchange_rate }})</td></tr>{% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle me-2 text-secondary"></i>Additional Info</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Shipping Address</th><td>{{ order.shipping_address|default:"-" }}</td></tr>
+          <tr><th>Created By</th><td>{{ order.created_by.get_full_name|default:order.created_by.username }}</td></tr>
+          <tr><th>Created At</th><td>{{ order.created_at|date:"M d, Y H:i" }}</td></tr>
+          <tr><th>Approved By</th><td>{{ order.approved_by.get_full_name|default:"-" }}</td></tr>
+          <tr><th>Approved At</th><td>{{ order.approved_at|date:"M d, Y H:i"|default:"-" }}</td></tr>
+          <tr><th>Notes</th><td>{{ order.notes|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-list me-2 text-success"></i>Order Lines</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover detail-lines-table mb-0">
+      <thead>
+        <tr><th>Item</th><th class="text-end">Qty Ordered</th><th class="text-end">Qty Delivered</th><th class="text-end">Qty Reserved</th><th class="text-end">Remaining</th><th>Unit</th><th class="text-end">Unit Price</th><th class="text-end">Total</th></tr>
+      </thead>
+      <tbody>
+        {% for line in order.lines.all %}
+        <tr>
+          <td>{% include "theme/partials/item_cell.html" with item=line.item %}</td>
+          <td class="text-end">{{ line.qty_ordered }}</td>
+          <td class="text-end">{{ line.qty_delivered }}</td>
+          <td class="text-end">{{ line.qty_reserved }}</td>
+          <td class="text-end">{{ line.qty_remaining }}</td>
+          <td>{{ line.unit.abbreviation }}</td>
+          <td class="text-end">{{ line.unit_price|floatformat:2 }}</td>
+          <td class="text-end">{{ line.line_total|floatformat:2 }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

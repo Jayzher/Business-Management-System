@@ -1,0 +1,201 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Import Summary{% endblock %}
+{% block page_title %}Import Summary{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header {% if result.errors %}bg-warning{% else %}bg-success{% endif %}">
+    <h3 class="card-title text-white">
+      <i class="fas {% if result.errors %}fa-exclamation-triangle{% else %}fa-check-circle{% endif %} mr-2"></i>
+      Import Summary
+    </h3>
+  </div>
+  <div class="card-body">
+    <!-- Summary Statistics -->
+    <div class="row mb-4">
+      <div class="col-md-3">
+        <div class="info-box bg-success">
+          <span class="info-box-icon"><i class="fas fa-plus-circle"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Created</span>
+            <span class="info-box-number">{{ result.created }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="info-box bg-info">
+          <span class="info-box-icon"><i class="fas fa-edit"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Updated</span>
+            <span class="info-box-number">{{ result.updated }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="info-box bg-warning">
+          <span class="info-box-icon"><i class="fas fa-exclamation-circle"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Warnings</span>
+            <span class="info-box-number">{{ result.warnings|length }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="info-box bg-danger">
+          <span class="info-box-icon"><i class="fas fa-times-circle"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Errors</span>
+            <span class="info-box-number">{{ result.errors|length }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Success Message -->
+    {% if result.success_count > 0 %}
+    <div class="alert alert-success d-flex align-items-center mb-3">
+      <i class="fas fa-check-circle fa-2x mr-3"></i>
+      <div>
+        <strong>Successfully processed {{ result.success_count }} record{{ result.success_count|pluralize }}!</strong>
+        <br>
+        <small>{{ result.created }} created, {{ result.updated }} updated</small>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Errors Section -->
+    {% if result.errors %}
+    <div class="card card-danger card-outline mb-3">
+      <div class="card-header">
+        <h5 class="card-title mb-0">
+          <i class="fas fa-times-circle mr-1"></i>
+          Failed Imports ({{ result.errors|length }})
+        </h5>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 380px; overflow-y: auto;">
+          <table class="table table-sm mb-0">
+            <thead class="bg-danger text-white" style="position: sticky; top: 0; z-index: 10;">
+              <tr>
+                <th style="width: 70px;" class="text-center">Row #</th>
+                <th>Error Message</th>
+                <th>Failed Row Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for error in result.errors %}
+              <tr class="table-danger">
+                <td class="text-center align-middle">
+                  <span class="badge badge-danger">{{ error.row_num }}</span>
+                </td>
+                <td class="align-middle">
+                  <i class="fas fa-exclamation-circle text-danger mr-1"></i>
+                  <strong class="text-danger">{{ error.message }}</strong>
+                </td>
+                <td class="align-middle">
+                  {% if error.row_data %}
+                  <div class="d-flex flex-wrap" style="gap: 4px; max-width: 400px;">
+                    {% for key, val in error.row_data.items %}
+                    {% if val %}
+                    <span class="badge badge-light border text-dark" title="{{ key }}">
+                      <span class="text-muted" style="font-size:0.65rem;">{{ key|truncatechars:20 }}:</span>
+                      {{ val|truncatechars:25 }}
+                    </span>
+                    {% endif %}
+                    {% endfor %}
+                  </div>
+                  {% else %}
+                  <span class="text-muted small">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card-footer bg-light">
+        <small class="text-muted">
+          <i class="fas fa-info-circle mr-1"></i>
+          Review the errors above, fix the highlighted rows in your CSV file, and try importing again.
+        </small>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Warnings Section -->
+    {% if result.warnings %}
+    <div class="card card-warning card-outline mb-3">
+      <div class="card-header">
+        <h5 class="card-title mb-0">
+          <i class="fas fa-exclamation-triangle mr-1"></i> 
+          Warnings ({{ result.warnings|length }})
+        </h5>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+          <table class="table table-sm table-striped mb-0">
+            <thead class="bg-warning" style="position: sticky; top: 0; z-index: 10;">
+              <tr>
+                <th style="width: 80px;">Row</th>
+                <th>Warning Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for warning in result.warnings %}
+              <tr>
+                <td class="text-center"><span class="badge badge-warning">{{ forloop.counter }}</span></td>
+                <td><small class="text-warning">{{ warning }}</small></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- No Issues Message -->
+    {% if not result.errors and not result.warnings and result.success_count > 0 %}
+    <div class="alert alert-info mb-0">
+      <i class="fas fa-info-circle mr-2"></i>
+      All records were imported successfully with no errors or warnings.
+    </div>
+    {% endif %}
+
+    <!-- Complete Failure Message -->
+    {% if result.success_count == 0 and result.errors %}
+    <div class="alert alert-danger mb-0">
+      <i class="fas fa-exclamation-triangle mr-2"></i>
+      <strong>Import failed!</strong> No records were imported. Please review the errors above and correct your CSV file.
+    </div>
+    {% endif %}
+  </div>
+  <div class="card-footer d-flex justify-content-end gap-2">
+    <a href="{{ cancel_url }}" class="btn btn-primary">
+      <i class="fas fa-check mr-1"></i> Done
+    </a>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function() {
+    const modalEl = document.getElementById('wis-modal');
+    if (!modalEl) return;
+    // Ensure modal is visible and not aria-hidden when summary loads
+    modalEl.removeAttribute('aria-hidden');
+    modalEl.classList.add('show');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.show();
+    // Move focus to the summary card to avoid focus on hidden elements
+    const card = modalEl.querySelector('#wis-modal-body .card');
+    if (card) {
+      card.setAttribute('tabindex', '-1');
+      card.focus();
+    }
+  })();
+</script>
+{% endblock %}

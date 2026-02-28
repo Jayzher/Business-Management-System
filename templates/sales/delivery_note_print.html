@@ -1,0 +1,43 @@
+{% extends "theme/partials/doc_print.html" %}
+{% load humanize %}
+
+{% block doc_header_info %}
+<p>Date: {{ doc.delivery_date|date:"F d, Y" }}</p>
+{% if doc.sales_order %}<p>SO: {{ doc.sales_order.document_number }}</p>{% endif %}
+{% endblock %}
+
+{% block info_boxes %}
+<div class="info-box">
+  <strong>Customer</strong>
+  {{ doc.customer.name }}<br>
+  {% if doc.customer.contact_person %}{{ doc.customer.contact_person }}<br>{% endif %}
+  {% if doc.customer.phone %}{{ doc.customer.phone }}{% endif %}
+</div>
+<div class="info-box" style="text-align:right;">
+  <strong>Delivery Info</strong>
+  Warehouse: {{ doc.warehouse.name }}<br>
+  {% if doc.driver_name %}Driver: {{ doc.driver_name }}<br>{% endif %}
+  {% if doc.vehicle_number %}Vehicle: {{ doc.vehicle_number }}<br>{% endif %}
+  {% if doc.shipping_address %}<br><strong style="display:block;margin-bottom:4px;color:#555;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Ship To</strong>{{ doc.shipping_address }}{% endif %}
+</div>
+{% endblock %}
+
+{% block doc_table %}
+<table>
+  <thead>
+    <tr><th>#</th><th>Item Code</th><th>Description</th><th>Location</th><th class="text-right">Qty</th><th>Unit</th></tr>
+  </thead>
+  <tbody>
+    {% for line in doc.lines.all %}
+    <tr>
+      <td>{{ forloop.counter }}</td>
+      <td>{{ line.item.code }}</td>
+      <td>{{ line.item.name }}</td>
+      <td>{{ line.location }}</td>
+      <td class="text-right">{{ line.qty|floatformat:2 }}</td>
+      <td>{{ line.unit.abbreviation }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

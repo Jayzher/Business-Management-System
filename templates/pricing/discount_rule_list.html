@@ -1,0 +1,62 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Discount Rules{% endblock %}
+{% block page_title %}Discount Rules{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'price_list_list' %}">Pricing</a></li>
+<li class="breadcrumb-item active">Discount Rules</li>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-percentage mr-1"></i> Discount Rules</h3>
+    <div class="card-tools">
+      <a href="#" data-modal-url="{% url 'discount_rule_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Discount Rule</a>
+    </div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Value</th>
+          <th>Scope</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in rules %}
+        <tr>
+          <td>{{ rule.name }}</td>
+          <td>
+            {% if rule.discount_type == 'PERCENT' %}
+              <span class="badge bg-info">Percentage</span>
+            {% else %}
+              <span class="badge bg-secondary">Fixed Amount</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if rule.discount_type == 'PERCENT' %}{{ rule.value }}%{% else %}{{ rule.value|floatformat:2 }}{% endif %}
+          </td>
+          <td>
+            {% if rule.scope == 'ITEM' %}
+              <span class="badge bg-primary">Per Item</span>
+            {% else %}
+              <span class="badge bg-warning text-dark">Per Order</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="#" data-modal-url="{% url 'discount_rule_edit' rule.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'discount_rule_delete' rule.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-center text-muted">No discount rules yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

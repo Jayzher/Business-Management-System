@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: inventory-system
+    env: python
+    buildCommand: "./build.sh"
+    startCommand: "gunicorn inventory_system.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: inventory_system.settings
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: DATABASE_URL
+        sync: false
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: "https://inventory-system.onrender.com"

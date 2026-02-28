@@ -1,0 +1,52 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Locations{% endblock %}
+{% block page_title %}Locations{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'warehouse_list' %}">Warehouses</a></li>
+<li class="breadcrumb-item active">Locations</li>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-map-marker-alt mr-1"></i> Locations</h3>
+    <div class="card-tools">
+      <a href="#" data-modal-url="{% url 'location_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Location</a>
+    </div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Name</th>
+          <th>Warehouse</th>
+          <th>Parent</th>
+          <th>Type</th>
+          <th>Pickable</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for loc in locations %}
+        <tr>
+          <td>{{ loc.code }}</td>
+          <td>{{ loc.name }}</td>
+          <td>{{ loc.warehouse.code }} - {{ loc.warehouse.name }}</td>
+          <td>{{ loc.parent.code|default:"-" }}</td>
+          <td>{{ loc.get_location_type_display }}</td>
+          <td>{% if loc.is_pickable %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
+          <td>
+            <a href="#" data-modal-url="{% url 'location_edit' loc.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'location_delete' loc.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted">No locations found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Adjustments{% endblock %}
+{% block page_title %}Stock Adjustments{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Adjustments</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Adjustment List</h3>
+    <div class="card-tools"><a href="#" data-modal-url="{% url 'adjustment_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Adjustment</a></div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr><th>Adj #</th><th>Warehouse</th><th>Reason</th><th>Status</th><th>Created By</th><th>Created At</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for adj in adjustments %}
+        <tr>
+          <td>{{ adj.document_number }}</td>
+          <td>{{ adj.warehouse.code }} - {{ adj.warehouse.name }}</td>
+          <td>{{ adj.reason|default:"-" }}</td>
+          <td>
+            {% if adj.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif adj.status == 'APPROVED' %}<span class="badge bg-info">Approved</span>
+            {% elif adj.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif adj.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td>
+          <td>{{ adj.created_by.get_full_name|default:adj.created_by.username }}</td>
+          <td>{{ adj.created_at|date:"M d, Y H:i" }}</td>
+          <td>
+            <a href="{% url 'adjustment_detail' adj.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
+            {% if adj.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'adjustment_edit' adj.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>{% endif %}
+            <a href="#" data-modal-url="{% url 'adjustment_delete' adj.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted">No adjustments.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

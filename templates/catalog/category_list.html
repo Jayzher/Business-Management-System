@@ -1,0 +1,38 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Categories{% endblock %}
+{% block page_title %}Categories{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Categories</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Category List</h3>
+    <div class="card-tools">
+      <a href="#" data-modal-url="{% url 'category_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Category</a>
+    </div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr><th>Code</th><th>Name</th><th>Parent</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for cat in categories %}
+        <tr>
+          <td>{{ cat.code }}</td>
+          <td>{{ cat.name }}</td>
+          <td>{{ cat.parent.name|default:"-" }}</td>
+          <td>
+            <a href="#" data-modal-url="{% url 'category_edit' cat.pk %}" class="btn btn-xs btn-warning"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'category_delete' cat.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="text-center text-muted">No categories.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

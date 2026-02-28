@@ -1,0 +1,38 @@
+{% extends "theme/base.html" %}
+
+{% block title %}QR Tags{% endblock %}
+{% block page_title %}QR Code Tags{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">QR Tags</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">QR Tag List</h3>
+    <div class="card-tools">
+      <a href="{% url 'qr_print' %}" class="btn btn-sm btn-primary"><i class="fas fa-print"></i> Print Labels</a>
+    </div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr><th>QR UID</th><th>Item</th><th>Location</th><th>Batch</th><th>Serial</th><th>Printed</th><th>Created</th></tr>
+      </thead>
+      <tbody>
+        {% for tag in tags %}
+        <tr>
+          <td><code>{{ tag.qr_uid|truncatechars:16 }}</code></td>
+          <td>{{ tag.item.code }} - {{ tag.item.name }}</td>
+          <td>{{ tag.location.code|default:"-" }}</td>
+          <td>{{ tag.batch_number|default:"-" }}</td>
+          <td>{{ tag.serial_number|default:"-" }}</td>
+          <td>{% if tag.printed %}<i class="fas fa-check text-success"></i>{% else %}<i class="fas fa-times text-muted"></i>{% endif %}</td>
+          <td>{{ tag.created_at|date:"M d, Y H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted">No QR tags.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

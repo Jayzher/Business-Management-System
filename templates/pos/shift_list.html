@@ -1,0 +1,54 @@
+{% extends "theme/base.html" %}
+
+{% block title %}POS Shifts{% endblock %}
+{% block page_title %}POS Shifts{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item active">Shifts</li>
+{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="#" data-modal-url="{% url 'pos_shift_open' %}" class="btn btn-primary"><i class="fas fa-play mr-1"></i> Open New Shift</a>
+</div>
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table table-hover table-striped wis-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Register</th>
+          <th>Opened By</th>
+          <th>Opened At</th>
+          <th>Status</th>
+          <th>Cash Sales</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for shift in shifts %}
+        <tr>
+          <td>{{ shift.pk }}</td>
+          <td>{{ shift.register.name }}</td>
+          <td>{{ shift.opened_by }}</td>
+          <td>{{ shift.opened_at|date:"M d, Y H:i" }}</td>
+          <td>
+            {% if shift.status == 'OPEN' %}<span class="badge bg-success">Open</span>
+            {% else %}<span class="badge bg-secondary">Closed</span>{% endif %}
+          </td>
+          <td>{{ shift.cash_sales_total }}</td>
+          <td>
+            {% if shift.status == 'OPEN' %}
+            <a href="{% url 'pos_terminal' shift_id=shift.pk %}" class="btn btn-sm btn-primary"><i class="fas fa-cash-register"></i> Terminal</a>
+            <a href="{% url 'pos_shift_close' pk=shift.pk %}" class="btn btn-sm btn-warning"><i class="fas fa-lock"></i> Close</a>
+            {% endif %}
+            <a href="{% url 'pos_shift_summary' pk=shift.pk %}" class="btn btn-sm btn-info"><i class="fas fa-chart-bar"></i> Summary</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted">No shifts found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

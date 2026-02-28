@@ -1,0 +1,40 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Customers{% endblock %}
+{% block page_title %}Customers{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Customers</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Customer List</h3>
+    <div class="card-tools"><a href="#" data-modal-url="{% url 'customer_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Customer</a></div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr><th>Code</th><th>Name</th><th>Contact</th><th>Email</th><th>Phone</th><th>City</th><th>Status</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for c in customers %}
+        <tr>
+          <td>{{ c.code }}</td>
+          <td>{{ c.name }}</td>
+          <td>{{ c.contact_person|default:"-" }}</td>
+          <td>{{ c.email|default:"-" }}</td>
+          <td>{{ c.phone|default:"-" }}</td>
+          <td>{{ c.city|default:"-" }}</td>
+          <td>{% if c.is_active %}<span class="badge bg-success">Active</span>{% else %}<span class="badge bg-secondary">Inactive</span>{% endif %}</td>
+          <td>
+            <a href="#" data-modal-url="{% url 'customer_edit' c.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'customer_delete' c.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="text-center text-muted">No customers.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

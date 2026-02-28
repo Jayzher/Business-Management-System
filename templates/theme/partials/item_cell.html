@@ -1,0 +1,15 @@
+{% comment %}
+Reusable item cell with thumbnail for detail line tables.
+Required context: item (catalog.Item instance)
+{% endcomment %}
+<div class="item-cell">
+  {% if item.image %}
+    <img src="{{ item.image.url }}" alt="{{ item.name }}" class="item-thumb" loading="lazy">
+  {% else %}
+    <span class="item-thumb-placeholder"><i class="fas fa-box"></i></span>
+  {% endif %}
+  <div class="item-cell-info">
+    <div class="item-cell-name">{{ item.name }}</div>
+    <div class="item-cell-code">{{ item.code }}</div>
+  </div>
+</div>
