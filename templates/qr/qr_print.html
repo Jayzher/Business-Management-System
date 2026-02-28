@@ -1,0 +1,50 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Print QR Labels{% endblock %}
+{% block page_title %}Print QR Labels{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Print Labels</li>{% endblock %}
+
+{% block extra_css %}
+<style>
+  @media print {
+    .main-header, .main-sidebar, .main-footer, .content-header, .no-print { display: none !important; }
+    .content-wrapper { margin-left: 0 !important; padding: 0 !important; }
+    .qr-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+    .qr-label { page-break-inside: avoid; border: 1px dashed #ccc; padding: 8px; text-align: center; width: 180px; }
+  }
+  .qr-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+  .qr-label { border: 1px solid #dee2e6; border-radius: 4px; padding: 10px; text-align: center; width: 190px; }
+  .qr-label img { max-width: 150px; height: auto; }
+  .qr-label .qr-info { font-size: 0.75rem; margin-top: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="no-print mb-3">
+  <button onclick="window.print()" class="btn btn-primary"><i class="fas fa-print mr-1"></i> Print Labels</button>
+  <a href="{% url 'qr_list' %}" class="btn btn-secondary"><i class="fas fa-arrow-left mr-1"></i> Back to QR Tags</a>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <div class="qr-grid">
+      {% for tag in tags %}
+      <div class="qr-label">
+        {% if tag.image %}
+        <img src="{{ tag.image.url }}" alt="QR {{ tag.qr_uid }}">
+        {% else %}
+        <div class="p-3 bg-light"><i class="fas fa-qrcode fa-3x text-muted"></i></div>
+        {% endif %}
+        <div class="qr-info">
+          <strong>{{ tag.item.code }}</strong><br>
+          {{ tag.item.name|truncatechars:25 }}<br>
+          <small class="text-muted">{{ tag.qr_uid|truncatechars:16 }}</small>
+        </div>
+      </div>
+      {% empty %}
+      <p class="text-muted">No QR tags to print.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

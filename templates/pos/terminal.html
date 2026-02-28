@@ -1,0 +1,563 @@
+{% extends "theme/base.html" %}
+
+{% block title %}POS Terminal — {{ register.name }}{% endblock %}
+{% block page_title %}POS Terminal — {{ register.name }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'pos_shift_list' %}">Shifts</a></li>
+<li class="breadcrumb-item active">Terminal</li>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  #product-search { font-size: 1.2rem; padding: .6rem 1rem; }
+  #cart-table tbody tr { cursor: default; }
+  .cart-qty { width: 70px; text-align: center; }
+  .totals-row th, .totals-row td { font-size: 1.1rem; }
+  .grand-total { font-size: 1.4rem; font-weight: 700; }
+  .toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 9999; }
+  .kbd-hint { font-size: .7rem; color: #adb5bd; }
+  .cart-flash { animation: flash .4s; }
+  @keyframes flash { 0%{background:#d4edda;} 100%{background:transparent;} }
+  /* Search dropdown below input */
+  .search-wrapper { position: relative; }
+  #search-dropdown { position: absolute; top: 100%; left: 0; right: 0; z-index: 1050; max-height: 320px; overflow-y: auto; background: #fff; border: 1px solid #dee2e6; border-top: none; border-radius: 0 0 .5rem .5rem; box-shadow: 0 6px 16px rgba(0,0,0,.15); display: none; }
+  #search-dropdown .search-item { display: flex; align-items: center; padding: .55rem .85rem; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background .1s; font-size: .92rem; }
+  #search-dropdown .search-item:last-child { border-bottom: none; }
+  #search-dropdown .search-item:hover, #search-dropdown .search-item.active { background: #007bff; color: #fff; }
+  #search-dropdown .search-item .item-price { margin-left: auto; font-weight: 600; font-size: .85rem; }
+  #search-dropdown .search-item.active .item-price { color: #fff; }
+  #search-dropdown .search-empty { padding: .75rem 1rem; color: #adb5bd; text-align: center; }
+  /* Qty control */
+  .qty-control { display: inline-flex; align-items: center; gap: 2px; }
+  .qty-control .btn { padding: 0 .4rem; line-height: 1.4; font-size: .85rem; }
+  .qty-control .qty-val { min-width: 36px; text-align: center; font-weight: 600; font-size: .95rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<div class="row">
+  <!-- Left: Product search + Cart -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header">
+        <div class="row align-items-center">
+          <div class="col search-wrapper">
+            <input type="text" id="product-search" class="form-control" placeholder="Scan barcode or search item... (F2)" autofocus autocomplete="off">
+            <div id="search-dropdown"></div>
+          </div>
+          <div class="col-auto">
+            <span class="badge bg-info" id="sale-no-badge">{{ sale.sale_no|default:"No active sale" }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="card-body table-responsive p-0" style="min-height:200px;">
+        <table class="table table-hover mb-0" id="cart-table">
+          <thead class="thead-light">
+            <tr>
+              <th>Item</th>
+              <th>Code</th>
+              <th style="width:130px" class="text-center">Qty</th>
+              <th>Unit Price</th>
+              <th>Total</th>
+              <th style="width:50px"></th>
+            </tr>
+          </thead>
+          <tbody id="cart-body">
+            {% if sale %}
+            {% for line in sale.lines.all %}
+            <tr data-line-id="{{ line.pk }}" data-item-id="{{ line.item.pk }}">
+              <td>{{ line.item.name }}</td>
+              <td><code>{{ line.item.code }}</code></td>
+              <td class="text-center">
+                <div class="qty-control">
+                  <button class="btn btn-sm btn-outline-secondary btn-qty-minus" data-line-id="{{ line.pk }}"><i class="fas fa-minus"></i></button>
+                  <span class="qty-val">{{ line.qty|floatformat:0 }}</span>
+                  <button class="btn btn-sm btn-outline-secondary btn-qty-plus" data-line-id="{{ line.pk }}"><i class="fas fa-plus"></i></button>
+                </div>
+              </td>
+              <td class="unit-price">{{ line.unit_price }}</td>
+              <td class="line-total">{{ line.line_total }}</td>
+              <td><button class="btn btn-sm btn-outline-danger btn-remove-line" data-line-id="{{ line.pk }}"><i class="fas fa-times"></i></button></td>
+            </tr>
+            {% endfor %}
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer">
+        <table class="table table-borderless mb-0">
+          <tr class="totals-row"><th>Subtotal</th><td class="text-end" id="subtotal">{{ sale.subtotal|default:"0.00" }}</td></tr>
+          <tr class="totals-row"><th>Discount</th><td class="text-end text-danger" id="discount">{{ sale.discount_total|default:"0.00" }}</td></tr>
+          <tr class="totals-row"><th>Tax</th><td class="text-end" id="tax">{{ sale.tax_total|default:"0.00" }}</td></tr>
+          <tr><th class="grand-total">TOTAL</th><td class="text-end grand-total" id="grand-total">{{ sale.grand_total|default:"0.00" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Actions -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-bolt mr-1"></i> Quick Actions</h3></div>
+      <div class="card-body">
+        <button class="btn btn-success btn-lg btn-block mb-3 w-100" id="btn-checkout" {% if not sale %}disabled{% endif %}>
+          <i class="fas fa-check-circle mr-1"></i> Checkout <span class="kbd-hint">(F8)</span>
+        </button>
+        <button class="btn btn-primary btn-block mb-2 w-100" id="btn-new-sale">
+          <i class="fas fa-plus mr-1"></i> New Sale <span class="kbd-hint">(F4)</span>
+        </button>
+        <a href="{% url 'pos_shift_close' pk=shift.pk %}" class="btn btn-warning btn-block mb-2 w-100">
+          <i class="fas fa-lock mr-1"></i> Close Shift
+        </a>
+        <a href="{% url 'pos_receipt_list' %}" class="btn btn-info btn-block mb-2 w-100">
+          <i class="fas fa-receipt mr-1"></i> Receipts
+        </a>
+        <a href="{% url 'pos_shift_summary' pk=shift.pk %}" class="btn btn-secondary btn-block w-100">
+          <i class="fas fa-chart-bar mr-1"></i> Shift Summary
+        </a>
+      </div>
+    </div>
+
+    <!-- Keyboard shortcuts guide -->
+    <div class="card card-outline card-secondary">
+      <div class="card-header py-1">
+        <h3 class="card-title" style="font-size:.85rem;"><i class="fas fa-keyboard mr-1"></i> Keyboard Shortcuts</h3>
+        <div class="card-tools"><button type="button" class="btn btn-tool btn-sm" data-card-widget="collapse"><i class="fas fa-minus"></i></button></div>
+      </div>
+      <div class="card-body p-2" style="font-size:.8rem;">
+        <kbd>F2</kbd> Focus search &nbsp;
+        <kbd>F4</kbd> New sale &nbsp;
+        <kbd>F8</kbd> Checkout &nbsp;
+        <kbd>Esc</kbd> Clear search &nbsp;
+        <kbd>&#8593;&#8595;</kbd> Navigate results &nbsp;
+        <kbd>Enter</kbd> Add to cart
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Payment Modal -->
+<div class="modal fade" id="paymentModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="fas fa-credit-card mr-1"></i> Payment</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-bold">Amount Due</label>
+          <input type="text" class="form-control form-control-lg text-center fw-bold" id="modal-amount-due" readonly>
+        </div>
+        <div id="payment-rows">
+          <div class="row mb-2 payment-row">
+            <div class="col-5">
+              <select class="form-control payment-method">
+                <option value="CASH">Cash</option>
+                <option value="GCASH">GCash</option>
+                <option value="BANK">Bank Transfer</option>
+                <option value="CARD">Card</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+            <div class="col-4">
+              <input type="number" class="form-control payment-amount" step="0.01" placeholder="Amount">
+            </div>
+            <div class="col-3">
+              <input type="text" class="form-control payment-ref" placeholder="Ref #">
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-outline-primary mt-1" id="btn-add-payment-row"><i class="fas fa-plus"></i> Split Payment</button>
+        <hr>
+        <div class="row mb-1">
+          <div class="col-6"><strong>Total Tendered:</strong></div>
+          <div class="col-6 text-end fw-bold" id="total-tendered">0.00</div>
+        </div>
+        <div class="row">
+          <div class="col-6"><strong>Change:</strong></div>
+          <div class="col-6 text-end fw-bold text-success" id="change-amount" style="font-size:1.2rem;">0.00</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel <kbd>Esc</kbd></button>
+        <button type="button" class="btn btn-success btn-lg" id="btn-confirm-payment"><i class="fas fa-check mr-1"></i> Confirm Payment <kbd class="bg-light text-dark">Enter</kbd></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Success Modal -->
+<div class="modal fade" id="successModal" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content text-center">
+      <div class="modal-body py-4">
+        <i class="fas fa-check-circle text-success fa-4x mb-3"></i>
+        <h4 id="success-sale-no"></h4>
+        <p class="mb-1">Change: <strong id="success-change" class="text-success"></strong></p>
+        <hr>
+        <button class="btn btn-primary" id="btn-success-next"><i class="fas fa-plus mr-1"></i> Next Sale <kbd>Enter</kbd></button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = '{{ csrf_token }}';
+const SHIFT_ID = {{ shift.pk }};
+let currentSaleId = {{ sale.pk|default:"null" }};
+let currentSaleNo = '{{ sale.sale_no|default:"" }}';
+let searchResultIndex = -1;
+
+// ── Toast helper ──
+function showToast(message, type) {
+  type = type || 'success';
+  const colors = {success:'bg-success',error:'bg-danger',info:'bg-info',warning:'bg-warning text-dark'};
+  const icons = {success:'fa-check-circle',error:'fa-exclamation-circle',info:'fa-info-circle',warning:'fa-exclamation-triangle'};
+  const html = `<div class="toast show ${colors[type]} text-white" role="alert" style="min-width:250px;">
+    <div class="toast-body d-flex align-items-center">
+      <i class="fas ${icons[type]} mr-2"></i> ${message}
+      <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="toast"></button>
+    </div></div>`;
+  const $t = $(html).appendTo('#toast-container');
+  setTimeout(function(){ $t.fadeOut(400, function(){ $(this).remove(); }); }, 3000);
+}
+
+// ── New Sale ──
+function startNewSale() {
+  $.post('{% url "pos_terminal_new_sale" shift_id=shift.pk %}', {csrfmiddlewaretoken: CSRF}, function(data) {
+    currentSaleId = data.sale_id;
+    currentSaleNo = data.sale_no;
+    $('#sale-no-badge').text(data.sale_no);
+    $('#cart-body').empty();
+    updateTotals('0.00','0.00','0.00','0.00');
+    $('#btn-checkout').prop('disabled', false);
+    $('#product-search').val('').focus();
+    showToast('New sale ' + data.sale_no + ' started', 'info');
+  });
+}
+$('#btn-new-sale').click(startNewSale);
+
+// ── Product Search (dropdown below input) ──
+let searchTimer;
+const $dropdown = $('#search-dropdown');
+
+$('#product-search').on('input', function() {
+  clearTimeout(searchTimer);
+  const q = $(this).val().trim();
+  searchResultIndex = -1;
+  if (q.length < 2) { $dropdown.hide().empty(); return; }
+  searchTimer = setTimeout(function() {
+    $.getJSON('/api/items/', {search: q, format: 'json'}, function(data) {
+      const items = data.results || data;
+      $dropdown.empty();
+      searchResultIndex = -1;
+      if (!items.length) {
+        $dropdown.append('<div class="search-empty"><i class="fas fa-search mr-1"></i> No items found</div>');
+      }
+      items.forEach(function(item, i) {
+        const price = item.selling_price ? parseFloat(item.selling_price).toFixed(2) : '';
+        $dropdown.append(
+          `<div class="search-item" data-id="${item.id}" data-code="${item.code}" data-name="${item.name}" data-idx="${i}">
+            <span><strong>${item.code}</strong> &mdash; ${item.name}</span>
+            ${price ? '<span class="item-price">' + price + '</span>' : ''}
+          </div>`
+        );
+      });
+      $dropdown.show();
+    });
+  }, 300);
+});
+
+// ── Keyboard navigation in search dropdown (Up/Down/Enter) ──
+$('#product-search').on('keydown', function(e) {
+  const $items = $dropdown.find('.search-item');
+  if (!$items.length || !$dropdown.is(':visible')) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    searchResultIndex = Math.min(searchResultIndex + 1, $items.length - 1);
+    $items.removeClass('active');
+    const $active = $items.eq(searchResultIndex).addClass('active');
+    // Scroll active item into view
+    const container = $dropdown[0];
+    const el = $active[0];
+    if (el.offsetTop + el.offsetHeight > container.scrollTop + container.clientHeight) {
+      container.scrollTop = el.offsetTop + el.offsetHeight - container.clientHeight;
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    searchResultIndex = Math.max(searchResultIndex - 1, 0);
+    $items.removeClass('active');
+    const $active = $items.eq(searchResultIndex).addClass('active');
+    const container = $dropdown[0];
+    const el = $active[0];
+    if (el.offsetTop < container.scrollTop) {
+      container.scrollTop = el.offsetTop;
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (searchResultIndex >= 0 && searchResultIndex < $items.length) {
+      $items.eq(searchResultIndex).trigger('click');
+    } else if ($items.length === 1) {
+      $items.first().trigger('click');
+    }
+  }
+});
+
+// Close dropdown when clicking outside
+$(document).on('click', function(e) {
+  if (!$(e.target).closest('.search-wrapper').length) {
+    $dropdown.hide();
+  }
+});
+
+// ── Add item to cart (from dropdown click) ──
+$(document).on('click', '#search-dropdown .search-item', function(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (!currentSaleId) {
+    showToast('Create a new sale first (F4)', 'warning');
+    return;
+  }
+  const itemId = $(this).data('id');
+
+  $.getJSON('/api/pricing/price/', {item: itemId, qty: 1, register: {{ register.pk }}}, function(priceData) {
+    const applyAdd = (unitPrice) => {
+      $.post(`/pos/terminal/sale/${currentSaleId}/add-line/`, {
+        csrfmiddlewaretoken: CSRF,
+        item_id: itemId,
+        qty: 1,
+        unit_price: unitPrice || '0',
+      }, function(data) {
+        const $row = $(`
+          <tr data-line-id="${data.line_id}" data-item-id="${itemId}" class="cart-flash">
+            <td>${data.item_name}</td>
+            <td><code>${data.item_code}</code></td>
+            <td class="text-center">
+              <div class="qty-control">
+                <button class="btn btn-sm btn-outline-secondary btn-qty-minus" data-line-id="${data.line_id}"><i class="fas fa-minus"></i></button>
+                <span class="qty-val">${parseInt(data.qty)}</span>
+                <button class="btn btn-sm btn-outline-secondary btn-qty-plus" data-line-id="${data.line_id}"><i class="fas fa-plus"></i></button>
+              </div>
+            </td>
+            <td class="unit-price">${parseFloat(data.unit_price).toFixed(2)}</td>
+            <td class="line-total">${parseFloat(data.line_total).toFixed(2)}</td>
+            <td><button class="btn btn-sm btn-outline-danger btn-remove-line" data-line-id="${data.line_id}"><i class="fas fa-times"></i></button></td>
+          </tr>
+        `);
+        $('#cart-body').append($row);
+        updateTotals(data.subtotal, data.discount_total, data.tax_total, data.grand_total);
+        $('#product-search').val('').focus();
+        $dropdown.hide().empty();
+        searchResultIndex = -1;
+        showToast(data.item_name + ' added', 'success');
+      }).fail(function(xhr) {
+        showToast(xhr.responseJSON?.error || 'Failed to add item', 'error');
+      });
+    };
+
+    if (priceData.price) {
+      applyAdd(priceData.price);
+    } else {
+      $.getJSON('/api/items/' + itemId + '/', function(item){
+        applyAdd(item.selling_price || '0');
+      }).fail(function(){ applyAdd('0'); });
+    }
+  }).fail(function(){
+    $.getJSON('/api/items/' + itemId + '/', function(item){
+      applyAdd(item.selling_price || '0');
+    }).fail(function(){ applyAdd('0'); });
+  });
+});
+
+// ── Qty +/- buttons (with dynamic repricing) ──
+function updateLineQty(lineId, newQty) {
+  const $row = $(`tr[data-line-id="${lineId}"]`);
+  const itemId = $row.data('item-id');
+  const currentPrice = parseFloat($row.find('.unit-price').text()) || 0;
+
+  const sendUpdate = (priceToUse) => {
+    const postData = {csrfmiddlewaretoken: CSRF, qty: newQty};
+    if (priceToUse && parseFloat(priceToUse) > 0) {
+      postData.new_unit_price = priceToUse;
+    }
+    $.post(`/pos/terminal/line/${lineId}/update-qty/`, postData, function(data) {
+      $row.find('.qty-val').text(parseInt(data.qty));
+      $row.find('.unit-price').text(parseFloat(data.unit_price).toFixed(2));
+      $row.find('.line-total').text(parseFloat(data.line_total).toFixed(2));
+      updateTotals(data.subtotal, data.discount_total, data.tax_total, data.grand_total);
+    });
+  };
+
+  $.getJSON('/api/pricing/price/', {item: itemId, qty: newQty, register: {{ register.pk }}}, function(priceData) {
+    if (priceData.price) {
+      sendUpdate(priceData.price);
+    } else if (currentPrice > 0) {
+      sendUpdate(currentPrice);
+    } else {
+      $.getJSON('/api/items/' + itemId + '/', function(item){
+        sendUpdate(item.selling_price || currentPrice || 0);
+      }).fail(function(){ sendUpdate(currentPrice || 0); });
+    }
+  }).fail(function(){
+    if (currentPrice > 0) {
+      sendUpdate(currentPrice);
+    } else {
+      $.getJSON('/api/items/' + itemId + '/', function(item){
+        sendUpdate(item.selling_price || 0);
+      }).fail(function(){ sendUpdate(0); });
+    }
+  });
+}
+
+$(document).on('click', '.btn-qty-plus', function() {
+  const lineId = $(this).data('line-id');
+  const $row = $(`tr[data-line-id="${lineId}"]`);
+  const newQty = parseInt($row.find('.qty-val').text()) + 1;
+  updateLineQty(lineId, newQty);
+});
+
+$(document).on('click', '.btn-qty-minus', function() {
+  const lineId = $(this).data('line-id');
+  const $row = $(`tr[data-line-id="${lineId}"]`);
+  const currentQty = parseInt($row.find('.qty-val').text());
+  if (currentQty <= 1) { showToast('Minimum quantity is 1', 'warning'); return; }
+  updateLineQty(lineId, currentQty - 1);
+});
+
+// ── Remove line ──
+$(document).on('click', '.btn-remove-line', function() {
+  const lineId = $(this).data('line-id');
+  const $row = $(`tr[data-line-id="${lineId}"]`);
+  $.post(`/pos/terminal/line/${lineId}/remove/`, {csrfmiddlewaretoken: CSRF}, function(data) {
+    $row.fadeOut(200, function(){ $(this).remove(); });
+    updateTotals(data.subtotal, data.discount_total, data.tax_total, data.grand_total);
+    showToast('Line removed', 'info');
+  });
+});
+
+// ── Checkout ──
+function openCheckout() {
+  if (!currentSaleId) return;
+  const total = $('#grand-total').text();
+  if (parseFloat(total) <= 0) { showToast('Cart is empty', 'warning'); return; }
+  $('#modal-amount-due').val(total);
+  $('#payment-rows').html(`
+    <div class="row mb-2 payment-row">
+      <div class="col-5"><select class="form-control payment-method">
+        <option value="CASH">Cash</option><option value="GCASH">GCash</option>
+        <option value="BANK">Bank Transfer</option><option value="CARD">Card</option>
+        <option value="OTHER">Other</option></select></div>
+      <div class="col-4"><input type="number" class="form-control payment-amount" step="0.01" placeholder="Amount" value="${total}"></div>
+      <div class="col-3"><input type="text" class="form-control payment-ref" placeholder="Ref #"></div>
+    </div>`);
+  updatePaymentTotals();
+  new bootstrap.Modal('#paymentModal').show();
+  setTimeout(function(){ $('.payment-amount').first().select(); }, 400);
+}
+$('#btn-checkout').click(openCheckout);
+
+// ── Payment modal helpers ──
+$('#btn-add-payment-row').click(function() {
+  $('#payment-rows').append(`
+    <div class="row mb-2 payment-row">
+      <div class="col-5"><select class="form-control payment-method">
+        <option value="CASH">Cash</option><option value="GCASH">GCash</option>
+        <option value="BANK">Bank Transfer</option><option value="CARD">Card</option>
+        <option value="OTHER">Other</option></select></div>
+      <div class="col-4"><input type="number" class="form-control payment-amount" step="0.01" placeholder="Amount"></div>
+      <div class="col-3"><input type="text" class="form-control payment-ref" placeholder="Ref #"></div>
+    </div>`);
+});
+
+$(document).on('input', '.payment-amount', updatePaymentTotals);
+
+function updatePaymentTotals() {
+  let total = 0;
+  $('.payment-amount').each(function() { total += parseFloat($(this).val()) || 0; });
+  $('#total-tendered').text(total.toFixed(2));
+  const due = parseFloat($('#modal-amount-due').val()) || 0;
+  const change = total - due;
+  $('#change-amount').text(change.toFixed(2)).toggleClass('text-danger', change < 0).toggleClass('text-success', change >= 0);
+}
+
+// ── Confirm Payment ──
+$('#btn-confirm-payment').click(function() {
+  const $btn = $(this);
+  if ($btn.prop('disabled')) return;
+  $btn.prop('disabled', true);
+
+  const payments = [];
+  $('.payment-row').each(function() {
+    const amount = parseFloat($(this).find('.payment-amount').val());
+    if (amount > 0) {
+      payments.push({
+        method: $(this).find('.payment-method').val(),
+        amount: amount.toFixed(2),
+        reference_no: $(this).find('.payment-ref').val(),
+      });
+    }
+  });
+
+  $.post(`/pos/terminal/sale/${currentSaleId}/checkout/`, {
+    csrfmiddlewaretoken: CSRF,
+    payments: JSON.stringify(payments),
+  }, function(data) {
+    bootstrap.Modal.getInstance(document.getElementById('paymentModal')).hide();
+    $('#success-sale-no').text('Sale ' + data.sale_no + ' completed!');
+    $('#success-change').text(parseFloat(data.change).toFixed(2));
+    new bootstrap.Modal('#successModal').show();
+    currentSaleId = null;
+    currentSaleNo = '';
+    $('#sale-no-badge').text('No active sale');
+    $('#cart-body').empty();
+    updateTotals('0.00','0.00','0.00','0.00');
+    $('#btn-checkout').prop('disabled', true);
+    $btn.prop('disabled', false);
+  }).fail(function(xhr) {
+    $btn.prop('disabled', false);
+    const err = xhr.responseJSON;
+    showToast(err?.error || 'Checkout failed', 'error');
+  });
+});
+
+// ── Success modal next sale ──
+$('#btn-success-next').click(function() {
+  bootstrap.Modal.getInstance(document.getElementById('successModal')).hide();
+  startNewSale();
+});
+
+// ── Keyboard shortcuts ──
+$(document).on('keydown', function(e) {
+  const tag = e.target.tagName;
+  const isModal = !!$(e.target).closest('.modal.show').length;
+
+  if (e.key === 'F2') { e.preventDefault(); $('#product-search').focus().select(); }
+  if (e.key === 'F4') { e.preventDefault(); startNewSale(); }
+  if (e.key === 'F8' && !isModal) { e.preventDefault(); openCheckout(); }
+  if (e.key === 'Escape') {
+    $('#product-search').val('');
+    $dropdown.hide().empty();
+    searchResultIndex = -1;
+  }
+  if (e.key === 'Enter' && isModal) {
+    const successOpen = $('#successModal').hasClass('show');
+    if (successOpen) { e.preventDefault(); $('#btn-success-next').click(); return; }
+    const paymentOpen = $('#paymentModal').hasClass('show');
+    if (paymentOpen && tag !== 'SELECT') { e.preventDefault(); $('#btn-confirm-payment').click(); }
+  }
+});
+
+function updateTotals(sub, disc, tax, grand) {
+  $('#subtotal').text(sub);
+  $('#discount').text(disc);
+  $('#tax').text(tax);
+  $('#grand-total').text(grand);
+}
+</script>
+{% endblock %}

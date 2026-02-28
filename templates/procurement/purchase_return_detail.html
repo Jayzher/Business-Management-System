@@ -1,0 +1,75 @@
+{% extends "theme/base.html" %}
+
+{% block title %}{{ pr.document_number }}{% endblock %}
+{% block page_title %}{{ pr.document_number }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'purchase_return_list' %}">Purchase Returns</a></li>
+<li class="breadcrumb-item active">{{ pr.document_number }}</li>
+{% endblock %}
+
+{% block content %}
+{% include "theme/partials/status_workflow.html" with status=pr.status doc_type="PR" %}
+{% include "theme/partials/doc_actions.html" with obj=pr delete_url_name="purchase_return_delete" post_url_name="purchase_return_post" cancel_url_name="purchase_return_cancel" list_url_name="purchase_return_list" %}
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-undo-alt mr-2 text-primary"></i>Return Details</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Return #</th><td><strong>{{ pr.document_number }}</strong></td></tr>
+          <tr><th>Status</th><td>
+            {% if pr.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif pr.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif pr.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td></tr>
+          <tr><th>GRN #</th><td>{% if pr.goods_receipt %}<a href="{% url 'goods_receipt_detail' pr.goods_receipt.pk %}">{{ pr.goods_receipt.document_number }}</a>{% else %}-{% endif %}</td></tr>
+          <tr><th>Supplier</th><td>{{ pr.supplier.name }}</td></tr>
+          <tr><th>Warehouse</th><td>{{ pr.warehouse.name }}</td></tr>
+          <tr><th>Return Date</th><td>{{ pr.return_date|date:"M d, Y" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle mr-2 text-secondary"></i>Additional Info</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Reason</th><td>{{ pr.reason|default:"-" }}</td></tr>
+          <tr><th>Created By</th><td>{{ pr.created_by.get_full_name|default:pr.created_by.username }}</td></tr>
+          <tr><th>Created At</th><td>{{ pr.created_at|date:"M d, Y H:i" }}</td></tr>
+          <tr><th>Posted By</th><td>{{ pr.posted_by.get_full_name|default:"-" }}</td></tr>
+          <tr><th>Posted At</th><td>{{ pr.posted_at|date:"M d, Y H:i"|default:"-" }}</td></tr>
+          <tr><th>Notes</th><td>{{ pr.notes|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-list mr-2 text-success"></i>Return Lines</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover detail-lines-table mb-0">
+      <thead>
+        <tr><th>Item</th><th>Location</th><th class="text-end">Qty</th><th>Unit</th><th>Reason</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for line in pr.lines.all %}
+        <tr>
+          <td>{% include "theme/partials/item_cell.html" with item=line.item %}</td>
+          <td>{{ line.location.code }}</td>
+          <td class="text-end">{{ line.qty }}</td>
+          <td>{{ line.unit.abbreviation }}</td>
+          <td>{{ line.reason|default:"-" }}</td>
+          <td>{{ line.notes|default:"-" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

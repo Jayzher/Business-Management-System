@@ -1,0 +1,146 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}Invoice INV-{{ invoice.invoice_number }}{% endblock %}
+{% block page_title %}Invoice INV-{{ invoice.invoice_number }}{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'invoice_list' %}">Invoices</a></li><li class="breadcrumb-item active">INV-{{ invoice.invoice_number }}</li>{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-lg-8">
+    <div class="card card-outline card-primary">
+      <div class="card-header d-flex justify-content-between">
+        <h3 class="card-title"><i class="fas fa-file-invoice mr-1"></i> Invoice Details</h3>
+        <div>
+          <a href="{% url 'invoice_print' invoice.pk %}" class="btn btn-sm btn-outline-primary" target="_blank"><i class="fas fa-print mr-1"></i> Print</a>
+          {% if not invoice.is_paid %}
+          <form method="post" action="{% url 'invoice_mark_paid' invoice.pk %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Mark this invoice as fully paid?')"><i class="fas fa-check-circle mr-1"></i> Mark Paid</button>
+          </form>
+          {% endif %}
+          <a href="{% url 'invoice_list' %}" class="btn btn-sm btn-secondary"><i class="fas fa-arrow-left mr-1"></i> Back</a>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="row mb-4">
+          <div class="col-md-6">
+            <h4><strong>{{ profile.name }}</strong></h4>
+            <p class="mb-0">{{ profile.address }}</p>
+            <p class="mb-0">{{ profile.city }}{% if profile.province %}, {{ profile.province }}{% endif %} {{ profile.zip_code }}</p>
+            <p class="mb-0">{{ profile.phone }}</p>
+            {% if profile.tin %}<p class="mb-0">TIN: {{ profile.tin }}</p>{% endif %}
+          </div>
+          <div class="col-md-6 text-right">
+            <h3 class="text-primary">INVOICE</h3>
+            <p class="mb-0"><strong>INV-{{ invoice.invoice_number }}</strong></p>
+            <p class="mb-0">Date: {{ invoice.date|date:"M d, Y" }}</p>
+            {% if invoice.due_date %}<p class="mb-0">Due: {{ invoice.due_date|date:"M d, Y" }}</p>{% endif %}
+            <p class="mb-0">Status: {% if invoice.is_paid %}<span class="badge bg-success">PAID</span>{% else %}<span class="badge bg-warning text-dark">UNPAID</span>{% endif %}</p>
+            {% if invoice.sales_order %}<p class="mb-0">SO: <a href="{% url 'sales_order_detail' invoice.sales_order.pk %}">{{ invoice.sales_order.document_number }}</a></p>{% endif %}
+          </div>
+        </div>
+        <div class="row mb-4">
+          <div class="col-md-6">
+            <strong>Bill To:</strong><br>
+            {{ invoice.customer_name|default:"Walk-in Customer" }}<br>
+            {% if invoice.customer_address %}{{ invoice.customer_address }}{% endif %}
+            {% if invoice.customer_tin %}<br>TIN: {{ invoice.customer_tin }}{% endif %}
+          </div>
+        </div>
+        <table class="table table-bordered">
+          <thead class="table-light">
+            <tr><th>#</th><th>Code</th><th>Description</th><th class="text-right">Qty</th><th>Unit</th><th class="text-right">Price</th><th class="text-right">Discount</th><th class="text-right">Total</th></tr>
+          </thead>
+          <tbody>
+            {% for line in invoice.lines.all %}
+            <tr>
+              <td>{{ forloop.counter }}</td>
+              <td>{{ line.item_code }}</td>
+              <td>{{ line.item_name }}</td>
+              <td class="text-right">{{ line.qty|floatformat:2 }}</td>
+              <td>{{ line.unit }}</td>
+              <td class="text-right">{{ line.unit_price|floatformat:2|intcomma }}</td>
+              <td class="text-right">{{ line.discount|floatformat:2|intcomma }}</td>
+              <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr><td colspan="7" class="text-right"><strong>Subtotal</strong></td><td class="text-right">{{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
+            {% if invoice.discount_total %}<tr><td colspan="7" class="text-right">Discount</td><td class="text-right">({{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
+            {% if invoice.tax_total %}<tr><td colspan="7" class="text-right">Tax</td><td class="text-right">{{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
+            <tr class="table-primary"><td colspan="7" class="text-right"><strong>Grand Total</strong></td><td class="text-right"><strong>{{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
+            <tr class="table-success"><td colspan="7" class="text-right"><strong>Total Paid</strong></td><td class="text-right text-success"><strong>{{ total_paid|floatformat:2|intcomma }}</strong></td></tr>
+            {% if not invoice.is_paid %}
+            <tr class="table-warning"><td colspan="7" class="text-right"><strong>Balance Due</strong></td><td class="text-right text-danger"><strong>{{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
+            {% endif %}
+          </tfoot>
+        </table>
+        {% if invoice.notes %}<p class="mt-2"><strong>Notes:</strong> {{ invoice.notes }}</p>{% endif %}
+        {% if profile.receipt_footer %}<hr><p class="text-muted text-center"><small>{{ profile.receipt_footer }}</small></p>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Payment Panel -->
+  <div class="col-lg-4">
+    <!-- Payment History -->
+    <div class="card card-outline card-success">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-money-bill-wave mr-1"></i> Payment History</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Date</th><th>Method</th><th class="text-right">Amount</th><th>Ref</th></tr></thead>
+          <tbody>
+            {% for p in invoice.payments.all %}
+            <tr>
+              <td>{{ p.date|date:"M d" }}</td>
+              <td><span class="badge bg-secondary">{{ p.get_method_display }}</span></td>
+              <td class="text-right">{{ p.amount|floatformat:2|intcomma }}</td>
+              <td><small>{{ p.reference_no|default:"-" }}</small></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-center text-muted py-3">No payments recorded.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Add Payment Form -->
+    {% if not invoice.is_paid %}
+    <div class="card card-outline card-info">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-plus-circle mr-1"></i> Record Payment</h3></div>
+      <div class="card-body">
+        <form method="post" action="{% url 'invoice_add_payment' invoice.pk %}">
+          {% csrf_token %}
+          <div class="mb-2">
+            <label class="form-label small fw-bold">Amount</label>
+            <input type="number" name="amount" class="form-control form-control-sm" step="0.01" value="{{ balance_due|floatformat:2 }}" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-bold">Payment Method</label>
+            <select name="method" class="form-control form-control-sm">
+              <option value="CASH">Cash</option>
+              <option value="CHECK">Check</option>
+              <option value="BANK_TRANSFER">Bank Transfer</option>
+              <option value="GCASH">GCash</option>
+              <option value="CARD">Card</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-bold">Reference #</label>
+            <input type="text" name="reference_no" class="form-control form-control-sm" placeholder="Check #, transaction ID, etc.">
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-bold">Notes</label>
+            <input type="text" name="notes" class="form-control form-control-sm" placeholder="Optional">
+          </div>
+          <button type="submit" class="btn btn-success btn-sm w-100"><i class="fas fa-check mr-1"></i> Record Payment</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

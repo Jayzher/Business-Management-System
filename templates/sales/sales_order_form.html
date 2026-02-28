@@ -1,0 +1,124 @@
+{% extends "theme/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'sales_order_list' %}">Sales Orders</a></li>
+<li class="breadcrumb-item active">{{ title }}</li>
+{% endblock %}
+
+{% block content %}
+<form method="post" novalidate>
+  {% csrf_token %}
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">SO Header</h3></div>
+    <div class="card-body">
+      {% if form.non_field_errors %}<div class="alert alert-danger">{% for e in form.non_field_errors %}{{ e }}{% endfor %}</div>{% endif %}
+      <div class="row">
+        {% for field in form %}
+        <div class="col-md-6 mb-3">
+          <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}</label>
+          {{ field }}
+          {% if field.errors %}<div class="text-danger small">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">Order Lines</h3></div>
+    <div class="card-body table-responsive p-2">
+      {% include "theme/partials/formset_table.html" %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body d-flex justify-content-end align-items-center py-2">
+      <span class="fw-bold me-2" style="font-size:1.1rem;">Grand Total:</span>
+      <span id="so-grand-total" class="text-success fw-bold" style="font-size:1.3rem;">0.00</span>
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save mr-1"></i> Save</button>
+    <a href="{% url 'sales_order_list' %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i> Cancel</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+/**
+ * Dynamic pricing for Sales Order lines.
+ * When item changes → fetch price from PriceList API (fallback to item.selling_price).
+ * When qty or unit_price changes → recalculate line total and grand total.
+ */
+$(function(){
+  const PRICE_API = '{% url "api_price_lookup" %}';
+
+  function getLineFields($row) {
+    return {
+      $item:  $row.find('select[name$="-item"]'),
+      $qty:   $row.find('input[name$="-qty_ordered"]'),
+      $price: $row.find('input[name$="-unit_price"]'),
+    };
+  }
+
+  function updateGrandTotal() {
+    let grand = 0;
+    $('#formset-body .formset-row').each(function(){
+      const f = getLineFields($(this));
+      const del = $(this).find('input[name$="-DELETE"]');
+      if (del.length && del.is(':checked')) return;
+      const qty = parseFloat(f.$qty.val()) || 0;
+      const price = parseFloat(f.$price.val()) || 0;
+      grand += qty * price;
+    });
+    $('#so-grand-total').text(grand.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}));
+  }
+
+  function fetchPrice($row) {
+    const f = getLineFields($row);
+    const itemId = f.$item.val();
+    if (!itemId) return;
+    const qty = parseFloat(f.$qty.val()) || 1;
+
+    $.getJSON(PRICE_API, {item: itemId, qty: qty}, function(data){
+      if (data.price) {
+        f.$price.val(parseFloat(data.price).toFixed(4));
+      } else {
+        // Fallback: fetch item selling_price from items API
+        $.getJSON('/api/items/' + itemId + '/', function(item){
+          if (item.selling_price && parseFloat(item.selling_price) > 0) {
+            f.$price.val(parseFloat(item.selling_price).toFixed(4));
+          }
+          updateGrandTotal();
+        });
+        return;
+      }
+      updateGrandTotal();
+    });
+  }
+
+  // Item changed → fetch price
+  $(document).on('change', 'select[name$="-item"]', function(){
+    fetchPrice($(this).closest('.formset-row'));
+  });
+
+  // Qty changed → re-fetch price (qty-based pricing) + update total
+  $(document).on('input change', 'input[name$="-qty_ordered"]', function(){
+    const $row = $(this).closest('.formset-row');
+    fetchPrice($row);
+  });
+
+  // Price changed manually → update total
+  $(document).on('input change', 'input[name$="-unit_price"]', function(){
+    updateGrandTotal();
+  });
+
+  // Initial calculation
+  updateGrandTotal();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,6 @@
+{% extends "theme/partials/form.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'expense_list' %}">Expenses</a></li><li class="breadcrumb-item active">{{ title }}</li>{% endblock %}
+{% block form_title %}{{ title }}{% endblock %}
+{% block cancel_url %}{% url 'expense_list' %}{% endblock %}

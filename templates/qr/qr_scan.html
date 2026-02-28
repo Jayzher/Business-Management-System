@@ -1,0 +1,135 @@
+{% extends "theme/base.html" %}
+
+{% block title %}QR Scan{% endblock %}
+{% block page_title %}QR Code Scanner{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Scan</li>{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-qrcode mr-1"></i> Scan QR Code</h3></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label for="qr_uid">QR Code UID</label>
+          <input type="text" id="qr_uid" class="form-control" placeholder="Scan or enter QR UID..." autofocus>
+        </div>
+        <div class="form-group">
+          <label for="scan_action">Action</label>
+          <select id="scan_action" class="form-control">
+            <option value="INFO">Info Lookup</option>
+            <option value="RECEIVE">Receive</option>
+            <option value="MOVE">Move Location</option>
+            <option value="PICK">Pick for Delivery</option>
+            <option value="COUNT">Stock Count</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="location_id">Location ID (optional)</label>
+          <input type="number" id="location_id" class="form-control" placeholder="Location ID">
+        </div>
+        <div class="form-group">
+          <label for="qty">Quantity (optional)</label>
+          <input type="number" id="qty" class="form-control" step="0.0001" placeholder="Quantity">
+        </div>
+        <button id="btn_scan" class="btn btn-primary btn-block"><i class="fas fa-barcode mr-1"></i> Process Scan</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle mr-1"></i> Scan Result</h3></div>
+      <div class="card-body">
+        <div id="scan_result" class="text-muted text-center p-4">
+          <i class="fas fa-qrcode fa-3x mb-3 d-block"></i>
+          Scan a QR code to see results here.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function getCookie(name) {
+  let v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+  return v ? v[2] : null;
+}
+
+document.getElementById('btn_scan').addEventListener('click', function() {
+  const uid = document.getElementById('qr_uid').value.trim();
+  const action = document.getElementById('scan_action').value;
+  const locationId = document.getElementById('location_id').value;
+  const qty = document.getElementById('qty').value;
+  const resultDiv = document.getElementById('scan_result');
+
+  if (!uid) {
+    resultDiv.innerHTML = '<div class="alert alert-warning">Please enter a QR UID.</div>';
+    return;
+  }
+
+  if (action === 'INFO') {
+    fetch('/api/qr/' + uid + '/', {
+      headers: {'X-CSRFToken': getCookie('csrftoken')},
+      credentials: 'same-origin',
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.detail) {
+        resultDiv.innerHTML = '<div class="alert alert-danger">' + data.detail + '</div>';
+      } else {
+        resultDiv.innerHTML = `
+          <table class="table table-bordered">
+            <tr><th>Item Code</th><td>${data.item_code}</td></tr>
+            <tr><th>Item Name</th><td>${data.item_name}</td></tr>
+            <tr><th>Location</th><td>${data.location_code || '-'}</td></tr>
+            <tr><th>Batch</th><td>${data.batch_number || '-'}</td></tr>
+            <tr><th>Serial</th><td>${data.serial_number || '-'}</td></tr>
+            <tr><th>Active</th><td>${data.is_active ? 'Yes' : 'No'}</td></tr>
+          </table>`;
+      }
+    })
+    .catch(err => {
+      resultDiv.innerHTML = '<div class="alert alert-danger">Error: ' + err.message + '</div>';
+    });
+  } else {
+    const payload = {qr_uid: uid, action: action};
+    if (locationId) payload.location_id = parseInt(locationId);
+    if (qty) payload.qty = parseFloat(qty);
+
+    fetch('/api/qr/scan/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken'),
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error || data.detail) {
+        resultDiv.innerHTML = '<div class="alert alert-danger">' + (data.error || data.detail) + '</div>';
+      } else {
+        resultDiv.innerHTML = `
+          <div class="alert alert-success">
+            <strong>Scan Processed!</strong><br>
+            Action: ${data.action}<br>
+            Item: ${data.item_code} - ${data.item_name}<br>
+            Event ID: ${data.event_id}
+          </div>`;
+      }
+    })
+    .catch(err => {
+      resultDiv.innerHTML = '<div class="alert alert-danger">Error: ' + err.message + '</div>';
+    });
+  }
+});
+
+document.getElementById('qr_uid').addEventListener('keypress', function(e) {
+  if (e.key === 'Enter') document.getElementById('btn_scan').click();
+});
+</script>
+{% endblock %}

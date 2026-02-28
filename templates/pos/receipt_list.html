@@ -1,0 +1,54 @@
+{% extends "theme/base.html" %}
+
+{% block title %}POS Receipts{% endblock %}
+{% block page_title %}POS Receipts{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item active">Receipts</li>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table table-hover table-striped wis-table">
+      <thead>
+        <tr>
+          <th>Sale #</th>
+          <th>Register</th>
+          <th>Customer</th>
+          <th>Status</th>
+          <th>Grand Total</th>
+          <th>Created By</th>
+          <th>Date</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sale in sales %}
+        <tr>
+          <td><a href="{% url 'pos_receipt_detail' pk=sale.pk %}">{{ sale.sale_no }}</a></td>
+          <td>{{ sale.register.name }}</td>
+          <td>{{ sale.customer|default:"Walk-in" }}</td>
+          <td>
+            {% if sale.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif sale.status == 'PAID' %}<span class="badge bg-info">Paid</span>
+            {% elif sale.status == 'REFUNDED' %}<span class="badge bg-warning">Refunded</span>
+            {% endif %}
+          </td>
+          <td>{{ sale.grand_total }}</td>
+          <td>{{ sale.created_by }}</td>
+          <td>{{ sale.created_at|date:"M d, Y H:i" }}</td>
+          <td>
+            <a href="{% url 'pos_receipt_detail' pk=sale.pk %}" class="btn btn-sm btn-info"><i class="fas fa-eye"></i></a>
+            {% if sale.status == 'POSTED' %}
+            <a href="#" data-modal-url="{% url 'pos_refund_create' sale_pk=sale.pk %}" class="btn btn-sm btn-warning"><i class="fas fa-undo"></i> Refund</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="text-center text-muted">No receipts found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

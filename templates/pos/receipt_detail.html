@@ -1,0 +1,98 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Receipt {{ sale.sale_no }}{% endblock %}
+{% block page_title %}Receipt {{ sale.sale_no }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'pos_receipt_list' %}">Receipts</a></li>
+<li class="breadcrumb-item active">{{ sale.sale_no }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  {% if sale.status == 'POSTED' %}
+  <a href="#" data-modal-url="{% url 'pos_refund_create' sale_pk=sale.pk %}" class="btn btn-warning"><i class="fas fa-undo mr-1"></i> Refund</a>
+  {% endif %}
+  <a href="{% url 'pos_receipt_list' %}" class="btn btn-secondary"><i class="fas fa-arrow-left mr-1"></i> Back</a>
+  <button class="btn btn-info" onclick="window.print()"><i class="fas fa-print mr-1"></i> Print</button>
+</div>
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Sale Details</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0">
+          <tr><th>Sale #</th><td>{{ sale.sale_no }}</td></tr>
+          <tr><th>Status</th><td>
+            {% if sale.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif sale.status == 'PAID' %}<span class="badge bg-info">Paid</span>
+            {% elif sale.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif sale.status == 'VOID' %}<span class="badge bg-danger">Void</span>
+            {% elif sale.status == 'REFUNDED' %}<span class="badge bg-warning">Refunded</span>
+            {% endif %}
+          </td></tr>
+          <tr><th>Register</th><td>{{ sale.register.name }}</td></tr>
+          <tr><th>Customer</th><td>{{ sale.customer|default:"Walk-in" }}</td></tr>
+          <tr><th>Warehouse</th><td>{{ sale.warehouse }}</td></tr>
+          <tr><th>Created By</th><td>{{ sale.created_by }}</td></tr>
+          <tr><th>Date</th><td>{{ sale.created_at|date:"M d, Y H:i" }}</td></tr>
+          {% if sale.posted_at %}<tr><th>Posted At</th><td>{{ sale.posted_at|date:"M d, Y H:i" }}</td></tr>{% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Totals & Payments</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0">
+          <tr><th>Subtotal</th><td>{{ sale.subtotal }}</td></tr>
+          <tr><th>Discount</th><td>{{ sale.discount_total }}</td></tr>
+          <tr><th>Tax</th><td>{{ sale.tax_total }}</td></tr>
+          <tr class="table-info"><th>Grand Total</th><td><strong>{{ sale.grand_total }}</strong></td></tr>
+        </table>
+        <table class="table table-bordered mb-0 mt-2">
+          <thead><tr><th>Method</th><th>Amount</th><th>Ref #</th></tr></thead>
+          <tbody>
+            {% for p in sale.payments.all %}
+            <tr><td>{{ p.get_method_display }}</td><td>{{ p.amount }}</td><td>{{ p.reference_no|default:"-" }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Line Items</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-bordered table-striped">
+      <thead>
+        <tr><th>Item</th><th>Code</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Discount</th><th>Tax %</th><th>Line Total</th></tr>
+      </thead>
+      <tbody>
+        {% for line in sale.lines.all %}
+        <tr>
+          <td>{{ line.item.name }}</td>
+          <td><code>{{ line.item.code }}</code></td>
+          <td>{{ line.qty }}</td>
+          <td>{{ line.unit.abbreviation }}</td>
+          <td>{{ line.unit_price }}</td>
+          <td>{{ line.discount_amount }}</td>
+          <td>{{ line.tax_rate }}%</td>
+          <td>{{ line.line_total }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if sale.notes %}
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Notes</h3></div>
+  <div class="card-body">{{ sale.notes }}</div>
+</div>
+{% endif %}
+{% endblock %}

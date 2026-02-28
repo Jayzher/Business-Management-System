@@ -1,0 +1,62 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}Expense Listing{% endblock %}
+{% block page_title %}Expense Listing{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Expenses</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-receipt mr-1"></i> Expenses</h3>
+    <div class="card-tools">
+      <a href="#" data-modal-url="{% url 'expense_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
+      <a href="#" data-modal-url="{% url 'expense_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> Record Expense</a>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="row g-2 mb-3">
+      <div class="col-md-3">
+        <select name="category" class="form-control form-control-sm">
+          <option value="">All Categories</option>
+          {% for cat in categories %}
+          <option value="{{ cat.pk }}" {% if filters.category == cat.pk|stringformat:"d" %}selected{% endif %}>{{ cat.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2"><input type="date" name="date_from" class="form-control form-control-sm" value="{{ filters.date_from }}" placeholder="From"></div>
+      <div class="col-md-2"><input type="date" name="date_to" class="form-control form-control-sm" value="{{ filters.date_to }}" placeholder="To"></div>
+      <div class="col-md-2"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-filter mr-1"></i> Filter</button></div>
+    </form>
+    <div class="alert alert-info py-2 mb-3">
+      <strong>Total:</strong> {{ total|floatformat:2|intcomma }}
+    </div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover table-striped text-nowrap wis-table">
+      <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Vendor</th><th>Reference</th><th>Memo</th><th>By</th><th></th></tr></thead>
+      <tbody>
+        {% for exp in expenses %}
+        <tr>
+          <td>{{ exp.date|date:"M d, Y" }}</td>
+          <td>
+            <span class="badge bg-secondary">{{ exp.category.name }}</span>
+            {% if exp.category.is_cogs %}<span class="badge bg-warning ms-1">COGS</span>{% else %}<span class="badge bg-info ms-1">OPEX</span>{% endif %}
+          </td>
+          <td class="text-right"><strong>&#8369; {{ exp.amount|floatformat:2|intcomma }}</strong></td>
+          <td>{{ exp.vendor|default:"-" }}</td>
+          <td><small>{{ exp.reference_no|default:"-" }}</small></td>
+          <td><small>{{ exp.memo|truncatewords:8 }}</small></td>
+          <td>{{ exp.created_by.get_short_name|default:exp.created_by.username }}</td>
+          <td class="text-right">
+            <a href="#" data-modal-url="{% url 'expense_edit' exp.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'expense_delete' exp.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="text-center text-muted py-3">No expenses recorded yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

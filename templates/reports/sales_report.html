@@ -1,0 +1,206 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}Sales Report{% endblock %}
+{% block page_title %}Sales Report{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'reports_dashboard' %}">Reports</a></li><li class="breadcrumb-item active">Sales</li>{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card card-outline card-primary">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-2"><label class="small">From</label><input type="date" name="date_from" class="form-control form-control-sm" value="{{ filters.date_from }}"></div>
+      <div class="col-md-2"><label class="small">To</label><input type="date" name="date_to" class="form-control form-control-sm" value="{{ filters.date_to }}"></div>
+      <div class="col-md-2">
+        <label class="small">Channel</label>
+        <select name="channel" class="form-control form-control-sm">
+          <option value="">All</option>
+          {% for ch in channels %}<option value="{{ ch.pk }}" {% if filters.channel == ch.pk|stringformat:"d" %}selected{% endif %}>{{ ch.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="small">Group</label>
+        <select name="group" class="form-control form-control-sm">
+          <option value="daily" {% if group_by == "daily" %}selected{% endif %}>Daily</option>
+          <option value="monthly" {% if group_by == "monthly" %}selected{% endif %}>Monthly</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="small">&nbsp;</label>
+        <div class="d-flex flex-wrap">
+          <button type="submit" class="btn btn-primary btn-sm mr-1 mb-1"><i class="fas fa-filter mr-1"></i> Apply</button>
+          <button type="button" class="btn btn-sm btn-success mr-1 mb-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
+          <button type="button" class="btn btn-sm btn-outline-danger mb-1 wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="row">
+  <div class="col-lg-3 col-md-6">
+    <div class="small-box bg-success">
+      <div class="inner"><h3>{{ summary.total_revenue|floatformat:2|intcomma }}</h3><p>Total Revenue <a href="#" data-bs-toggle="modal" data-bs-target="#formulaModal"><i class="fas fa-calculator text-white" style="opacity:.7;"></i></a></p></div>
+      <div class="icon"><i class="fas fa-peso-sign"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <div class="small-box bg-info">
+      <div class="inner"><h3>{{ summary.sale_count }}</h3><p>Total Sales <a href="#" data-bs-toggle="modal" data-bs-target="#formulaModal"><i class="fas fa-calculator text-white" style="opacity:.7;"></i></a></p></div>
+      <div class="icon"><i class="fas fa-receipt"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <div class="small-box bg-primary">
+      <div class="inner"><h3>{{ gross_profit|floatformat:2|intcomma }}</h3><p>Gross Profit <a href="#" data-bs-toggle="modal" data-bs-target="#formulaModal"><i class="fas fa-calculator text-white" style="opacity:.7;"></i></a></p></div>
+      <div class="icon"><i class="fas fa-chart-line"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <div class="small-box bg-warning">
+      <div class="inner"><h3>{{ margin|floatformat:1 }}%</h3><p>Gross Margin <a href="#" data-bs-toggle="modal" data-bs-target="#formulaModal"><i class="fas fa-calculator text-white" style="opacity:.7;"></i></a></p></div>
+      <div class="icon"><i class="fas fa-percentage"></i></div>
+    </div>
+  </div>
+</div>
+
+<!-- Formula Breakdown Modal -->
+<div class="modal fade" id="formulaModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title"><i class="fas fa-calculator mr-1"></i> Calculation Breakdown (Accounting Formulas)</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">All figures below use standard accounting formulas. Values are for the selected date range.</p>
+
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-coins text-success mr-1"></i> Revenue</h6>
+        <table class="table table-sm table-bordered mb-3">
+          <tbody>
+            <tr><td class="fw-bold" style="width:50%;">POS Revenue</td><td class="text-end font-monospace">{{ formulas.pos_revenue|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold">POS Transaction Count</td><td class="text-end font-monospace">{{ formulas.pos_count }}</td></tr>
+            <tr><td class="fw-bold">Sales Order Revenue <small class="text-muted">(&#931; qty &times; unit_price per line)</small></td><td class="text-end font-monospace">{{ formulas.so_revenue|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold">Sales Order Count</td><td class="text-end font-monospace">{{ formulas.so_count }}</td></tr>
+            <tr class="table-success"><td class="fw-bold">Total Revenue = POS Revenue + SO Revenue</td><td class="text-end font-monospace fw-bold">{{ formulas.total_revenue|floatformat:2|intcomma }}</td></tr>
+            <tr class="table-success"><td class="fw-bold">Total Sales Count = POS Count + SO Count</td><td class="text-end font-monospace fw-bold">{{ formulas.total_count }}</td></tr>
+          </tbody>
+        </table>
+
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-boxes text-danger mr-1"></i> Cost of Goods Sold (COGS)</h6>
+        <table class="table table-sm table-bordered mb-3">
+          <tbody>
+            <tr><td class="fw-bold" style="width:50%;">POS COGS <small class="text-muted">(&#931; item.cost_price &times; qty)</small></td><td class="text-end font-monospace">{{ formulas.cogs_pos|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold">SO COGS <small class="text-muted">(&#931; item.cost_price &times; qty_ordered)</small></td><td class="text-end font-monospace">{{ formulas.cogs_so|floatformat:2|intcomma }}</td></tr>
+            <tr class="table-danger"><td class="fw-bold">Total COGS = POS COGS + SO COGS</td><td class="text-end font-monospace fw-bold">{{ formulas.cogs|floatformat:2|intcomma }}</td></tr>
+          </tbody>
+        </table>
+
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-chart-line text-primary mr-1"></i> Profitability</h6>
+        <table class="table table-sm table-bordered mb-3">
+          <tbody>
+            <tr class="table-primary"><td class="fw-bold" style="width:50%;">Gross Profit = Total Revenue &minus; COGS</td><td class="text-end font-monospace fw-bold">{{ formulas.gross_profit|floatformat:2|intcomma }}</td></tr>
+            <tr class="table-warning"><td class="fw-bold">Gross Margin % = (Gross Profit &divide; Total Revenue) &times; 100</td><td class="text-end font-monospace fw-bold">{{ formulas.margin|floatformat:2 }}%</td></tr>
+          </tbody>
+        </table>
+
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-tags text-info mr-1"></i> Other</h6>
+        <table class="table table-sm table-bordered mb-0">
+          <tbody>
+            <tr><td class="fw-bold" style="width:50%;">Total Discounts (POS)</td><td class="text-end font-monospace">{{ formulas.total_discount|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold">Total Tax (POS)</td><td class="text-end font-monospace">{{ formulas.total_tax|floatformat:2|intcomma }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="row">
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-area mr-1"></i> Revenue Trend ({{ group_by|title }})</h3></div>
+      <div class="card-body"><canvas id="revChart" height="220"></canvas></div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-pie mr-1"></i> By Channel</h3></div>
+      <div class="card-body"><canvas id="channelChart" height="220"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- Tables -->
+<div class="row">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-calendar mr-1"></i> {{ group_by|title }} Breakdown</h3></div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover table-sm text-nowrap">
+          <thead><tr><th>Period</th><th class="text-right">Revenue</th><th class="text-right">Sales</th></tr></thead>
+          <tbody>
+            {% for row in date_rows %}
+            <tr>
+              <td>{% if group_by == "daily" %}{{ row.period|date:"M d, Y" }}{% else %}{{ row.period|date:"F Y" }}{% endif %}</td>
+              <td class="text-right">{{ row.revenue|floatformat:2|intcomma }}</td>
+              <td class="text-right">{{ row.count }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="3" class="text-center text-muted">No data</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-trophy mr-1"></i> Top Items Sold</h3></div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover table-sm text-nowrap">
+          <thead><tr><th>#</th><th>Code</th><th>Name</th><th class="text-right">Qty</th><th class="text-right">Revenue</th></tr></thead>
+          <tbody>
+            {% for it in top_items %}
+            <tr>
+              <td>{{ forloop.counter }}</td>
+              <td><strong>{{ it.item__code }}</strong></td>
+              <td>{{ it.item__name }}</td>
+              <td class="text-right">{{ it.total_qty|floatformat:2 }}</td>
+              <td class="text-right">{{ it.total_revenue|floatformat:2|intcomma }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="5" class="text-center text-muted">No data</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const revLabels = {{ chart_labels|safe }};
+const revData = {{ chart_data|safe }};
+new Chart(document.getElementById('revChart'), {
+  type: 'bar', data: {
+    labels: revLabels,
+    datasets: [{ label: 'Revenue', data: revData, backgroundColor: 'rgba(40,167,69,.7)', borderRadius: 4 }]
+  }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+});
+
+const chLabels = {{ channel_labels|safe }};
+const chData = {{ channel_data|safe }};
+const chColors = ['#007bff','#28a745','#ffc107','#dc3545','#17a2b8','#6f42c1','#fd7e14','#20c997'];
+new Chart(document.getElementById('channelChart'), {
+  type: 'doughnut', data: {
+    labels: chLabels,
+    datasets: [{ data: chData, backgroundColor: chColors.slice(0, chLabels.length) }]
+  }, options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } } }
+});
+</script>
+{% endblock %}

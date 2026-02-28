@@ -1,0 +1,32 @@
+{% extends "theme/base.html" %}
+{% block title %}Supply Categories{% endblock %}
+{% block page_title %}Supply Categories{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'supply_item_list' %}">Supplies</a></li><li class="breadcrumb-item active">Categories</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-layer-group mr-1"></i> Supply Categories</h3>
+    <div class="card-tools"><a href="#" data-modal-url="{% url 'supply_category_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Category</a></div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead><tr><th>Code</th><th>Name</th><th></th></tr></thead>
+      <tbody>
+        {% for cat in categories %}
+        <tr>
+          <td><strong>{{ cat.code }}</strong></td>
+          <td>{{ cat.name }}</td>
+          <td class="text-right">
+            <a href="#" data-modal-url="{% url 'supply_category_edit' cat.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'supply_category_delete' cat.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="3" class="text-center text-muted py-3">No categories yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

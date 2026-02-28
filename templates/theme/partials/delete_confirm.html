@@ -1,0 +1,25 @@
+{% extends "theme/base.html" %}
+
+{% block content %}
+<div class="card card-danger">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-trash-alt mr-1"></i> Confirm Delete</h3>
+  </div>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="_modal" value="1">
+    <div class="card-body">
+      <div class="alert alert-warning">
+        <i class="fas fa-exclamation-triangle mr-1"></i>
+        Are you sure you want to delete <strong>{% block object_name %}{{ object }}{% endblock %}</strong>?
+        This action cannot be undone.
+      </div>
+      {% block delete_details %}{% endblock %}
+    </div>
+    <div class="card-footer">
+      <button type="submit" class="btn btn-danger"><i class="fas fa-trash-alt mr-1"></i> Yes, Delete</button>
+      <a href="{% block cancel_url %}{% url 'dashboard' %}{% endblock %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i> Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

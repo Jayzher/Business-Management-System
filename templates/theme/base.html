@@ -1,0 +1,854 @@
+{% load static humanize %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Warehouse Inventory{% endblock %} | WIS</title>
+  <!-- Google Font -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- AdminLTE 3 (Bootstrap 5 build) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
+  <!-- Driver.js Tour -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.css">
+  <!-- DataTables -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css">
+  <!-- Select2 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css">
+  {% block extra_css %}{% endblock %}
+  <style>
+    .content-wrapper { min-height: calc(100vh - 56px - 56px); }
+    .small-box .icon > i.fas { font-size: 70px; }
+    /* Tour popover overrides */
+    .wis-tour-popover .driver-popover-title { font-size: 1.05rem; }
+    .wis-tour-popover .driver-popover-description { font-size: .88rem; line-height: 1.55; }
+    .wis-tour-popover .driver-popover-description ul,
+    .wis-tour-popover .driver-popover-description ol { margin-bottom: .3rem; }
+    .wis-tour-popover .driver-popover-description li { margin-bottom: .15rem; }
+    .wis-tour-popover .driver-popover-footer button { font-size: .82rem; padding: .3rem .7rem; border-radius: 4px; }
+    /* Skeleton loading */
+    @keyframes wis-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+    .wis-skeleton { background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 800px 100%; animation: wis-shimmer 1.5s infinite ease-in-out; border-radius: 4px; }
+    .wis-skeleton-text { height: 14px; margin-bottom: 8px; width: 80%; }
+    .wis-skeleton-title { height: 22px; margin-bottom: 12px; width: 50%; }
+    .wis-skeleton-box { height: 80px; margin-bottom: 12px; }
+    .wis-skeleton-chart { height: 200px; }
+    /* DataTables overrides */
+    .dataTables_wrapper .dataTables_filter input { font-size: .85rem; border-radius: 6px; padding: .3rem .6rem; }
+    .dataTables_wrapper .dataTables_length select { font-size: .85rem; border-radius: 6px; padding: .2rem .4rem; }
+    .dataTables_wrapper .dataTables_info { font-size: .8rem; color: #6c757d; }
+    .dataTables_wrapper .dataTables_paginate .paginate_button { font-size: .8rem; }
+    table.dataTable { font-size: .88rem; }
+    /* Modal form overrides — strip duplicate card chrome */
+    #wis-modal-body .wis-form-card { max-width: 100%; box-shadow: none; border: none; margin: 0; }
+    #wis-modal-body .wis-form-card > .card-header { display: none; }
+    #wis-modal-body .wis-form-card > form > .card-footer,
+    #wis-modal-body .card-danger > form > .card-footer,
+    #wis-modal-body .card-danger > .card-footer { border-top: 1px solid #e9ecef; background: #f8f9fa; border-radius: 0; padding: .75rem 1.25rem; display: flex; justify-content: flex-end; gap: .5rem; }
+    #wis-modal .modal-header { align-items: center; }
+    #wis-modal .modal-header .btn-close { margin-left: auto; opacity: 0.7; }
+    #wis-modal .modal-header .btn-close:hover { opacity: 1; }
+    #wis-modal-body .card-danger { box-shadow: none; border: none; margin: 0; }
+    #wis-modal-body .card-danger > .card-header { display: none; }
+    /* Modal footer buttons */
+    #wis-modal-body .btn { border-radius: 6px; font-size: .88rem; }
+    #wis-modal-body .btn-primary { background: linear-gradient(135deg, #007bff, #0056b3); border: none; }
+    #wis-modal-body .btn-danger { background: linear-gradient(135deg, #dc3545, #b02a37); border: none; }
+    /* DataTables export button */
+    .dt-buttons .btn { font-size: .8rem; padding: .25rem .6rem; border-radius: 5px; }
+    /* Dashboard tooltip icon */
+    .dash-tip { color: #adb5bd; cursor: help; font-size: .7rem; margin-left: 4px; transition: color .15s; }
+    .dash-tip:hover { color: #6c757d; }
+    /* Sidebar child links */
+    .nav-sidebar .nav-treeview > .nav-item > .nav-link { padding-left: 2.2rem; }
+    .nav-sidebar .nav-treeview .child-icon { font-size: .82rem; width: 1.25rem; text-align: center; color: #adb5bd; }
+    .nav-sidebar  .nav-treeview > li > a {
+    font-size: 0.92rem;
+    padding-left: 2.25rem;
+  }
+  /* Active sub-module color */
+  .nav-treeview > li > a.active {
+    background-color: #0d6efd !important;
+    color: #fff !important;
+  }
+  .nav-treeview > li > a.active .nav-icon,
+  .nav-treeview > li > a.active .child-label {
+    color: #fff !important;
+  }
+  /* Formset error highlighting */
+  .formset-table td.has-error input,
+  .formset-table td.has-error select,
+  .formset-table td.has-error textarea {
+    border-color: #dc3545 !important;
+    box-shadow: 0 0 0 2px rgba(220,53,69,0.15);
+    background-color: #fff8f8;
+  }
+  /* Wider modal for large forms */
+  #wis-modal-dialog {
+    max-width: 98vw;
+    width: 1280px;
+  }
+  /* ── Enhanced formset table ─────────────────────────────────────── */
+  .formset-table { border-collapse: separate; border-spacing: 0; }
+  .formset-table thead th { background: #f8f9fa; font-size: .82rem; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; color: #495057; padding: .5rem .6rem; border-bottom: 2px solid #dee2e6; white-space: nowrap; }
+  .formset-table tbody tr { transition: background .15s; }
+  .formset-table tbody tr:hover { background: #f1f5ff; }
+  .formset-table td { padding: .4rem .5rem; vertical-align: middle; }
+  .formset-table td .select2-selection__rendered { white-space: normal !important; word-break: break-word; line-height: 1.2; }
+  .formset-table td input, .formset-table td textarea { white-space: normal; }
+  .formset-table td input, .formset-table td select, .formset-table td textarea { font-size: .85rem; }
+  .formset-table td textarea { min-height: 34px; resize: vertical; }
+  .formset-table .select2-container { font-size: .85rem; }
+  .formset-table .select2-container--bootstrap-5 .select2-selection { min-height: 34px; padding: .2rem .5rem; font-size: .85rem; }
+  /* Item image thumbnail in formset */
+  .thumb-cell { min-width: 70px; }
+  .formset-thumb-btn { color: #6c757d; }
+  .formset-item-thumb { width: 40px; height: 40px; border-radius: 4px; object-fit: cover; border: 1px solid #dee2e6; margin-left: 4px; vertical-align: middle; display: none; }
+  .formset-item-thumb.loaded { display: inline-block; }
+  /* ── Detail page line table with item images ────────────────────── */
+  .detail-lines-table { font-size: .88rem; }
+  .detail-lines-table thead th { background: #f8f9fa; font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; color: #495057; padding: .6rem .75rem; border-bottom: 2px solid #dee2e6; white-space: nowrap; }
+  .detail-lines-table tbody td { padding: .55rem .75rem; vertical-align: middle; }
+  .detail-lines-table tbody tr { transition: background .15s; }
+  .detail-lines-table tbody tr:hover { background: #f8f9ff; }
+  .detail-lines-table tfoot td { font-weight: 600; background: #f8f9fa; border-top: 2px solid #dee2e6; }
+  .item-thumb { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; border: 1px solid #e9ecef; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .item-thumb-placeholder { width: 36px; height: 36px; border-radius: 6px; background: #e9ecef; display: inline-flex; align-items: center; justify-content: center; color: #adb5bd; font-size: .75rem; }
+  .item-cell { display: flex; align-items: center; gap: 8px; }
+  .item-cell-info { line-height: 1.3; }
+  .item-cell-code { font-size: .75rem; color: #6c757d; }
+  .item-cell-name { font-weight: 500; }
+  /* ── Detail header card enhancements ────────────────────────────── */
+  .doc-detail-table th { width: 140px; font-weight: 600; font-size: .85rem; color: #495057; background: #fafbfc; }
+  .doc-detail-table td { font-size: .88rem; }
+  .card .card-title { margin-left: .5rem; }
+  /* Image preview overlay */
+  .item-thumb { cursor: zoom-in; }
+  #wis-image-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 2000; }
+  #wis-image-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 10px; box-shadow: 0 12px 24px rgba(0,0,0,0.35); }
+  #wis-image-lightbox .close-btn { position: absolute; top: 20px; right: 24px; color: #fff; font-size: 1.8rem; cursor: pointer; }
+    .nav-sidebar .nav-treeview > .nav-item > .nav-link.active .child-icon { color: #fff; }
+    .dataTables_wrapper .row:first-child { align-items: center; margin-bottom: .5rem; }
+    .dataTables_wrapper .row:first-child .col-sm-6:first-child { display: flex; align-items: center; }
+    .dataTables_wrapper .row:first-child .col-sm-6:last-child { display: flex; justify-content: flex-end; }
+    .dataTables_length label,
+    .dataTables_filter label { display: flex; align-items: center; gap: .4rem; margin-bottom: 0; }
+    .dataTables_length select.form-select { max-width: 100px; }
+    .dataTables_filter input.form-control { min-width: 220px; }
+    .dt-buttons { display: inline-flex; align-items: center; gap: .4rem; margin-left: .5rem; }
+  </style>
+</head>
+<body class="hold-transition sidebar-mini layout-fixed">
+<div class="wrapper">
+
+  {% include "theme/partials/navbar.html" %}
+  {% include "theme/partials/sidebar.html" %}
+
+  <!-- Content Wrapper -->
+  <div class="content-wrapper">
+    <!-- Content Header -->
+    <div class="content-header">
+      <div class="container-fluid">
+        <div class="row mb-2">
+          <div class="col-sm-6">
+            <h1 class="m-0">{% block page_title %}Dashboard{% endblock %}</h1>
+          </div>
+          <div class="col-sm-6">
+            <ol class="breadcrumb float-sm-right">
+              <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Home</a></li>
+              {% block breadcrumb %}{% endblock %}
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <section class="content">
+      <div class="container-fluid">
+        {% block content %}{% endblock %}
+      </div>
+    </section>
+  </div>
+
+  {% include "theme/partials/footer.html" %}
+
+</div>
+<!-- ./wrapper -->
+
+<!-- Toast Container -->
+<div class="toast-container position-fixed top-0 end-0 p-3" id="wis-toast-container" style="z-index:9999;"></div>
+
+<!-- Reusable Modal Shell -->
+<div class="modal fade" id="wis-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-xl" id="wis-modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="wis-modal-title"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</h5>
+        <button type="button" class="btn btn-sm btn-light border-0" data-bs-dismiss="modal" aria-label="Close" style="box-shadow:none;">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>    
+      <div class="modal-body p-0" id="wis-modal-body">
+        <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- jQuery -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.4/jquery.min.js"></script>
+<!-- Bootstrap 5 Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<!-- AdminLTE 3 -->
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/js/adminlte.min.js"></script>
+<!-- DataTables -->
+<script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<!-- Select2 -->
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+/* Utility: debounce */
+function debounce(fn, delay) {
+  var t;
+  return function() {
+    var ctx = this, args = arguments;
+    clearTimeout(t);
+    t = setTimeout(function(){ fn.apply(ctx, args); }, delay || 200);
+  };
+}
+
+/* Auto-init DataTables on .wis-table */
+$.fn.dataTable.ext.errMode = 'none';
+$(function(){
+  $('.wis-table').each(function(){
+    var $t = $(this);
+    if ($.fn.DataTable.isDataTable($t)) return;
+    /* Skip tables with only colspan rows (empty state) */
+    var bodyRows = $t.find('tbody tr');
+    if (bodyRows.length === 1 && bodyRows.find('td[colspan]').length > 0 && bodyRows.find('td').length === 1) {
+      bodyRows.remove();
+    }
+    var lengths = [10, 25, 50, 100];
+    var initialLen = parseInt($t.data('page-length'), 10) || lengths[0];
+    if (lengths.indexOf(initialLen) === -1) lengths.unshift(initialLen);
+    var dt = $t.DataTable({
+      pageLength: initialLen,
+      lengthMenu: [lengths, lengths],
+      order: [],
+      language: {
+        search: '',
+        searchPlaceholder: 'Search…',
+        emptyTable: 'No records found',
+        info: 'Showing _START_–_END_ of _TOTAL_',
+        lengthMenu: 'Show _MENU_'
+      },
+      dom: "<'row align-items-center mb-2'<'col-sm-6 d-flex align-items-center gap-2'lB><'col-sm-6 text-end'f>>tip",
+      buttons: [
+        {
+          extend: 'excelHtml5',
+          text: '<i class="fas fa-file-export me-1"></i> Export',
+          className: 'btn btn-success btn-sm'
+        }
+      ],
+      exportOptions: { columns: ':not(:last-child)' } 
+    });
+    var lenSelect = $(dt.table().container()).find('.dataTables_length select');
+    lenSelect.val(String(initialLen)).addClass('form-select form-select-sm');
+    $(dt.table().container()).find('.dt-buttons').addClass('ms-1');
+    $(dt.table().container()).find('.dataTables_filter input').off().on('input', debounce(function() {
+      dt.search(this.value).draw();
+    }, 300));
+  });
+});
+
+/* ── Select2 Auto-init ───────────────────────────────────────────────── */
+function wisInitSelect2(container) {
+  container = container || document;
+  $(container).find('select').not('.no-select2').each(function() {
+    if ($(this).hasClass('select2-hidden-accessible')) return;
+    $(this).select2({
+      theme: 'bootstrap-5',
+      width: '100%',
+      placeholder: $(this).attr('placeholder') || 'Select...',
+      allowClear: !$(this).prop('required')
+    });
+  });
+}
+
+$(function() {
+  wisInitSelect2();
+});
+
+/* ═══ WIS Toast + Modal System ═══════════════════════════════════════ */
+window.WIS = window.WIS || {};
+
+/* ── Toast ────────────────────────────────────────────────────────── */
+WIS.toast = function(message, type) {
+  type = type || 'success';
+  var iconMap = { success:'fa-check-circle text-success', error:'fa-times-circle text-danger', danger:'fa-times-circle text-danger', warning:'fa-exclamation-triangle text-warning', info:'fa-info-circle text-info' };
+  var icon = iconMap[type] || iconMap.info;
+  var id = 'toast-' + Date.now();
+  var html = '<div id="'+id+'" class="toast align-items-center border-0 shadow-sm" role="alert" data-bs-autohide="true" data-bs-delay="4000">' +
+    '<div class="toast-body d-flex align-items-center gap-2 py-2 px-3">' +
+    '<i class="fas '+icon+' fa-lg"></i>' +
+    '<span>'+message+'</span>' +
+    '<button type="button" class="btn-close btn-close-sm ms-auto" data-bs-dismiss="toast"></button>' +
+    '</div></div>';
+  $('#wis-toast-container').append(html);
+  var el = document.getElementById(id);
+  new bootstrap.Toast(el).show();
+  el.addEventListener('hidden.bs.toast', function(){ el.remove(); });
+};
+
+/* ── Render Django messages as toasts on page load ─────────────────── */
+{% if messages %}{% for message in messages %}
+WIS.toast('{{ message|escapejs }}', '{{ message.tags|escapejs }}');
+{% endfor %}{% endif %}
+
+/* ── Modal helpers ─────────────────────────────────────────────────── */
+var wisModal = document.getElementById('wis-modal');
+var wisModalInstance = null;
+var wisModalBody = document.getElementById('wis-modal-body');
+var wisModalTitle = document.getElementById('wis-modal-title');
+var wisModalDialog = document.getElementById('wis-modal-dialog');
+
+function wisGetModal() {
+  if (!wisModalInstance) wisModalInstance = new bootstrap.Modal(wisModal);
+  return wisModalInstance;
+}
+
+function wisShowSpinner() {
+  wisModalTitle.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Loading...';
+  wisModalBody.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+}
+
+/* Extract main card content from a full-page HTML string */
+function wisExtractContent(html) {
+  var doc = new DOMParser().parseFromString(html, 'text/html');
+  /* Try wis-form-card first (simple forms), then .card-danger (delete), then first .card or form in content */
+  var card = doc.querySelector('.wis-form-card') || doc.querySelector('.card-danger') || doc.querySelector('.content .container-fluid > form') || doc.querySelector('.content .container-fluid > .card');
+  if (!card) {
+    var cont = doc.querySelector('.content .container-fluid');
+    if (cont) return { title: doc.title || 'Form', body: cont.innerHTML, icon: 'fas fa-edit' };
+    return null;
+  }
+  /* Extract title from page h1 first (most reliable), then card-title, then <title> */
+  var h1 = doc.querySelector('.content-header h1');
+  var titleEl = card.querySelector('.card-title');
+  var title = (h1 ? h1.textContent.trim() : '') || (titleEl ? titleEl.textContent.trim() : '') || (doc.title ? doc.title.replace(' | WIS','') : 'Form');
+  /* Detect icon from card-title or infer from context */
+  var iconEl = titleEl ? titleEl.querySelector('i[class]') : null;
+  var icon = iconEl ? iconEl.className : (card.classList.contains('card-danger') ? 'fas fa-trash-alt' : 'fas fa-edit');
+  /* For form.html forms the card wraps the form; for formset forms the form wraps the cards */
+  var parent = card.closest('form') || card;
+  return { title: title, body: parent.outerHTML, icon: icon };
+}
+
+/* Load a URL into the modal */
+WIS.openModal = function(url, size) {
+  wisShowSpinner();
+  wisModalDialog.className = 'modal-dialog modal-dialog-centered modal-dialog-scrollable ' + (size || 'modal-lg');
+  wisGetModal().show();
+
+  var sep = url.indexOf('?') !== -1 ? '&' : '?';
+  fetch(url + sep + '_modal=1', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      var content = wisExtractContent(html);
+      if (!content) { wisModalBody.innerHTML = '<div class="p-4 text-danger">Failed to load form.</div>'; return; }
+      wisModalTitle.innerHTML = '<i class="' + (content.icon || 'fas fa-edit') + ' me-2"></i>' + content.title;
+      wisModalBody.innerHTML = '<div class="p-3">' + content.body + '</div>';
+      /* Patch form action to include _modal */
+      var form = wisModalBody.querySelector('form');
+      if (form) {
+        if (!form.action || form.action === window.location.href) form.action = url;
+        /* Ensure _modal hidden field */
+        if (!form.querySelector('input[name="_modal"]')) {
+          var h = document.createElement('input');
+          h.type = 'hidden'; h.name = '_modal'; h.value = '1';
+          form.appendChild(h);
+        }
+        /* Bind AJAX submit */
+        form.addEventListener('submit', wisHandleFormSubmit);
+        /* Re-init tooltips */
+        form.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) { new bootstrap.Tooltip(el); });
+        wisInitFormsetFlags();
+        wisInitSelect2(form);
+      }
+    })
+    .catch(function() { wisModalBody.innerHTML = '<div class="p-4 text-danger">Network error.</div>'; });
+};
+
+/* ── Dynamic content refresh ───────────────────────────────────────── */
+WIS.refreshContent = function() {
+  /* Fetch the current page and replace the main content area dynamically */
+  fetch(window.location.href, {
+    credentials: 'same-origin',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  })
+  .then(function(r) { return r.text(); })
+  .then(function(html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    var newContent = doc.querySelector('.content .container-fluid');
+    var curContent = document.querySelector('.content .container-fluid');
+    if (newContent && curContent) {
+      /* Destroy existing DataTables before replacing content */
+      $(curContent).find('.wis-table').each(function() {
+        if ($.fn.DataTable.isDataTable($(this))) {
+          $(this).DataTable().destroy();
+        }
+      });
+      curContent.innerHTML = newContent.innerHTML;
+      /* Re-init DataTables on refreshed content */
+      $(curContent).find('.wis-table').each(function() {
+        var $t = $(this);
+        var bodyRows = $t.find('tbody tr');
+        if (bodyRows.length === 1 && bodyRows.find('td[colspan]').length > 0 && bodyRows.find('td').length === 1) {
+          bodyRows.remove();
+        }
+        var lengths = [10, 25, 50, 100];
+        var initialLen = parseInt($t.data('page-length'), 10) || lengths[0];
+        if (lengths.indexOf(initialLen) === -1) lengths.unshift(initialLen);
+        var dt = $t.DataTable({
+          pageLength: initialLen,
+          lengthMenu: [lengths, lengths],
+          order: [],
+          language: {
+            search: '',
+            searchPlaceholder: 'Search…',
+            emptyTable: 'No records found',
+            info: 'Showing _START_–_END_ of _TOTAL_',
+            lengthMenu: 'Show _MENU_'
+          },
+          dom: "<'row align-items-center mb-2'<'col-sm-6 d-flex align-items-center gap-2'lB><'col-sm-6 text-end'f>>tip",
+          buttons: [
+            {
+              extend: 'excelHtml5',
+              text: '<i class="fas fa-file-export me-1"></i> Export',
+              className: 'btn btn-success btn-sm'
+            }
+          ],
+          exportOptions: { columns: ':not(:last-child)' }
+        });
+        var lenSelect = $(dt.table().container()).find('.dataTables_length select');
+        lenSelect.val(String(initialLen)).addClass('form-select form-select-sm');
+        $(dt.table().container()).find('.dt-buttons').addClass('ms-1');
+        $(dt.table().container()).find('.dataTables_filter input').off().on('input', debounce(function() {
+          dt.search(this.value).draw();
+        }, 300));
+      });
+      /* Re-bind modal triggers */
+      /* (delegated handler on document already covers new elements) */
+      /* Re-init tooltips */
+      $(curContent).find('[data-bs-toggle="tooltip"]').each(function() { new bootstrap.Tooltip(this); });
+      wisInitFormsetFlags();
+      wisInitSelect2(curContent);
+    }
+  })
+  .catch(function() { /* Fallback: full reload if dynamic refresh fails */
+    window.location.reload();
+  });
+};
+
+function wisPruneEmptyFormsetRows(form) {
+  var formsetBodies = form.querySelectorAll('#formset-body');
+  formsetBodies.forEach(function(tbody) {
+    var totalInput = form.querySelector('input[id$="-TOTAL_FORMS"]');
+    var totalCount = totalInput ? parseInt(totalInput.value) : null;
+    tbody.querySelectorAll('.formset-row').forEach(function(row) {
+      var itemField = row.querySelector('select[name$="-item"]');
+      var deleteCheckbox = row.querySelector('input[type="checkbox"][id$="-DELETE"]');
+      var isEmpty = itemField && (itemField.value === '' || itemField.value === null || itemField.value === undefined);
+      if (isEmpty) {
+        if (deleteCheckbox) {
+          deleteCheckbox.checked = true;
+          row.style.display = 'none';
+        } else {
+          row.remove();
+          if (totalInput && totalCount !== null && totalCount > 0) {
+            totalCount -= 1;
+          }
+        }
+      }
+    });
+    if (totalInput && totalCount !== null) {
+      totalInput.value = totalCount;
+    }
+  });
+}
+
+/* Handle form submit inside modal via AJAX */
+function wisHandleFormSubmit(e) {
+  e.preventDefault();
+  var form = e.target;
+  if (form && form.dataset && form.dataset.wisSubmitting === '1') {
+    return;
+  }
+  if (form && form.dataset) {
+    form.dataset.wisSubmitting = '1';
+  }
+  var url = form.action;
+  wisPruneEmptyFormsetRows(form);
+
+  var formData = new FormData(form);
+  /* Show spinner on submit button */
+  var btn = form.querySelector('[type="submit"]');
+  var origBtn = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Saving...'; }
+
+  fetch(url, {
+    method: 'POST',
+    body: formData,
+    credentials: 'same-origin',
+  })
+  .then(function(response) {
+    if (!response.ok && response.status !== 400) throw new Error('Network');
+    var ct = response.headers.get('content-type') || '';
+    if (ct.indexOf('application/json') !== -1) return response.json();
+    return response.text();
+  })
+  .then(function(data) {
+    var btn = form.querySelector('[type="submit"]');
+    if (typeof data === 'object') {
+      /* JSON */
+      if (data.success) {
+        wisGetModal().hide();
+        Swal.fire({ icon: 'success', title: 'Success', text: data.message || 'Saved.' });
+        WIS.refreshContent();
+      } else {
+        var msg = data.message || 'Please check the form.';
+        var parts = msg.split('Details:');
+        if (parts.length > 1) {
+          Swal.fire({ icon: 'error', title: '<strong>' + parts[0].trim() + '</strong>', html: parts[0].trim() + '<br>' + parts.slice(1).join('Details:').trim() });
+        } else {
+          Swal.fire({ icon: 'error', title: 'Error', text: msg });
+        }
+      }
+    } else {
+      /* HTML response - could be form with errors or import summary */
+      var parser = new DOMParser();
+      var doc = parser.parseFromString(data, 'text/html');
+      
+      /* Check if this is an import summary (card without form) */
+      var summaryCard = doc.querySelector('.card');
+      var hasForm = doc.querySelector('form');
+      
+      if (summaryCard && !hasForm) {
+        /* Import summary modal - replace entire modal body */
+        var content = wisExtractContent(data);
+        if (content) {
+          wisModalTitle.innerHTML = '<i class="' + (content.icon || 'fas fa-check-circle') + ' me-2"></i>' + content.title;
+          wisModalBody.innerHTML = '<div class="p-3">' + content.body + '</div>';
+          /* Execute any scripts in the summary */
+          var scripts = doc.querySelectorAll('script');
+          scripts.forEach(function(s) {
+            var script = document.createElement('script');
+            if (s.src) { script.src = s.src; } else { script.textContent = s.textContent; }
+            document.body.appendChild(script);
+          });
+        }
+        if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
+        if (form && form.dataset) { form.dataset.wisSubmitting = '0'; }
+        return;
+      }
+      
+      /* Form with validation errors */
+      var newForm = doc.querySelector('form');
+      if (newForm) {
+        form.innerHTML = newForm.innerHTML;
+        var csrfInput = form.querySelector('input[name="csrfmiddlewaretoken"]');
+        if (!csrfInput) {
+          var h = document.createElement('input');
+          h.type = 'hidden'; h.name = 'csrfmiddlewaretoken'; h.value = getCookie('csrftoken');
+          form.appendChild(h);
+        }
+        var modalInput = form.querySelector('input[name="_modal"]');
+        if (!modalInput) {
+          var h = document.createElement('input');
+          h.type = 'hidden'; h.name = '_modal'; h.value = '1';
+          form.appendChild(h);
+        }
+        /* Ensure formset DELETE checkboxes and IDs remain wired */
+        var hiddenFields = doc.querySelectorAll('input[type="hidden"]');
+        hiddenFields.forEach(function(h) {
+          if (!form.querySelector('input[name="' + h.name + '"]')) {
+            var clone = h.cloneNode(true);
+            form.appendChild(clone);
+          }
+        });
+        form.addEventListener('submit', wisHandleFormSubmit);
+        var newHeaders = doc.querySelectorAll('h3, h4');
+        if (newHeaders.length && form.previousElementSibling) {
+          form.previousElementSibling.innerHTML = newHeaders[0].innerHTML;
+        }
+        /* Rebind events for the new form */
+        var scripts = doc.querySelectorAll('script');
+        scripts.forEach(function(s) {
+          var h = document.createElement('script');
+          if (s.src) { h.src = s.src; } else { h.textContent = s.textContent; }
+          form.appendChild(h);
+        });
+        /* Re-attach handler to nested forms if any */
+        var nestedForms = form.querySelectorAll('form');
+        nestedForms.forEach(function(nf) {
+          nf.addEventListener('submit', wisHandleFormSubmit);
+        });
+        Swal.fire({ icon: 'warning', title: 'Validation', text: 'Please fix the errors below.' });
+        if (form && form.dataset) { form.dataset.wisSubmitting = '0'; }
+      }
+    }
+  })
+  .catch(function(err) {
+    Swal.fire({ icon: 'error', title: 'Error', text: 'An error occurred. Please try again.' });
+    if (window.console) console.error(err);
+  })
+  .finally(function() {
+    if (btn) { btn.disabled = false; btn.innerHTML = origBtn; }
+    if (form && form.dataset) { form.dataset.wisSubmitting = '0'; }
+  });
+}
+
+// Prune empty formset rows for normal (non-AJAX) form submits too
+$(document).on('submit', 'form', function(evt) {
+  // wisHandleFormSubmit already prunes; only do here when not prevented
+  if (evt.isDefaultPrevented()) return;
+  wisPruneEmptyFormsetRows(this);
+});
+
+/* ── Click handler for modal triggers ─────────────────────────────── */
+$(document).on('click', '[data-modal-url]', function(e) {
+  e.preventDefault();
+  var url = $(this).data('modal-url');
+  var size = $(this).data('modal-size') || 'modal-lg';
+  WIS.openModal(url, size);
+});
+
+/* ── Formset delete row handler ──────────────────────────────────── */
+$(document).on('click', '.formset-delete-row', function(e) {
+  e.preventDefault();
+  var row = $(this).closest('.formset-row');
+  var deleteCheckbox = row.find('input[type="checkbox"][id$="-DELETE"]');
+  // If existing form (has DELETE checkbox), flag and hide; if new row (no DELETE checkbox), remove entirely
+  if (deleteCheckbox.length) {
+    deleteCheckbox.prop('checked', true);
+    row.hide();
+  } else {
+    row.remove();
+    // decrement TOTAL_FORMS for purely client-added rows if needed
+    var totalForms = $(this).closest('form').find('input[id$="-TOTAL_FORMS"]');
+    if (totalForms.length) {
+      var count = Math.max(parseInt(totalForms.val()) - 1, 0);
+      totalForms.val(count);
+    }
+  }
+});
+
+/* ── Formset flag toggle (trash ↔ ban) ───────────────────────────── */
+$(document).on('click', '.formset-flag-btn', function(e) {
+  e.preventDefault();
+  var btn = $(this);
+  var row = btn.closest('.formset-row');
+  var deleteCheckbox = row.find('input[type="checkbox"][id$="-DELETE"]');
+  if (!deleteCheckbox.length) return;
+  var isChecked = deleteCheckbox.prop('checked');
+  if (isChecked) {
+    // Unflag
+    deleteCheckbox.prop('checked', false);
+    btn.removeClass('text-danger').addClass('text-secondary');
+    btn.find('i').removeClass('fa-ban').addClass('fa-trash');
+    row.removeClass('table-danger');
+  } else {
+    // Flag
+    deleteCheckbox.prop('checked', true);
+    btn.removeClass('text-secondary').addClass('text-danger');
+    btn.find('i').removeClass('fa-trash').addClass('fa-ban');
+    row.addClass('table-danger');
+  }
+});
+
+function wisInitFormsetFlags() {
+  $('.formset-row').each(function() {
+    var row = $(this);
+    var hasDelete = row.find('input[id$="-DELETE"]').length > 0;
+    var hasPk = row.find('input[id$="-id"]').val();
+    if (!hasDelete || !hasPk) {
+      row.find('.formset-flag-btn').hide();
+    }
+  });
+}
+
+/* ── Formset add row handler ─────────────────────────────────────── */
+$(document).on('click', '.formset-add-row', function(e) {
+  e.preventDefault();
+  var form = $(this).closest('form');
+  var tbody = form.find('#formset-body');
+  var totalForms = form.find('input[id$="-TOTAL_FORMS"]');
+  if (!totalForms.length) return;
+
+  var formIdx = parseInt(totalForms.val());
+  var tmpl = $('#formset-empty-row').html();
+  var emptyRow = $(tmpl.replace(/__prefix__/g, formIdx));
+  
+  emptyRow.find('input, select, textarea').each(function() {
+    var name = $(this).attr('name');
+    var id = $(this).attr('id');
+    if (name) {
+      $(this).attr('name', name.replace(/__prefix__/g, formIdx));
+    }
+    if (id) {
+      $(this).attr('id', id.replace(/__prefix__/g, formIdx));
+    }
+    if ($(this).is('input[type="checkbox"]')) {
+      $(this).prop('checked', false).hide();
+    } else {
+      $(this).val('');
+      if ($(this).is('select')) {
+        $(this).trigger('change');
+      }
+    }
+  });
+  
+  // Reset flag button to trash state
+  emptyRow.find('.formset-flag-btn').removeClass('text-danger').addClass('text-secondary');
+  emptyRow.find('.formset-flag-btn i').removeClass('fa-ban').addClass('fa-trash');
+  emptyRow.removeClass('table-danger');
+  if (!emptyRow.find('input[id$="-DELETE"]').length) {
+    emptyRow.find('.formset-flag-btn').hide();
+  }
+
+  emptyRow.find('.formset-delete-row').show();
+  emptyRow.find('input[id$="-DELETE"]').prop('checked', false).hide();
+  emptyRow.show();
+  tbody.append(emptyRow);
+  totalForms.val(formIdx + 1);
+  
+  // Init Select2 on new row selects
+  wisInitSelect2(emptyRow[0]);
+});
+
+/* Reset modal on close */
+wisModal.addEventListener('hidden.bs.modal', function() {
+  wisShowSpinner();
+});
+
+/* ── Item image thumbnail in formset rows ────────────────────────── */
+var _itemImageCache = {};
+function wisUpdateItemThumb(selectEl) {
+  var $sel = $(selectEl);
+  var row = $sel.closest('.formset-row');
+  if (!row.length) return;
+  var thumb = row.find('.formset-item-thumb');
+  if (!thumb.length) {
+    thumb = $('<img class="formset-item-thumb" alt="" loading="lazy">');
+    $sel.closest('td').prepend(thumb);
+  }
+  var itemId = $sel.val();
+  if (!itemId) { thumb.removeClass('loaded').attr('src', ''); return; }
+  if (_itemImageCache[itemId] !== undefined) {
+    if (_itemImageCache[itemId]) { thumb.attr('src', _itemImageCache[itemId]).addClass('loaded'); }
+    else { thumb.removeClass('loaded').attr('src', ''); }
+    return;
+  }
+  $.getJSON('/api/items/' + itemId + '/', function(data) {
+    _itemImageCache[itemId] = data.image || '';
+    if (data.image) { thumb.attr('src', data.image).addClass('loaded'); }
+    else { thumb.removeClass('loaded').attr('src', ''); }
+  }).fail(function() { _itemImageCache[itemId] = ''; thumb.removeClass('loaded'); });
+}
+$(document).on('change', '.formset-table select[name$="-item"]', function() { wisUpdateItemThumb(this); });
+$(document).on('select2:select', '.formset-table select[name$="-item"]', function() { wisUpdateItemThumb(this); });
+/* Init thumbs for existing rows on modal open */
+var _origOpenModal = WIS.openModal;
+WIS.openModal = function(url, size) {
+  _origOpenModal(url, size);
+  setTimeout(function() {
+    $('.formset-table select[name$="-item"]').each(function() { if ($(this).val()) wisUpdateItemThumb(this); });
+  }, 800);
+};
+
+/* ── PDF Export (print-to-PDF) ─────────────────────────────────────── */
+$(document).on('click', '.wis-export-pdf', function() {
+  window.print();
+});
+
+/* ── Excel Export for report tables ────────────────────────────────── */
+$(document).on('click', '.wis-export-excel', function() {
+  var table = document.getElementById('report-table');
+  if (!table) { table = document.querySelector('.pnl-table'); }
+  if (!table) { WIS.toast('No report table found to export.', 'warning'); return; }
+  var rows = table.querySelectorAll('tr');
+  var csv = [];
+  rows.forEach(function(row) {
+    var cols = row.querySelectorAll('th, td');
+    var rowData = [];
+    cols.forEach(function(col) {
+      var img = col.querySelector('img');
+      if (img) { rowData.push(''); return; }
+      var placeholder = col.querySelector('.item-thumb-placeholder');
+      if (placeholder) { rowData.push(''); return; }
+      var progress = col.querySelector('.progress');
+      if (progress) { rowData.push(progress.getAttribute('title') || ''); return; }
+      var text = col.innerText.replace(/[\r\n]+/g, ' ').trim();
+      text = text.replace(/"/g, '""');
+      rowData.push('"' + text + '"');
+    });
+    csv.push(rowData.join(','));
+  });
+  var csvContent = '\uFEFF' + csv.join('\n');
+  var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  var title = document.querySelector('.content-header h1');
+  a.href = url;
+  a.download = (title ? title.innerText.replace(/[^a-zA-Z0-9]/g, '_') : 'report') + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// Image preview lightbox
+const lightbox = document.createElement('div');
+lightbox.id = 'wis-image-lightbox';
+lightbox.innerHTML = '<span class="close-btn" aria-label="Close">&times;</span><img alt="Preview">';
+document.body.appendChild(lightbox);
+const lbImg = lightbox.querySelector('img');
+const lbClose = lightbox.querySelector('.close-btn');
+function wisCloseLightbox() { lightbox.style.display = 'none'; lbImg.src = ''; }
+$(document).on('click', '.formset-item-thumb, .item-thumb', function() {
+  const src = $(this).attr('src');
+  if (!src) return;
+  lbImg.src = src;
+  lightbox.style.display = 'flex';
+});
+lbClose.addEventListener('click', wisCloseLightbox);
+lightbox.addEventListener('click', function(e) { if (e.target === lightbox) wisCloseLightbox(); });
+</script>
+<style media="print">
+  @page { size: landscape; margin: 10mm; }
+  body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .main-sidebar, .main-header, .main-footer, .content-header,
+  .wis-export-pdf, .dt-buttons, .dataTables_filter, .dataTables_length,
+  .dataTables_paginate, .dataTables_info, .period-toggle, .quick-action,
+  .small-box-footer, .card-footer, .dash-skeleton, .toast-container,
+  #wis-modal, #wis-toast-container, .driver-popover, .driver-overlay,
+  form[method="get"], .btn-group.period-toggle { display: none !important; }
+  .content-wrapper { margin-left: 0 !important; padding: 0 !important; min-height: auto !important; }
+  .card { break-inside: avoid; box-shadow: none !important; border: 1px solid #dee2e6 !important; }
+  .small-box { break-inside: avoid; }
+  table { font-size: .75rem !important; }
+</style>
+<!-- Driver.js Tour -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js"></script>
+<script src="{% static 'theme/js/tour.js' %}"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

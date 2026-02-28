@@ -1,0 +1,62 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Refund — {{ original_sale.sale_no }}{% endblock %}
+{% block page_title %}Refund — {{ original_sale.sale_no }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'pos_receipt_list' %}">Receipts</a></li>
+<li class="breadcrumb-item"><a href="{% url 'pos_receipt_detail' pk=original_sale.pk %}">{{ original_sale.sale_no }}</a></li>
+<li class="breadcrumb-item active">Refund</li>
+{% endblock %}
+
+{% block content %}
+<form method="post">
+  {% csrf_token %}
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">Select Lines to Refund</h3></div>
+    <div class="card-body table-responsive p-0">
+      <table class="table table-bordered table-striped">
+        <thead>
+          <tr>
+            <th style="width:40px"><input type="checkbox" id="select-all"></th>
+            <th>Item</th>
+            <th>Code</th>
+            <th>Original Qty</th>
+            <th>Unit Price</th>
+            <th>Refund Qty</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in original_sale.lines.all %}
+          <tr>
+            <td><input type="checkbox" name="refund_lines" value="{{ line.pk }}" class="line-check"></td>
+            <td>{{ line.item.name }}</td>
+            <td><code>{{ line.item.code }}</code></td>
+            <td>{{ line.qty }}</td>
+            <td>{{ line.unit_price }}</td>
+            <td><input type="number" name="qty_{{ line.pk }}" value="{{ line.qty }}" step="0.0001" min="0.0001" max="{{ line.qty }}" class="form-control form-control-sm" style="width:100px"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-body">
+      <div class="form-group">
+        <label class="form-label">Reason</label>
+        <textarea name="reason" class="form-control" rows="2" placeholder="Reason for refund..."></textarea>
+      </div>
+    </div>
+    <div class="card-footer">
+      <button type="submit" class="btn btn-warning"><i class="fas fa-undo mr-1"></i> Process Refund</button>
+      <a href="{% url 'pos_receipt_detail' pk=original_sale.pk %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i> Cancel</a>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$('#select-all').change(function() {
+  $('.line-check').prop('checked', this.checked);
+});
+</script>
+{% endblock %}

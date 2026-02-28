@@ -1,0 +1,85 @@
+{% load humanize %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ doc_title }} {{ doc_number }}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #333; padding: 30px; }
+    .header { display: flex; justify-content: space-between; margin-bottom: 30px; border-bottom: 3px solid #007bff; padding-bottom: 15px; }
+    .header .company h2 { color: #007bff; margin-bottom: 4px; }
+    .header .company p { margin: 2px 0; font-size: 12px; color: #666; }
+    .header .doc-title { text-align: right; }
+    .header .doc-title h1 { font-size: 26px; color: #007bff; letter-spacing: 2px; }
+    .header .doc-title p { margin: 2px 0; font-size: 12px; }
+    .info-row { display: flex; justify-content: space-between; margin-bottom: 20px; }
+    .info-box { flex: 1; }
+    .info-box strong { display: block; margin-bottom: 4px; color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    th { background: #f4f6f9; color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; border-bottom: 2px solid #dee2e6; text-align: left; }
+    td { padding: 7px 10px; border-bottom: 1px solid #eee; }
+    .text-right { text-align: right; }
+    .badge { padding: 3px 10px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+    .badge-draft { background: #6c757d; color: #fff; }
+    .badge-approved { background: #17a2b8; color: #fff; }
+    .badge-posted { background: #28a745; color: #fff; }
+    .badge-cancelled { background: #dc3545; color: #fff; }
+    .totals td { border-bottom: none; padding: 4px 10px; }
+    .totals .grand { font-size: 16px; font-weight: 700; color: #007bff; border-top: 2px solid #007bff; padding-top: 8px; }
+    .footer { margin-top: 30px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
+    .sig-row { display: flex; justify-content: space-between; margin-top: 50px; }
+    .sig-box { width: 200px; text-align: center; }
+    .sig-box .sig-line { border-top: 1px solid #333; margin-top: 40px; padding-top: 4px; font-size: 11px; color: #666; }
+    @media print { body { padding: 0; } @page { margin: 15mm; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="company">
+      {% if profile.logo %}<img src="{{ profile.logo.url }}" alt="Logo" style="max-height:50px;margin-bottom:8px;display:block;">{% endif %}
+      <h2>{{ profile.name }}</h2>
+      <p>{{ profile.address }}</p>
+      <p>{{ profile.city }}{% if profile.province %}, {{ profile.province }}{% endif %} {{ profile.zip_code }}</p>
+      <p>{{ profile.phone }}{% if profile.email %} | {{ profile.email }}{% endif %}</p>
+      {% if profile.tin %}<p>TIN: {{ profile.tin }}</p>{% endif %}
+    </div>
+    <div class="doc-title">
+      <h1>{{ doc_title }}</h1>
+      <p><strong>{{ doc_number }}</strong></p>
+      {% block doc_header_info %}{% endblock %}
+      <p>
+        <span class="badge badge-{{ doc.status|lower }}">{{ doc.status }}</span>
+      </p>
+    </div>
+  </div>
+
+  <div class="info-row">
+    {% block info_boxes %}{% endblock %}
+  </div>
+
+  {% block doc_table %}{% endblock %}
+
+  {% if doc.notes %}<p style="margin-top:15px;"><strong>Notes:</strong> {{ doc.notes }}</p>{% endif %}
+
+  <div class="sig-row">
+    <div class="sig-box">
+      <div class="sig-line">Prepared by: {{ doc.created_by.get_full_name|default:doc.created_by.username }}</div>
+    </div>
+    {% if doc.approved_by %}
+    <div class="sig-box">
+      <div class="sig-line">Approved by: {{ doc.approved_by.get_full_name|default:doc.approved_by.username }}</div>
+    </div>
+    {% endif %}
+    <div class="sig-box">
+      <div class="sig-line">Received by</div>
+    </div>
+  </div>
+
+  {% if profile.receipt_footer %}
+  <div class="footer">{{ profile.receipt_footer }}</div>
+  {% endif %}
+
+  <script>window.onload = function(){ window.print(); };</script>
+</body>
+</html>

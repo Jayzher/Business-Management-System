@@ -1,0 +1,52 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Close Shift #{{ shift.pk }}{% endblock %}
+{% block page_title %}Close Shift #{{ shift.pk }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'pos_shift_list' %}">Shifts</a></li>
+<li class="breadcrumb-item active">Close Shift</li>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Shift Summary</h3></div>
+      <div class="card-body">
+        <table class="table table-bordered">
+          <tr><th>Register</th><td>{{ shift.register.name }}</td></tr>
+          <tr><th>Opened By</th><td>{{ shift.opened_by }}</td></tr>
+          <tr><th>Opened At</th><td>{{ shift.opened_at }}</td></tr>
+          <tr><th>Opening Cash</th><td>{{ shift.opening_cash }}</td></tr>
+          <tr><th>Cash Sales</th><td>{{ shift.cash_sales_total }}</td></tr>
+          <tr><th>Non-Cash Sales</th><td>{{ shift.noncash_sales_total }}</td></tr>
+          <tr><th>Refunds</th><td>{{ shift.refund_total }}</td></tr>
+          <tr><th>Cash In/Out</th><td>{{ shift.cash_in_out_total }}</td></tr>
+          <tr class="table-info"><th>Expected Cash</th><td><strong>{{ shift.expected_cash }}</strong></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card card-warning">
+      <div class="card-header"><h3 class="card-title">Declare Closing Cash</h3></div>
+      <form method="post">
+        {% csrf_token %}
+        <div class="card-body">
+          {% for field in form %}
+          <div class="form-group mb-3">
+            <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}<div class="text-danger small">{{ field.errors.0 }}</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        <div class="card-footer">
+          <button type="submit" class="btn btn-warning"><i class="fas fa-lock mr-1"></i> Close Shift</button>
+          <a href="{% url 'pos_terminal' shift_id=shift.pk %}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

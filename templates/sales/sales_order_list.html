@@ -1,0 +1,50 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Sales Orders{% endblock %}
+{% block page_title %}Sales Orders{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Sales Orders</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-file-invoice-dollar mr-1"></i> Sales Orders</h3>
+    <div class="card-tools">
+      <a href="#" data-modal-url="{% url 'sales_order_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
+      <a href="#" data-modal-url="{% url 'sales_order_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New SO</a>
+    </div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover table-striped text-nowrap wis-table">
+      <thead>
+        <tr><th>SO #</th><th>Customer</th><th>Warehouse</th><th>Order Date</th><th>Delivery Date</th><th>Status</th><th>Created By</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for order in orders %}
+        <tr>
+          <td><a href="{% url 'sales_order_detail' order.pk %}">{{ order.document_number }}</a></td>
+          <td>{{ order.customer.name }}</td>
+          <td>{{ order.warehouse.code }}</td>
+          <td>{{ order.order_date|date:"M d, Y" }}</td>
+          <td>{{ order.delivery_date|date:"M d, Y"|default:"-" }}</td>
+          <td>
+            {% if order.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif order.status == 'APPROVED' %}<span class="badge bg-info">Approved</span>
+            {% elif order.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif order.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td>
+          <td>{{ order.created_by.get_full_name|default:order.created_by.username }}</td>
+          <td>
+            <a href="{% url 'sales_order_detail' order.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
+            {% if order.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'sales_order_edit' order.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>{% endif %}
+            <a href="#" data-modal-url="{% url 'sales_order_delete' order.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="text-center text-muted">No sales orders.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

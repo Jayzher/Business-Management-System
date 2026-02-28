@@ -1,0 +1,13 @@
+Creating test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+
+test_new_modules_full_flow (tests.test_e2e_new_modules.NewModulesFlowTest.test_new_modules_full_flow) ... Not Found: /favicon.ico
+ok
+[15/Feb/2026 07:46:00,822] - Broken pipe from ('127.0.0.1', 55752)
+[15/Feb/2026 07:46:00,823] - Broken pipe from ('127.0.0.1', 55957)
+
+----------------------------------------------------------------------
+Ran 1 test in 171.551s
+
+OK
+Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+

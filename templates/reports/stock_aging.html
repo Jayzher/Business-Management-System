@@ -1,0 +1,99 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+
+{% block title %}Stock Aging Report{% endblock %}
+{% block page_title %}Stock Aging Report{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'reports_dashboard' %}">Reports</a></li>
+<li class="breadcrumb-item active">Stock Aging</li>
+{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card card-outline card-primary mb-3">
+  <div class="card-body py-2">
+    <form method="get" class="row align-items-end g-2">
+      <div class="col-md-3">
+        <label class="form-label small mb-0">Warehouse</label>
+        <select name="warehouse" class="form-control form-control-sm">
+          <option value="">All Warehouses</option>
+          {% for wh in warehouses %}
+          <option value="{{ wh.pk }}" {% if selected_warehouse == wh.pk|stringformat:"d" %}selected{% endif %}>{{ wh.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-filter mr-1"></i> Filter</button>
+      </div>
+      <div class="col-md-7 text-end">
+        <button type="button" class="btn btn-outline-secondary btn-sm wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> Export PDF</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Bucket Summary -->
+<div class="row mb-3">
+  {% for bucket, data in bucket_summary.items %}
+  <div class="col-lg col-md-4 col-6 mb-2">
+    <div class="card {% if '180' in bucket %}border-danger{% elif '91' in bucket %}border-warning{% elif '61' in bucket %}border-info{% else %}border-success{% endif %}">
+      <div class="card-body py-2 px-3 text-center">
+        <p class="mb-0 small text-muted">{{ bucket }}</p>
+        <h5 class="mb-0 {% if '180' in bucket %}text-danger{% elif '91' in bucket %}text-warning{% elif '61' in bucket %}text-info{% else %}text-success{% endif %}">{{ data.count }} items</h5>
+        <small class="text-muted">{{ data.value|floatformat:2|intcomma }} value</small>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="col-12">
+    <div class="alert alert-info"><i class="fas fa-info-circle mr-1"></i> No stock data available.</div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Detail Table -->
+<div class="card">
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-clock mr-1"></i> Stock Aging Detail</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover table-sm wis-datatable mb-0">
+      <thead>
+        <tr>
+          <th>Item Code</th>
+          <th>Item Name</th>
+          <th>Warehouse</th>
+          <th>Location</th>
+          <th class="text-end">Qty</th>
+          <th class="text-end">Cost Price</th>
+          <th class="text-end">Value</th>
+          <th class="text-end">Age (Days)</th>
+          <th>Bucket</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in aging_data %}
+        <tr>
+          <td><strong>{{ row.item_code }}</strong></td>
+          <td>{{ row.item_name }}</td>
+          <td>{{ row.warehouse }}</td>
+          <td><code>{{ row.location }}</code></td>
+          <td class="text-end">{{ row.qty|floatformat:2 }}</td>
+          <td class="text-end">{{ row.cost_price|floatformat:2|intcomma }}</td>
+          <td class="text-end">{{ row.value|floatformat:2|intcomma }}</td>
+          <td class="text-end {% if row.age_days > 180 %}text-danger fw-bold{% elif row.age_days > 90 %}text-warning{% endif %}">{{ row.age_days }}</td>
+          <td>
+            {% if row.bucket_order >= 5 %}<span class="badge bg-danger">{{ row.bucket }}</span>
+            {% elif row.bucket_order == 4 %}<span class="badge bg-warning text-dark">{{ row.bucket }}</span>
+            {% elif row.bucket_order == 3 %}<span class="badge bg-info">{{ row.bucket }}</span>
+            {% elif row.bucket_order == 2 %}<span class="badge bg-primary">{{ row.bucket }}</span>
+            {% else %}<span class="badge bg-success">{{ row.bucket }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="9" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No stock to display.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

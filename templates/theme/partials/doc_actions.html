@@ -1,0 +1,77 @@
+{% comment %}
+Reusable document action buttons partial.
+Required context:
+  - obj: the document object
+  - edit_url_name: URL name for edit view (optional)
+  - delete_url_name: URL name for delete view
+  - approve_url_name: URL name for approve action (optional)
+  - post_url_name: URL name for post action (optional)
+  - cancel_url_name: URL name for cancel action (optional)
+  - print_url_name: URL name for print view (optional)
+  - list_url_name: URL name for back/list view
+  - use_modal_edit: if True, edit opens in modal-xl (default True)
+{% endcomment %}
+{% load i18n %}
+
+<div class="mb-3 d-flex align-items-center justify-content-between flex-wrap doc-actions">
+  <div class="d-flex align-items-center mb-2 mb-sm-0">
+    <a href="{% url list_url_name %}" class="btn btn-secondary mr-2">
+      <i class="fas fa-arrow-left me-1"></i> Back
+    </a>
+  </div>
+  <div class="d-flex flex-wrap align-items-center">
+    {% if obj.status == 'DRAFT' and edit_url_name %}
+      <a href="#" data-modal-url="{% url edit_url_name obj.pk %}" data-modal-size="modal-xl" class="btn btn-warning mr-2 mb-2">
+        <i class="fas fa-edit me-1"></i> Edit
+      </a>
+    {% endif %}
+
+    {% if obj.status == 'DRAFT' and approve_url_name %}
+      <form method="post" action="{% url approve_url_name obj.pk %}" class="d-inline mr-2 mb-2">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-info" onclick="return confirm('Approve this document?')">
+          <i class="fas fa-thumbs-up me-1"></i> Approve
+        </button>
+      </form>
+    {% endif %}
+
+    {% if post_url_name %}
+      {% if obj.status == 'DRAFT' and not approve_url_name %}
+        <form method="post" action="{% url post_url_name obj.pk %}" class="d-inline mr-2 mb-2">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-success" onclick="return confirm('Post this document? This will update stock balances.')">
+            <i class="fas fa-check-circle me-1"></i> Post
+          </button>
+        </form>
+      {% elif obj.status == 'APPROVED' %}
+        <form method="post" action="{% url post_url_name obj.pk %}" class="d-inline mr-2 mb-2">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-success" onclick="return confirm('Post this document? This will update stock balances.')">
+            <i class="fas fa-check-circle me-1"></i> Post
+          </button>
+        </form>
+      {% endif %}
+    {% endif %}
+
+    {% if cancel_url_name and obj.status != 'CANCELLED' %}
+      <form method="post" action="{% url cancel_url_name obj.pk %}" class="d-inline mr-2 mb-2">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Cancel this document? This action cannot be undone.')">
+          <i class="fas fa-ban me-1"></i> Cancel
+        </button>
+      </form>
+    {% endif %}
+
+    {% if print_url_name %}
+      <a href="{% url print_url_name obj.pk %}" class="btn btn-outline-primary mr-2 mb-2" target="_blank">
+        <i class="fas fa-print me-1"></i> Print
+      </a>
+    {% endif %}
+
+    {% if obj.status == 'DRAFT' and delete_url_name %}
+      <a href="#" data-modal-url="{% url delete_url_name obj.pk %}" class="btn btn-danger mb-2">
+        <i class="fas fa-trash me-1"></i> Delete
+      </a>
+    {% endif %}
+  </div>
+</div>

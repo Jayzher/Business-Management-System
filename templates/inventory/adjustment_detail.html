@@ -1,0 +1,78 @@
+{% extends "theme/base.html" %}
+
+{% block title %}{{ adjustment.document_number }}{% endblock %}
+{% block page_title %}{{ adjustment.document_number }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'adjustment_list' %}">Adjustments</a></li>
+<li class="breadcrumb-item active">{{ adjustment.document_number }}</li>
+{% endblock %}
+
+{% block content %}
+{% include "theme/partials/status_workflow.html" with status=adjustment.status doc_type="Adjustment" show_approved=True %}
+{% include "theme/partials/doc_actions.html" with obj=adjustment edit_url_name="adjustment_edit" delete_url_name="adjustment_delete" approve_url_name="adjustment_approve" post_url_name="adjustment_post" cancel_url_name="adjustment_cancel" list_url_name="adjustment_list" %}
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-sliders-h me-2 text-primary"></i>Adjustment Details</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Adjustment #</th><td><strong>{{ adjustment.document_number }}</strong></td></tr>
+          <tr><th>Status</th><td>
+            {% if adjustment.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif adjustment.status == 'APPROVED' %}<span class="badge bg-info">Approved</span>
+            {% elif adjustment.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif adjustment.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td></tr>
+          <tr><th>Warehouse</th><td>{{ adjustment.warehouse.code }} - {{ adjustment.warehouse.name }}</td></tr>
+          <tr><th>Reason</th><td>{{ adjustment.reason|default:"-" }}</td></tr>
+          <tr><th>Notes</th><td>{{ adjustment.notes|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle me-2 text-secondary"></i>Audit Trail</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Created By</th><td>{{ adjustment.created_by.get_full_name|default:adjustment.created_by.username }}</td></tr>
+          <tr><th>Created At</th><td>{{ adjustment.created_at|date:"M d, Y H:i" }}</td></tr>
+          <tr><th>Approved By</th><td>{{ adjustment.approved_by.get_full_name|default:"-" }}</td></tr>
+          <tr><th>Approved At</th><td>{{ adjustment.approved_at|date:"M d, Y H:i"|default:"-" }}</td></tr>
+          <tr><th>Posted By</th><td>{{ adjustment.posted_by.get_full_name|default:"-" }}</td></tr>
+          <tr><th>Posted At</th><td>{{ adjustment.posted_at|date:"M d, Y H:i"|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-list me-2 text-success"></i>Adjustment Lines</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover detail-lines-table mb-0">
+      <thead>
+        <tr><th>Item</th><th>Location</th><th class="text-end">Qty System</th><th class="text-end">Qty Counted</th><th class="text-end">Difference</th><th>Unit</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for line in adjustment.lines.all %}
+        <tr>
+          <td>{% include "theme/partials/item_cell.html" with item=line.item %}</td>
+          <td>{{ line.location.code }}</td>
+          <td class="text-end">{{ line.qty_system }}</td>
+          <td class="text-end">{{ line.qty_counted }}</td>
+          <td class="text-end {% if line.qty_difference > 0 %}text-success{% elif line.qty_difference < 0 %}text-danger{% endif %}">
+            {% if line.qty_difference > 0 %}+{% endif %}{{ line.qty_difference }}
+          </td>
+          <td>{{ line.unit.abbreviation }}</td>
+          <td>{{ line.notes|default:"-" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

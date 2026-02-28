@@ -1,0 +1,44 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Stock Movements{% endblock %}
+{% block page_title %}Stock Movements{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Stock Movements</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Posted Stock Movements</h3></div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr><th>Type</th><th>Item</th><th>Qty</th><th>Unit</th><th>From</th><th>To</th><th>Batch #</th><th>Serial #</th><th>Reference</th><th>Posted By</th><th>Posted At</th></tr>
+      </thead>
+      <tbody>
+        {% for move in moves %}
+        <tr>
+          <td>
+            {% if move.move_type == 'RECEIVE' %}<span class="badge bg-success">{{ move.move_type }}</span>
+            {% elif move.move_type == 'DELIVER' %}<span class="badge bg-primary">{{ move.move_type }}</span>
+            {% elif move.move_type == 'TRANSFER' %}<span class="badge bg-info">{{ move.move_type }}</span>
+            {% elif move.move_type == 'DAMAGE' %}<span class="badge bg-danger">{{ move.move_type }}</span>
+            {% elif move.move_type == 'ADJUST' %}<span class="badge bg-warning">{{ move.move_type }}</span>
+            {% else %}<span class="badge bg-secondary">{{ move.move_type }}</span>{% endif %}
+          </td>
+          <td>{{ move.item.code }}</td>
+          <td>{{ move.qty }}</td>
+          <td>{{ move.unit.abbreviation }}</td>
+          <td>{{ move.from_location.code|default:"-" }}</td>
+          <td>{{ move.to_location.code|default:"-" }}</td>
+          <td>{{ move.batch_number|default:"-" }}</td>
+          <td>{{ move.serial_number|default:"-" }}</td>
+          <td>{{ move.reference_number|default:"-" }}</td>
+          <td>{{ move.created_by.get_full_name|default:move.created_by.username }}</td>
+          <td>{{ move.posted_at|date:"M d, H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="11" class="text-center text-muted">No stock movements.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

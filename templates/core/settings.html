@@ -1,0 +1,194 @@
+{% extends "theme/base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block extra_js %}{{ block.super }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var triggers = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+  triggers.forEach(function(el){ new bootstrap.Tooltip(el); });
+});
+</script>
+{% endblock %}
+{% block page_title %}Business Settings{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Settings</li>{% endblock %}
+
+{% block extra_css %}
+<style>
+  .settings-card { border: none; box-shadow: 0 0 15px rgba(0,0,0,.05); border-radius: 10px; overflow: hidden; }
+  .settings-card .card-header { background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%); border-bottom: 2px solid #e9ecef; padding: .7rem 1.1rem; }
+  .settings-card .card-header .card-title { font-size: .95rem; font-weight: 700; }
+  .settings-card .form-label { font-weight: 600; font-size: .82rem; color: #495057; margin-bottom: .25rem; }
+  .settings-card .form-control,
+  .settings-card .form-select,
+  .settings-card select { font-size: .88rem; padding: .42rem .65rem; border-radius: 6px; border: 1px solid #dee2e6; }
+  .settings-card input[type="file"] { padding: .42rem .65rem; height: auto; border-radius: 6px; border: 1px solid #dee2e6; }
+  .settings-card .form-control:focus { border-color: #86b7fe; box-shadow: 0 0 0 .2rem rgba(13,110,253,.15); }
+  .settings-card textarea.form-control { min-height: 80px; }
+  .settings-section { border-bottom: 1px solid #f0f0f0; padding-bottom: .85rem; margin-bottom: .85rem; }
+  .settings-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .settings-section-title { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: #6c757d; margin-bottom: .75rem; }
+  .checklist-item { padding: .55rem .75rem; border-bottom: 1px solid #f0f0f0; transition: background .15s; }
+  .checklist-item:last-child { border-bottom: none; }
+  .checklist-item:hover { background: #f8f9fa; }
+  .checklist-icon { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: .7rem; }
+  .help-tooltip { color: #17a2b8; cursor: help; font-size: .8rem; margin-left: 4px; }
+  .help-tooltip:hover { color: #0d6efd; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-lg-8">
+    <form method="post" enctype="multipart/form-data" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+      <div class="alert alert-danger alert-dismissible fade show mb-3">
+        {% for e in form.non_field_errors %}{{ e }}{% endfor %}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endif %}
+
+      <div class="card settings-card mb-3">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fas fa-building me-2 text-primary"></i> Business Profile</h3>
+        </div>
+        <div class="card-body py-3 px-4">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.name.id_for_label }}" class="form-label">{{ form.name.label }} <span class="text-danger">*</span><span class="help-tooltip" data-bs-toggle="tooltip" title="Official business name shown on invoices and receipts."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.name }}
+              {% if form.name.errors %}<div class="text-danger small mt-1">{% for e in form.name.errors %}{{ e }}{% endfor %}</div>{% endif %}
+            </div>
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.tagline.id_for_label }}" class="form-label">{{ form.tagline.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="Short slogan or descriptor shown under your business name."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.tagline }}
+            </div>
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.owner_name.id_for_label }}" class="form-label">{{ form.owner_name.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="Primary owner or contact person for the business."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.owner_name }}
+            </div>
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.tin.id_for_label }}" class="form-label">{{ form.tin.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="Tax Identification Number used on official documents."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.tin }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card settings-card mb-3">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fas fa-map-marker-alt me-2 text-success"></i> Contact & Address</h3>
+        </div>
+        <div class="card-body py-3 px-4">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.email.id_for_label }}" class="form-label">{{ form.email.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="Official business email for invoices and contact."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.email }}
+            </div>
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.phone.id_for_label }}" class="form-label">{{ form.phone.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="Primary business phone number."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.phone }}
+            </div>
+            <div class="col-md-6 mb-3">
+              <label for="{{ form.address.id_for_label }}" class="form-label">{{ form.address.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="Street address for deliveries and documents."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.address }}
+            </div>
+            <div class="col-md-3 mb-3">
+              <label for="{{ form.city.id_for_label }}" class="form-label">{{ form.city.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="City where your business operates."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.city }}
+            </div>
+            <div class="col-md-3 mb-3">
+              <label for="{{ form.province.id_for_label }}" class="form-label">{{ form.province.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="Province or state for your address."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.province }}
+            </div>
+            <div class="col-md-3 mb-3">
+              <label for="{{ form.zip_code.id_for_label }}" class="form-label">{{ form.zip_code.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="Postal or ZIP code for your address."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.zip_code }}
+            </div>
+            <div class="col-md-3 mb-3">
+              <label for="{{ form.country.id_for_label }}" class="form-label">{{ form.country.label }} <span class="text-danger">*</span><span class="help-tooltip" data-bs-toggle="tooltip" title="Default country used on documents and taxes."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.country }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card settings-card mb-3">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fas fa-sliders-h me-2 text-info"></i> Business Preferences</h3>
+        </div>
+        <div class="card-body py-3 px-4">
+          <div class="row">
+            <div class="col-md-4 mb-3">
+              <label for="{{ form.currency.id_for_label }}" class="form-label">{{ form.currency.label }} <span class="text-danger">*</span><span class="help-tooltip" data-bs-toggle="tooltip" title="Default currency used across pricing and reports."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.currency }}
+            </div>
+            <div class="col-md-4 mb-3">
+              <label for="{{ form.fiscal_year_start_month.id_for_label }}" class="form-label">{{ form.fiscal_year_start_month.label }} <span class="text-danger">*</span><span class="help-tooltip" data-bs-toggle="tooltip" title="Start month of your fiscal year (1 = January, 12 = December)."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.fiscal_year_start_month }}
+              {% if form.fiscal_year_start_month.help_text %}<small class="form-text text-muted">{{ form.fiscal_year_start_month.help_text }}</small>{% endif %}
+            </div>
+            <div class="col-md-4 mb-3">
+              <label for="{{ form.logo.id_for_label }}" class="form-label">{{ form.logo.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="Upload your logo to display on invoices and receipts."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.logo }}
+            </div>
+            <div class="col-md-12 mb-3">
+              <label for="{{ form.receipt_footer.id_for_label }}" class="form-label">{{ form.receipt_footer.label }}<span class="help-tooltip" data-bs-toggle="tooltip" title="Optional note printed at the bottom of receipts/invoices."><i class="fas fa-question-circle"></i></span></label>
+              {{ form.receipt_footer }}
+              {% if form.receipt_footer.help_text %}<small class="form-text text-muted">{{ form.receipt_footer.help_text }}</small>{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mb-4">
+        <button type="submit" class="btn btn-primary px-4"><i class="fas fa-save me-1"></i> Save Settings</button>
+        <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> Back to Dashboard</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card settings-card mb-3">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-clipboard-check me-2 text-warning"></i> Setup Checklist</h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="checklist-item d-flex align-items-center gap-3">
+          <div class="checklist-icon bg-primary text-white m-2"><i class="fas fa-broadcast-tower"></i></div>
+          <div class="flex-grow-1"><span class="fw-semibold" style="font-size:.88rem;">Sales Channels</span><br><small class="text-muted">Configure where you sell</small></div>
+          <a href="{% url 'channel_list' %}" class="btn btn-sm btn-outline-primary">Manage</a>
+        </div>
+        <div class="checklist-item d-flex align-items-center gap-3">
+          <div class="checklist-icon bg-danger text-white m-2"><i class="fas fa-receipt"></i></div>
+          <div class="flex-grow-1"><span class="fw-semibold" style="font-size:.88rem;">Expense Categories</span><br><small class="text-muted">Organize your expenses</small></div>
+          <a href="{% url 'expense_category_list' %}" class="btn btn-sm btn-outline-primary">Manage</a>
+        </div>
+        <div class="checklist-item d-flex align-items-center gap-3">
+          <div class="checklist-icon bg-success text-white m-2"><i class="fas fa-tags"></i></div>
+          <div class="flex-grow-1"><span class="fw-semibold" style="font-size:.88rem;">Product Categories</span><br><small class="text-muted">Classify your inventory</small></div>
+          <a href="{% url 'category_list' %}" class="btn btn-sm btn-outline-primary">Manage</a>
+        </div>
+        <div class="checklist-item d-flex align-items-center gap-3">
+          <div class="checklist-icon bg-info text-white m-2"><i class="fas fa-ruler"></i></div>
+          <div class="flex-grow-1"><span class="fw-semibold" style="font-size:.88rem;">Units of Measure</span><br><small class="text-muted">Define measurement units</small></div>
+          <a href="{% url 'unit_list' %}" class="btn btn-sm btn-outline-primary">Manage</a>
+        </div>
+        <div class="checklist-item d-flex align-items-center gap-3">
+          <div class="checklist-icon bg-secondary text-white m-2"><i class="fas fa-box-open"></i></div>
+          <div class="flex-grow-1"><span class="fw-semibold" style="font-size:.88rem;">Supply Categories</span><br><small class="text-muted">Organize supplies</small></div>
+          <a href="{% url 'supply_category_list' %}" class="btn btn-sm btn-outline-primary">Manage</a>
+        </div>
+      </div>
+    </div>
+    {% if profile.logo %}
+    <div class="card settings-card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-image me-2 text-secondary"></i> Current Logo</h3></div>
+      <div class="card-body text-center py-3">
+        <img src="{{ profile.logo.url }}" alt="Logo" class="img-fluid rounded" style="max-height:120px;">
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Transfers{% endblock %}
+{% block page_title %}Stock Transfers{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Transfers</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Transfer List</h3>
+    <div class="card-tools"><a href="#" data-modal-url="{% url 'transfer_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Transfer</a></div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr><th>Transfer #</th><th>From Warehouse</th><th>To Warehouse</th><th>Status</th><th>Created By</th><th>Created At</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for t in transfers %}
+        <tr>
+          <td>{{ t.document_number }}</td>
+          <td>{{ t.from_warehouse.code }} - {{ t.from_warehouse.name }}</td>
+          <td>{{ t.to_warehouse.code }} - {{ t.to_warehouse.name }}</td>
+          <td>
+            {% if t.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif t.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif t.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td>
+          <td>{{ t.created_by.get_full_name|default:t.created_by.username }}</td>
+          <td>{{ t.created_at|date:"M d, Y H:i" }}</td>
+          <td>
+            <a href="{% url 'transfer_detail' t.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
+            {% if t.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'transfer_edit' t.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>{% endif %}
+            <a href="#" data-modal-url="{% url 'transfer_delete' t.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted">No transfers.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

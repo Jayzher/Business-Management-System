@@ -1,0 +1,107 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Stock Movements{% endblock %}
+{% block page_title %}Stock Movement Report{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'reports_dashboard' %}">Reports</a></li>
+<li class="breadcrumb-item active">Stock Movements</li>
+{% endblock %}
+
+{% block content %}
+<div class="card card-outline card-info">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-exchange-alt mr-2 text-info"></i> Stock Movements</h3>
+  </div>
+  <div class="card-body pb-0">
+    <form method="get" class="row g-2 align-items-end mb-3">
+      <div class="col-md-3">
+        <label class="small">Item</label>
+        <select name="item" class="form-control form-control-sm">
+          <option value="">All Items</option>
+          {% for item in items %}
+          <option value="{{ item.pk }}" {% if filters.item == item.pk|stringformat:"d" %}selected{% endif %}>{{ item.code }} - {{ item.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="small">Type</label>
+        <select name="move_type" class="form-control form-control-sm">
+          <option value="">All Types</option>
+          {% for val, label in move_types %}
+          <option value="{{ val }}" {% if filters.move_type == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="small">From</label>
+        <input type="date" name="date_from" value="{{ filters.date_from }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-2">
+        <label class="small">To</label>
+        <input type="date" name="date_to" value="{{ filters.date_to }}" class="form-control form-control-sm">
+      </div>
+      <div class="col-md-3">
+        <label class="small">&nbsp;</label>
+        <div class="d-flex flex-wrap">
+          <button type="submit" class="btn btn-sm btn-primary mr-1 mb-1"><i class="fas fa-filter mr-1"></i>Filter</button>
+          <a href="{% url 'report_stock_movement' %}" class="btn btn-sm btn-secondary mr-1 mb-1">Clear</a>
+          <button type="button" class="btn btn-sm btn-success mr-1 mb-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
+          <button type="button" class="btn btn-sm btn-outline-danger mb-1 wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+        </div>
+      </div>
+    </form>
+  </div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover table-striped text-nowrap" id="report-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Type</th>
+          <th>Image</th>
+          <th>Item</th>
+          <th class="text-right">Qty</th>
+          <th>Unit</th>
+          <th>From</th>
+          <th>To</th>
+          <th>Reference</th>
+          <th>By</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for move in moves %}
+        <tr>
+          <td>{{ move.posted_at|date:"M d, Y H:i" }}</td>
+          <td>
+            {% if move.move_type == 'RECEIVE' %}<span class="badge bg-success">{{ move.get_move_type_display }}</span>
+            {% elif move.move_type == 'DELIVER' %}<span class="badge bg-primary">{{ move.get_move_type_display }}</span>
+            {% elif move.move_type == 'TRANSFER' %}<span class="badge bg-info">{{ move.get_move_type_display }}</span>
+            {% elif move.move_type == 'DAMAGE' %}<span class="badge bg-danger">{{ move.get_move_type_display }}</span>
+            {% elif move.move_type == 'ADJUST' %}<span class="badge bg-warning">{{ move.get_move_type_display }}</span>
+            {% elif move.move_type == 'POS_SALE' %}<span class="badge bg-dark">{{ move.get_move_type_display }}</span>
+            {% elif move.move_type == 'RETURN_IN' %}<span class="badge" style="background:#6f42c1;color:#fff;">{{ move.get_move_type_display }}</span>
+            {% else %}<span class="badge bg-secondary">{{ move.get_move_type_display }}</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if move.item.image %}
+              <img src="{{ move.item.image.url }}" alt="{{ move.item.name }}" class="item-thumb" loading="lazy">
+            {% else %}
+              <span class="item-thumb-placeholder"><i class="fas fa-box"></i></span>
+            {% endif %}
+          </td>
+          <td><a href="{% url 'item_detail' move.item.pk %}">{{ move.item.code }}</a> <small class="text-muted">{{ move.item.name }}</small></td>
+          <td class="text-right">{{ move.qty|floatformat:2 }}</td>
+          <td>{{ move.unit.abbreviation }}</td>
+          <td>{{ move.from_location.code|default:"-" }}</td>
+          <td>{{ move.to_location.code|default:"-" }}</td>
+          <td><small>{{ move.reference_number|default:"-" }}</small></td>
+          <td>{{ move.created_by.get_full_name|default:move.created_by.username }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No movements found matching filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

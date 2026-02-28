@@ -1,0 +1,11 @@
+{% extends "theme/partials/delete_confirm.html" %}
+
+{% block title %}Delete Price List{% endblock %}
+{% block page_title %}Delete Price List{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'price_list_list' %}">Price Lists</a></li>
+<li class="breadcrumb-item active">Delete</li>
+{% endblock %}
+
+{% block object_name %}{{ object.name }}{% endblock %}
+{% block cancel_url %}{% url 'price_list_list' %}{% endblock %}

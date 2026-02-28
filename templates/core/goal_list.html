@@ -1,0 +1,93 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}Target Goals{% endblock %}
+{% block page_title %}Target Goals{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Goals</li>{% endblock %}
+
+{% block extra_css %}
+<style>
+  .progress-sm { height: 10px; }
+  .goal-card { transition: transform .1s; }
+  .goal-card:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-bullseye mr-1"></i> Target Goals</h3>
+    <div class="card-tools">
+      <a href="#" data-modal-url="{% url 'goal_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Goal</a>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="row g-2 mb-3">
+      <div class="col-md-3">
+        <select name="status" class="form-control form-control-sm" onchange="this.form.submit()">
+          <option value="">All Statuses</option>
+          <option value="PENDING" {% if filter_status == "PENDING" %}selected{% endif %}>Pending</option>
+          <option value="IN_PROGRESS" {% if filter_status == "IN_PROGRESS" %}selected{% endif %}>In Progress</option>
+          <option value="COMPLETED" {% if filter_status == "COMPLETED" %}selected{% endif %}>Completed</option>
+          <option value="CANCELLED" {% if filter_status == "CANCELLED" %}selected{% endif %}>Cancelled</option>
+        </select>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row">
+  {% for goal in goals %}
+  <div class="col-lg-4 col-md-6">
+    <div class="card goal-card">
+      <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <span>
+          {% if goal.priority == "HIGH" %}<span class="badge bg-danger">HIGH</span>
+          {% elif goal.priority == "MEDIUM" %}<span class="badge bg-warning">MED</span>
+          {% else %}<span class="badge bg-info">LOW</span>{% endif %}
+          {% if goal.category %}<span class="badge bg-secondary">{{ goal.category }}</span>{% endif %}
+        </span>
+        <span>
+          {% if goal.status == "PENDING" %}<span class="badge bg-secondary">Pending</span>
+          {% elif goal.status == "IN_PROGRESS" %}<span class="badge bg-primary">In Progress</span>
+          {% elif goal.status == "COMPLETED" %}<span class="badge bg-success">Done</span>
+          {% else %}<span class="badge bg-dark">Cancelled</span>{% endif %}
+        </span>
+      </div>
+      <div class="card-body">
+        <h5 class="card-title mb-1">{{ goal.title }}</h5>
+        {% if goal.description %}<p class="text-muted small mb-2">{{ goal.description|truncatewords:20 }}</p>{% endif %}
+        {% if goal.target_value %}
+        <div class="mb-2">
+          <div class="d-flex justify-content-between small mb-1">
+            <span>{{ goal.current_value|default:0|floatformat:0|intcomma }} / {{ goal.target_value|floatformat:0|intcomma }} {{ goal.unit_label }}</span>
+            <span><strong>{{ goal.progress_pct }}%</strong></span>
+          </div>
+          <div class="progress progress-sm">
+            <div class="progress-bar {% if goal.progress_pct >= 100 %}bg-success{% elif goal.progress_pct >= 50 %}bg-primary{% else %}bg-warning{% endif %}" style="width:{{ goal.progress_pct }}%"></div>
+          </div>
+        </div>
+        {% endif %}
+        <div class="d-flex justify-content-between align-items-center">
+          <small>
+            {% if goal.due_date %}
+              {% if goal.is_overdue %}<span class="text-danger"><i class="fas fa-exclamation-circle"></i> Overdue: {{ goal.due_date|date:"M d" }}</span>
+              {% elif goal.days_remaining <= 7 %}<span class="text-warning"><i class="fas fa-clock"></i> Due: {{ goal.due_date|date:"M d" }}</span>
+              {% else %}<span class="text-muted">Due: {{ goal.due_date|date:"M d" }}</span>{% endif %}
+            {% endif %}
+            {% if goal.assigned_to %}<span class="text-muted"> | {{ goal.assigned_to.get_short_name|default:goal.assigned_to.username }}</span>{% endif %}
+          </small>
+          <span>
+            <a href="#" data-modal-url="{% url 'goal_edit' goal.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'goal_delete' goal.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="col-12">
+    <div class="card"><div class="card-body text-center text-muted py-4">No goals yet. <a href="#" data-modal-url="{% url 'goal_create' %}">Create your first goal</a>.</div></div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

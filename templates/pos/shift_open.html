@@ -1,0 +1,12 @@
+{% extends "theme/partials/form.html" %}
+
+{% block title %}Open Shift{% endblock %}
+{% block page_title %}Open Shift{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'pos_shift_list' %}">Shifts</a></li>
+<li class="breadcrumb-item active">Open Shift</li>
+{% endblock %}
+
+{% block form_title %}Open New Shift{% endblock %}
+{% block submit_label %}Open Shift{% endblock %}
+{% block cancel_url %}{% url 'pos_shift_list' %}{% endblock %}

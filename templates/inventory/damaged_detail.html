@@ -1,0 +1,71 @@
+{% extends "theme/base.html" %}
+
+{% block title %}{{ report.document_number }}{% endblock %}
+{% block page_title %}{{ report.document_number }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'damaged_list' %}">Damaged Reports</a></li>
+<li class="breadcrumb-item active">{{ report.document_number }}</li>
+{% endblock %}
+
+{% block content %}
+{% include "theme/partials/status_workflow.html" with status=report.status doc_type="Damaged" %}
+{% include "theme/partials/doc_actions.html" with obj=report edit_url_name="damaged_edit" delete_url_name="damaged_delete" post_url_name="damaged_post" cancel_url_name="damaged_cancel" list_url_name="damaged_list" %}
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-exclamation-triangle me-2 text-warning"></i>Damaged Report Details</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Report #</th><td><strong>{{ report.document_number }}</strong></td></tr>
+          <tr><th>Status</th><td>
+            {% if report.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif report.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif report.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td></tr>
+          <tr><th>Warehouse</th><td>{{ report.warehouse.code }} - {{ report.warehouse.name }}</td></tr>
+          <tr><th>Notes</th><td>{{ report.notes|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle me-2 text-secondary"></i>Audit Trail</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Created By</th><td>{{ report.created_by.get_full_name|default:report.created_by.username }}</td></tr>
+          <tr><th>Created At</th><td>{{ report.created_at|date:"M d, Y H:i" }}</td></tr>
+          <tr><th>Posted By</th><td>{{ report.posted_by.get_full_name|default:"-" }}</td></tr>
+          <tr><th>Posted At</th><td>{{ report.posted_at|date:"M d, Y H:i"|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-list me-2 text-danger"></i>Damaged Lines</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover detail-lines-table mb-0">
+      <thead>
+        <tr><th>Item</th><th>Location</th><th class="text-end">Qty</th><th>Unit</th><th>Reason</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for line in report.lines.all %}
+        <tr>
+          <td>{% include "theme/partials/item_cell.html" with item=line.item %}</td>
+          <td>{{ line.location.code }}</td>
+          <td class="text-end">{{ line.qty }}</td>
+          <td>{{ line.unit.abbreviation }}</td>
+          <td>{{ line.reason|default:"-" }}</td>
+          <td>{{ line.notes|default:"-" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,146 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+
+{% block title %}Item Inventory{% endblock %}
+{% block page_title %}Item Inventory{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'stock_move_list' %}">Inventory</a></li>
+<li class="breadcrumb-item active">Item Inventory</li>
+{% endblock %}
+
+{% block content %}
+<!-- KPI -->
+<div class="row">
+  <div class="col-lg-4 col-md-6">
+    <div class="small-box bg-info">
+      <div class="inner"><h3>{{ item_count }}</h3><p>Total Items</p></div>
+      <div class="icon"><i class="fas fa-boxes"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-4 col-md-6">
+    <div class="small-box bg-success">
+      <div class="inner"><h3>{{ grand_on_hand|floatformat:0 }}</h3><p>Total On Hand</p></div>
+      <div class="icon"><i class="fas fa-cubes"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-4 col-md-6">
+    <div class="small-box bg-primary">
+      <div class="inner"><h3>{{ grand_value|floatformat:2|intcomma }}</h3><p>Total Inventory Value</p></div>
+      <div class="icon"><i class="fas fa-coins"></i></div>
+    </div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card card-outline card-primary">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-boxes mr-2"></i> Full Item Inventory</h3>
+    <div class="card-tools">
+      <button type="button" class="btn btn-sm btn-success mr-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
+      <button type="button" class="btn btn-sm btn-outline-danger wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+    </div>
+  </div>
+  <div class="card-body pb-0">
+    <form method="get" class="row g-2 align-items-end mb-3">
+      <div class="col-md-3">
+        <label class="small">Warehouse</label>
+        <select name="warehouse" class="form-control form-control-sm">
+          <option value="">All Warehouses</option>
+          {% for wh in warehouses %}
+          <option value="{{ wh.pk }}" {% if selected_warehouse == wh.pk|stringformat:"d" %}selected{% endif %}>{{ wh.code }} - {{ wh.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="small">Item Type</label>
+        <select name="type" class="form-control form-control-sm">
+          <option value="">All Types</option>
+          <option value="RAW" {% if current_type == "RAW" %}selected{% endif %}>Raw Material</option>
+          <option value="FINISHED" {% if current_type == "FINISHED" %}selected{% endif %}>Finished Product</option>
+          <option value="SERVICE" {% if current_type == "SERVICE" %}selected{% endif %}>Service</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="small">Search</label>
+        <input type="text" name="q" value="{{ search }}" class="form-control form-control-sm" placeholder="Item name or code...">
+      </div>
+      <div class="col-md-2">
+        <label class="small">&nbsp;</label>
+        <div>
+          <button type="submit" class="btn btn-sm btn-primary mr-1"><i class="fas fa-filter mr-1"></i> Filter</button>
+          <a href="{% url 'item_inventory' %}" class="btn btn-sm btn-secondary">Clear</a>
+        </div>
+      </div>
+    </form>
+  </div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover table-striped text-nowrap" id="report-table">
+      <thead>
+        <tr>
+          <th>Image</th>
+          <th>Item Code</th>
+          <th>Item Name</th>
+          <th>Type</th>
+          <th>Category</th>
+          <th>Unit</th>
+          <th class="text-right">On Hand</th>
+          <th class="text-right">Reserved</th>
+          <th class="text-right">Available</th>
+          <th class="text-right">Cost Price</th>
+          <th class="text-right">Value</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="text-center">
+            {% if row.item.image %}
+              <img src="{{ row.item.image.url }}" alt="{{ row.item.name }}" class="item-thumb" loading="lazy">
+            {% else %}
+              <span class="item-thumb-placeholder"><i class="fas fa-box"></i></span>
+            {% endif %}
+          </td>
+          <td><a href="{% url 'item_detail' row.item.pk %}">{{ row.item.code }}</a></td>
+          <td>{{ row.item.name }}</td>
+          <td>
+            <span class="badge {% if row.item.item_type == 'RAW' %}bg-info{% elif row.item.item_type == 'FINISHED' %}bg-success{% else %}bg-secondary{% endif %}">
+              {{ row.item.get_item_type_display }}
+            </span>
+          </td>
+          <td>{{ row.item.category.name }}</td>
+          <td>{{ row.item.default_unit.abbreviation }}</td>
+          <td class="text-right">{{ row.on_hand|floatformat:2 }}</td>
+          <td class="text-right">{{ row.reserved|floatformat:2 }}</td>
+          <td class="text-right font-weight-bold {% if row.available > 0 %}text-success{% elif row.available == 0 %}text-warning{% else %}text-danger{% endif %}">{{ row.available|floatformat:2 }}</td>
+          <td class="text-right">{{ row.item.cost_price|floatformat:2 }}</td>
+          <td class="text-right">{{ row.value|floatformat:2|intcomma }}</td>
+          <td>
+            {% if row.on_hand <= 0 %}
+              <span class="badge bg-danger">Out of Stock</span>
+            {% elif row.item.reorder_point > 0 and row.on_hand <= row.item.reorder_point %}
+              <span class="badge bg-warning text-dark">Low Stock</span>
+            {% else %}
+              <span class="badge bg-success">In Stock</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="12" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No items found.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if rows %}
+      <tfoot>
+        <tr class="font-weight-bold bg-light">
+          <td colspan="6" class="text-right">Totals:</td>
+          <td class="text-right">{{ grand_on_hand|floatformat:2 }}</td>
+          <td></td><td></td><td></td>
+          <td class="text-right">{{ grand_value|floatformat:2|intcomma }}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+{% endblock %}

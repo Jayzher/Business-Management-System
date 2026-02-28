@@ -1,0 +1,39 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Warehouses{% endblock %}
+{% block page_title %}Warehouses{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Warehouses</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Warehouse List</h3>
+    <div class="card-tools"><a href="#" data-modal-url="{% url 'warehouse_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Warehouse</a></div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr><th>Code</th><th>Name</th><th>City</th><th>Manager</th><th>Locations</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for wh in warehouses %}
+        <tr>
+          <td><a href="{% url 'warehouse_detail' wh.pk %}">{{ wh.code }}</a></td>
+          <td>{{ wh.name }}</td>
+          <td>{{ wh.city|default:"-" }}</td>
+          <td>{{ wh.manager.get_full_name|default:"-" }}</td>
+          <td>{{ wh.locations.count }}</td>
+          <td>
+            <a href="{% url 'warehouse_detail' wh.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
+            <a href="#" data-modal-url="{% url 'warehouse_edit' wh.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'warehouse_delete' wh.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted">No warehouses.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

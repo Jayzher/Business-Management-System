@@ -1,0 +1,11 @@
+{% extends "theme/partials/delete_confirm.html" %}
+
+{% block title %}Delete Discount Rule{% endblock %}
+{% block page_title %}Delete Discount Rule{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'discount_rule_list' %}">Discount Rules</a></li>
+<li class="breadcrumb-item active">Delete</li>
+{% endblock %}
+
+{% block delete_message %}Are you sure you want to delete discount rule <strong>{{ object.name }}</strong>?{% endblock %}
+{% block cancel_url %}{% url 'discount_rule_list' %}{% endblock %}

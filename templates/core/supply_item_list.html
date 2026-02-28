@@ -1,0 +1,53 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}Supplies Inventory{% endblock %}
+{% block page_title %}Supplies Inventory{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Supplies</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-box-open mr-1"></i> Supply Items</h3>
+    <div class="card-tools">
+      <a href="#" data-modal-url="{% url 'supply_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
+      <a href="#" data-modal-url="{% url 'supply_movement_create' %}" class="btn btn-sm btn-info mr-1"><i class="fas fa-plus mr-1"></i> Stock In/Out</a>
+      <a href="#" data-modal-url="{% url 'supply_item_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Item</a>
+    </div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover table-striped text-nowrap wis-table">
+      <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit</th><th class="text-right">Stock</th><th class="text-right">Min</th><th class="text-right">Cost/Unit</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for item in items %}
+        <tr{% if item.current_stock <= item.minimum_stock and item.minimum_stock > 0 %} class="table-danger"{% endif %}>
+          <td><strong>{{ item.code }}</strong></td>
+          <td>{{ item.name }}</td>
+          <td>{{ item.category.name|default:"-" }}</td>
+          <td>{{ item.unit }}</td>
+          <td class="text-right">{{ item.current_stock|floatformat:2 }}</td>
+          <td class="text-right">{{ item.minimum_stock|floatformat:2 }}</td>
+          <td class="text-right">{{ item.cost_per_unit|floatformat:2|intcomma }}</td>
+          <td>
+            {% if item.current_stock <= item.minimum_stock and item.minimum_stock > 0 %}
+            <span class="badge bg-danger">Low Stock</span>
+            {% else %}
+            <span class="badge bg-success">OK</span>
+            {% endif %}
+          </td>
+          <td class="text-right">
+            <a href="#" data-modal-url="{% url 'supply_item_edit' item.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'supply_item_delete' item.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="9" class="text-center text-muted py-3">No supply items yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer">
+    <a href="{% url 'supply_movement_list' %}" class="btn btn-sm btn-outline-primary"><i class="fas fa-history mr-1"></i> View Movement Log</a>
+    <a href="{% url 'supply_category_list' %}" class="btn btn-sm btn-outline-secondary ml-1"><i class="fas fa-layer-group mr-1"></i> Categories</a>
+  </div>
+</div>
+{% endblock %}

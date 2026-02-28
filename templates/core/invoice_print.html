@@ -1,0 +1,91 @@
+{% load humanize %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Invoice INV-{{ invoice.invoice_number }}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #333; padding: 30px; }
+    .header { display: flex; justify-content: space-between; margin-bottom: 30px; border-bottom: 3px solid #007bff; padding-bottom: 15px; }
+    .header .company h2 { color: #007bff; margin-bottom: 4px; }
+    .header .company p { margin: 2px 0; font-size: 12px; color: #666; }
+    .header .inv-title { text-align: right; }
+    .header .inv-title h1 { font-size: 28px; color: #007bff; letter-spacing: 2px; }
+    .header .inv-title p { margin: 2px 0; font-size: 12px; }
+    .bill-to { margin-bottom: 20px; }
+    .bill-to strong { display: block; margin-bottom: 4px; color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    th { background: #f4f6f9; color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; border-bottom: 2px solid #dee2e6; text-align: left; }
+    td { padding: 7px 10px; border-bottom: 1px solid #eee; }
+    .text-right { text-align: right; }
+    .totals td { border-bottom: none; padding: 4px 10px; }
+    .totals .grand { font-size: 16px; font-weight: 700; color: #007bff; border-top: 2px solid #007bff; padding-top: 8px; }
+    .footer { margin-top: 30px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
+    .badge-paid { background: #28a745; color: #fff; padding: 3px 10px; border-radius: 3px; font-size: 11px; }
+    .badge-unpaid { background: #ffc107; color: #333; padding: 3px 10px; border-radius: 3px; font-size: 11px; }
+    @media print { body { padding: 0; } @page { margin: 15mm; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="company">
+      {% if profile.logo %}<img src="{{ profile.logo.url }}" alt="Logo" style="max-height:50px;margin-bottom:8px;display:block;">{% endif %}
+      <h2>{{ profile.name }}</h2>
+      <p>{{ profile.address }}</p>
+      <p>{{ profile.city }}{% if profile.province %}, {{ profile.province }}{% endif %} {{ profile.zip_code }}</p>
+      <p>{{ profile.phone }}{% if profile.email %} | {{ profile.email }}{% endif %}</p>
+      {% if profile.tin %}<p>TIN: {{ profile.tin }}</p>{% endif %}
+    </div>
+    <div class="inv-title">
+      <h1>INVOICE</h1>
+      <p><strong>INV-{{ invoice.invoice_number }}</strong></p>
+      <p>Date: {{ invoice.date|date:"F d, Y" }}</p>
+      {% if invoice.due_date %}<p>Due: {{ invoice.due_date|date:"F d, Y" }}</p>{% endif %}
+      <p>{% if invoice.is_paid %}<span class="badge-paid">PAID</span>{% else %}<span class="badge-unpaid">UNPAID</span>{% endif %}</p>
+    </div>
+  </div>
+
+  <div class="bill-to">
+    <strong>Bill To</strong>
+    {{ invoice.customer_name|default:"Walk-in Customer" }}<br>
+    {% if invoice.customer_address %}{{ invoice.customer_address }}<br>{% endif %}
+    {% if invoice.customer_tin %}TIN: {{ invoice.customer_tin }}{% endif %}
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>#</th><th>Code</th><th>Description</th><th class="text-right">Qty</th><th>Unit</th><th class="text-right">Price</th><th class="text-right">Disc.</th><th class="text-right">Total</th></tr>
+    </thead>
+    <tbody>
+      {% for line in invoice.lines.all %}
+      <tr>
+        <td>{{ forloop.counter }}</td>
+        <td>{{ line.item_code }}</td>
+        <td>{{ line.item_name }}</td>
+        <td class="text-right">{{ line.qty|floatformat:2 }}</td>
+        <td>{{ line.unit }}</td>
+        <td class="text-right">{{ line.unit_price|floatformat:2|intcomma }}</td>
+        <td class="text-right">{{ line.discount|floatformat:2|intcomma }}</td>
+        <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <table class="totals" style="width:350px;margin-left:auto;">
+    <tr><td class="text-right">Subtotal</td><td class="text-right">{{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
+    {% if invoice.discount_total %}<tr><td class="text-right">Discount</td><td class="text-right">({{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
+    {% if invoice.tax_total %}<tr><td class="text-right">Tax</td><td class="text-right">{{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
+    <tr><td class="text-right grand">TOTAL ({{ profile.currency }})</td><td class="text-right grand">{{ invoice.grand_total|floatformat:2|intcomma }}</td></tr>
+  </table>
+
+  {% if invoice.notes %}<p style="margin-top:15px;"><strong>Notes:</strong> {{ invoice.notes }}</p>{% endif %}
+
+  {% if profile.receipt_footer %}
+  <div class="footer">{{ profile.receipt_footer }}</div>
+  {% endif %}
+
+  <script>window.onload = function(){ window.print(); };</script>
+</body>
+</html>

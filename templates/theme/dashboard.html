@@ -1,0 +1,548 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Executive Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+  .kpi-value { font-size: 1.5rem; font-weight: 700; margin-bottom: 0; }
+  .kpi-label { font-size: .82rem; color: #6c757d; margin-bottom: 0; }
+  .kpi-card .card-body { padding: .65rem .9rem; }
+  .quick-action { transition: transform .15s; }
+  .quick-action:hover { transform: translateY(-2px); }
+  .period-toggle .btn { padding: .25rem .6rem; font-size: .78rem; }
+  .period-toggle .btn.active { font-weight: 700; }
+  .progress-sm { height: 8px; }
+  /* Skeleton placeholders */
+  .dash-skeleton { display: block; }
+  .dash-real { display: none; }
+  .dash-loaded .dash-skeleton { display: none; }
+  .dash-loaded .dash-real { display: block; }
+  .skel-kpi { height: 72px; border-radius: 6px; }
+  .skel-box { height: 100px; border-radius: 6px; }
+  .skel-chart { height: 240px; border-radius: 6px; }
+  .skel-table { height: 180px; border-radius: 6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="dash-wrap">
+<!-- ═══ SKELETON placeholders (shown until page renders) ═══ -->
+<div class="dash-skeleton">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="wis-skeleton" style="width:180px;height:18px;"></div>
+    <div class="d-flex gap-1">
+      <div class="wis-skeleton" style="width:55px;height:28px;border-radius:4px;"></div>
+      <div class="wis-skeleton" style="width:70px;height:28px;border-radius:4px;"></div>
+      <div class="wis-skeleton" style="width:75px;height:28px;border-radius:4px;"></div>
+      <div class="wis-skeleton" style="width:65px;height:28px;border-radius:4px;"></div>
+    </div>
+  </div>
+  <div class="row mb-3">
+    <div class="col-xl-2 col-lg-4 col-md-6 col-6"><div class="wis-skeleton skel-kpi"></div></div>
+    <div class="col-xl-2 col-lg-4 col-md-6 col-6"><div class="wis-skeleton skel-kpi"></div></div>
+    <div class="col-xl-2 col-lg-4 col-md-6 col-6"><div class="wis-skeleton skel-kpi"></div></div>
+    <div class="col-xl-2 col-lg-4 col-md-6 col-6"><div class="wis-skeleton skel-kpi"></div></div>
+    <div class="col-xl-2 col-lg-4 col-md-6 col-6"><div class="wis-skeleton skel-kpi"></div></div>
+    <div class="col-xl-2 col-lg-4 col-md-6 col-6"><div class="wis-skeleton skel-kpi"></div></div>
+  </div>
+  <div class="row mb-3">
+    <div class="col-lg-3 col-6"><div class="wis-skeleton skel-box"></div></div>
+    <div class="col-lg-3 col-6"><div class="wis-skeleton skel-box"></div></div>
+    <div class="col-lg-3 col-6"><div class="wis-skeleton skel-box"></div></div>
+    <div class="col-lg-3 col-6"><div class="wis-skeleton skel-box"></div></div>
+  </div>
+  <div class="row mb-3">
+    <div class="col-lg-5"><div class="wis-skeleton skel-chart"></div></div>
+    <div class="col-lg-4"><div class="wis-skeleton skel-chart"></div></div>
+    <div class="col-lg-3"><div class="wis-skeleton skel-chart"></div></div>
+  </div>
+  <div class="row">
+    <div class="col-md-4"><div class="wis-skeleton skel-table"></div></div>
+    <div class="col-md-4"><div class="wis-skeleton skel-table"></div></div>
+    <div class="col-md-4"><div class="wis-skeleton skel-table"></div></div>
+  </div>
+</div>
+
+<!-- ═══ REAL dashboard content (hidden until loaded) ═══ -->
+<div class="dash-real">
+<!-- Period Toggle -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <span class="text-muted small">Showing data for: <strong>{{ period|title }}</strong></span>
+  </div>
+  <div class="btn-group period-toggle">
+    <a href="?period=today" class="btn btn-outline-primary {% if period == 'today' %}active{% endif %}">Today</a>
+    <a href="?period=week" class="btn btn-outline-primary {% if period == 'week' %}active{% endif %}">This Week</a>
+    <a href="?period=month" class="btn btn-outline-primary {% if period == 'month' %}active{% endif %}">This Month</a>
+    <a href="?period=year" class="btn btn-outline-primary {% if period == 'year' %}active{% endif %}">This Year</a>
+  </div>
+</div>
+
+<!-- ═══ Row 1: Primary Financial KPIs ═══ -->
+<div class="row">
+  <div class="col-xl-2 col-lg-4 col-md-6 col-6">
+    <div class="card kpi-card" style="border-left: 4px solid #28a745 !important;">
+      <div class="card-body">
+        <p class="kpi-label"><i class="fas fa-peso-sign mr-1"></i> Revenue <a href="#" data-bs-toggle="modal" data-bs-target="#dashFormulaModal"><i class="fas fa-calculator text-muted" style="font-size:.7rem;"></i></a></p>
+        <p class="kpi-value text-success">{{ combined_revenue|floatformat:2|intcomma }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-2 col-lg-4 col-md-6 col-6">
+    <div class="card kpi-card" style="border-left: 4px solid #007bff !important;">
+      <div class="card-body">
+        <p class="kpi-label"><i class="fas fa-cash-register mr-1"></i> Sales <a href="#" data-bs-toggle="modal" data-bs-target="#dashFormulaModal"><i class="fas fa-calculator text-muted" style="font-size:.7rem;"></i></a></p>
+        <p class="kpi-value text-primary">{{ combined_count }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-2 col-lg-4 col-md-6 col-6">
+    <div class="card kpi-card" style="border-left: 4px solid #17a2b8 !important;">
+      <div class="card-body">
+        <p class="kpi-label"><i class="fas fa-chart-line mr-1"></i> Gross Profit <a href="#" data-bs-toggle="modal" data-bs-target="#dashFormulaModal"><i class="fas fa-calculator text-muted" style="font-size:.7rem;"></i></a>
+          <span class="badge {% if pos_margin >= 20 %}bg-success{% elif pos_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-1" style="font-size:.65rem;">{{ pos_margin|floatformat:1 }}%</span>
+        </p>
+        <p class="kpi-value text-info">{{ pos_profit|floatformat:2|intcomma }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-2 col-lg-4 col-md-6 col-6">
+    <div class="card kpi-card" style="border-left: 4px solid #dc3545 !important;">
+      <div class="card-body">
+        <p class="kpi-label"><i class="fas fa-receipt mr-1"></i> Expenses <a href="#" data-bs-toggle="modal" data-bs-target="#dashFormulaModal"><i class="fas fa-calculator text-muted" style="font-size:.7rem;"></i></a></p>
+        <p class="kpi-value text-danger">{{ total_expenses|floatformat:2|intcomma }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-2 col-lg-4 col-md-6 col-6">
+    <div class="card kpi-card" style="border-left: 4px solid {% if net_profit >= 0 %}#28a745{% else %}#dc3545{% endif %} !important;">
+      <div class="card-body">
+        <p class="kpi-label"><i class="fas fa-dollar-sign mr-1"></i> Net Profit <a href="#" data-bs-toggle="modal" data-bs-target="#dashFormulaModal"><i class="fas fa-calculator text-muted" style="font-size:.7rem;"></i></a></p>
+        <p class="kpi-value {% if net_profit >= 0 %}text-success{% else %}text-danger{% endif %}">{{ net_profit|floatformat:2|intcomma }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-2 col-lg-4 col-md-6 col-6">
+    <div class="card kpi-card" style="border-left: 4px solid #6f42c1 !important;">
+      <div class="card-body">
+        <p class="kpi-label"><i class="fas fa-warehouse mr-1"></i> Inventory Value <a href="#" data-bs-toggle="modal" data-bs-target="#dashFormulaModal"><i class="fas fa-calculator text-muted" style="font-size:.7rem;"></i></a></p>
+        <p class="kpi-value" style="color:#6f42c1;">{{ inventory_valuation|floatformat:2|intcomma }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Dashboard Formula Breakdown Modal -->
+<div class="modal fade" id="dashFormulaModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title"><i class="fas fa-calculator mr-1"></i> Dashboard Calculation Breakdown</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Standard accounting formulas applied to the <strong>{{ period|title }}</strong> period. Click any KPI's <i class="fas fa-calculator"></i> icon to view this breakdown.</p>
+
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-coins text-success mr-1"></i> Revenue</h6>
+        <table class="table table-sm table-bordered mb-3">
+          <tbody>
+            <tr><td class="fw-bold" style="width:55%;">POS Revenue <small class="text-muted">(&#931; grand_total of POSTED/PAID POS sales)</small></td><td class="text-end font-monospace">{{ dash_formulas.pos_revenue|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold">POS Transaction Count</td><td class="text-end font-monospace">{{ dash_formulas.pos_count }}</td></tr>
+            <tr><td class="fw-bold">Paid Invoice Revenue <small class="text-muted">(&#931; grand_total of paid invoices)</small></td><td class="text-end font-monospace">{{ dash_formulas.invoice_paid_total|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold">Paid Invoice Count</td><td class="text-end font-monospace">{{ dash_formulas.invoice_paid_count }}</td></tr>
+            <tr class="table-success"><td class="fw-bold">Combined Revenue = POS Revenue + Invoice Revenue</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.combined_revenue|floatformat:2|intcomma }}</td></tr>
+            <tr class="table-success"><td class="fw-bold">Combined Sales Count = POS Count + Invoice Count</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.combined_count }}</td></tr>
+          </tbody>
+        </table>
+
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-boxes text-danger mr-1"></i> Cost of Goods Sold (COGS)</h6>
+        <table class="table table-sm table-bordered mb-3">
+          <tbody>
+            <tr><td class="fw-bold" style="width:55%;">POS COGS <small class="text-muted">(&#931; item.cost_price &times; qty for POS lines)</small></td><td class="text-end font-monospace">{{ dash_formulas.pos_cogs|floatformat:2|intcomma }}</td></tr>
+          </tbody>
+        </table>
+
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-chart-line text-primary mr-1"></i> Profitability</h6>
+        <table class="table table-sm table-bordered mb-3">
+          <tbody>
+            <tr><td class="fw-bold" style="width:55%;">POS Gross Profit = POS Revenue &minus; POS COGS</td><td class="text-end font-monospace">{{ dash_formulas.pos_profit|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold">Combined Profit = POS Profit + Invoice Revenue <small class="text-muted">(invoice COGS not tracked separately)</small></td><td class="text-end font-monospace">{{ dash_formulas.combined_profit|floatformat:2|intcomma }}</td></tr>
+            <tr class="table-info"><td class="fw-bold">Gross Margin % = (Combined Profit &divide; Combined Revenue) &times; 100</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.pos_margin|floatformat:2 }}%</td></tr>
+          </tbody>
+        </table>
+
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-receipt text-danger mr-1"></i> Expenses &amp; Net Profit</h6>
+        <table class="table table-sm table-bordered mb-3">
+          <tbody>
+            <tr><td class="fw-bold" style="width:55%;">Total Expenses <small class="text-muted">(&#931; amount from Expense records)</small></td><td class="text-end font-monospace">{{ dash_formulas.total_expenses|floatformat:2|intcomma }}</td></tr>
+            <tr class="{% if dash_formulas.net_profit >= 0 %}table-success{% else %}table-danger{% endif %}"><td class="fw-bold">Net Profit = Combined Profit &minus; Total Expenses</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.net_profit|floatformat:2|intcomma }}</td></tr>
+          </tbody>
+        </table>
+
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-warehouse mr-1" style="color:#6f42c1;"></i> Inventory</h6>
+        <table class="table table-sm table-bordered mb-0">
+          <tbody>
+            <tr><td class="fw-bold" style="width:55%;">Inventory Valuation <small class="text-muted">(&#931; qty_on_hand &times; item.cost_price)</small></td><td class="text-end font-monospace fw-bold">{{ dash_formulas.inventory_valuation|floatformat:2|intcomma }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Row 2: Small Boxes ═══ -->
+<div class="row">
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-info">
+      <div class="inner"><h3>{{ total_items }}</h3><p>Active Items <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Number of active catalog items currently in the system."></i></p></div>
+      <div class="icon"><i class="fas fa-boxes"></i></div>
+      <a href="{% url 'item_list' %}" class="small-box-footer">View <i class="fas fa-arrow-circle-right"></i></a>
+    </div>
+  </div>
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-warning">
+      <div class="inner"><h3>{{ low_stock_count }}</h3><p>Low Stock Alerts <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Items where current stock is at or below the reorder point."></i></p></div>
+      <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+      <a href="{% url 'report_low_stock' %}" class="small-box-footer">View <i class="fas fa-arrow-circle-right"></i></a>
+    </div>
+  </div>
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-success">
+      <div class="inner"><h3>{{ pending_grns }}</h3><p>Pending GRNs <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Goods Receipt Notes in DRAFT status awaiting posting to update stock."></i></p></div>
+      <div class="icon"><i class="fas fa-truck-loading"></i></div>
+      <a href="{% url 'goods_receipt_list' %}" class="small-box-footer">View <i class="fas fa-arrow-circle-right"></i></a>
+    </div>
+  </div>
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-danger">
+      <div class="inner"><h3>{{ pending_deliveries }}</h3><p>Pending Deliveries <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Delivery Notes in DRAFT status awaiting dispatch and stock deduction."></i></p></div>
+      <div class="icon"><i class="fas fa-shipping-fast"></i></div>
+      <a href="{% url 'delivery_list' %}" class="small-box-footer">View <i class="fas fa-arrow-circle-right"></i></a>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Row 3: Charts ═══ -->
+<div class="row">
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-area mr-1"></i> Revenue (Last 7 Days) <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Daily revenue trend from POS sales over the last 7 days."></i></h3></div>
+      <div class="card-body"><canvas id="revenueChart" height="200"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-pie mr-1"></i> Sales by Channel <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Revenue distribution across your sales channels (e.g. Walk-in, Online)."></i></h3></div>
+      <div class="card-body">
+        <canvas id="channelChart" height="200"{% if not ch_labels %} style="display:none"{% endif %}></canvas>
+        {% if not ch_labels %}<p class="text-center text-muted py-4"><i class="fas fa-chart-pie fa-2x mb-2 d-block"></i>No channel data yet</p>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-3">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-pie mr-1"></i> Expense Categories <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Breakdown of expenses by category for the selected period."></i></h3></div>
+      <div class="card-body">
+        <canvas id="expenseChart" height="200"{% if not exp_cat_labels %} style="display:none"{% endif %}></canvas>
+        {% if not exp_cat_labels %}<p class="text-center text-muted py-4"><i class="fas fa-receipt fa-2x mb-2 d-block"></i>No expenses recorded</p>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Row 4: Top Items + Channel Table + Open Shifts ═══ -->
+<div class="row">
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-trophy mr-1"></i> Top Items Sold <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Best-selling items ranked by quantity sold in the selected period."></i></h3></div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover table-sm mb-0">
+          <thead><tr><th>#</th><th>Item</th><th class="text-right">Qty</th><th class="text-right">Revenue</th></tr></thead>
+          <tbody>
+            {% for it in top_items %}
+            <tr>
+              <td>{{ forloop.counter }}</td>
+              <td><strong>{{ it.item__code }}</strong> <small class="text-muted">{{ it.item__name|truncatewords:3 }}</small></td>
+              <td class="text-right">{{ it.total_qty|floatformat:0 }}</td>
+              <td class="text-right">{{ it.total_revenue|floatformat:2|intcomma }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="4" class="text-center text-muted py-2">No sales yet</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer text-center"><a href="{% url 'report_sales' %}" class="text-primary small">View Sales Report &rarr;</a></div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-broadcast-tower mr-1"></i> Channel Breakdown <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Sales count and revenue per channel for the selected period."></i></h3></div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover table-sm mb-0">
+          <thead><tr><th>Channel</th><th class="text-right">Sales</th><th class="text-right">Revenue</th></tr></thead>
+          <tbody>
+            {% for ch in channel_breakdown %}
+            <tr>
+              <td>{{ ch.channel__name|default:"No Channel" }}</td>
+              <td class="text-right">{{ ch.count }}</td>
+              <td class="text-right">{{ ch.total|floatformat:2|intcomma }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="3" class="text-center text-muted py-2">No data</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- Active Goals -->
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-bullseye mr-1"></i> Active Goals <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Your current business targets with progress tracking."></i></h3></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for g in active_goals %}
+          <li class="list-group-item py-2">
+            <div class="d-flex justify-content-between">
+              <span><strong>{{ g.title|truncatewords:5 }}</strong></span>
+              <span class="badge {% if g.priority == 'HIGH' %}bg-danger{% elif g.priority == 'MEDIUM' %}bg-warning{% else %}bg-info{% endif %}">{{ g.priority }}</span>
+            </div>
+            {% if g.target_value %}
+            <div class="progress progress-sm mt-1">
+              <div class="progress-bar {% if g.progress_pct >= 100 %}bg-success{% elif g.progress_pct >= 50 %}bg-primary{% else %}bg-warning{% endif %}" style="width:{{ g.progress_pct }}%"></div>
+            </div>
+            <small class="text-muted">{{ g.progress_pct }}% complete</small>
+            {% endif %}
+          </li>
+          {% empty %}<li class="list-group-item text-center text-muted py-3">No active goals</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="card-footer text-center"><a href="{% url 'goal_list' %}" class="text-primary small">Manage Goals &rarr;</a></div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-cash-register mr-1"></i> Open Shifts <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Currently active POS shifts. Click the register icon to open the terminal."></i></h3></div>
+      <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+          <thead><tr><th>Register</th><th>Cashier</th><th></th></tr></thead>
+          <tbody>
+            {% for shift in open_shifts %}
+            <tr>
+              <td>{{ shift.register.name }}</td>
+              <td>{{ shift.opened_by.get_full_name|default:shift.opened_by.username }}</td>
+              <td><a href="{% url 'pos_terminal' shift_id=shift.pk %}" class="btn btn-xs btn-primary"><i class="fas fa-cash-register"></i></a></td>
+            </tr>
+            {% empty %}<tr><td colspan="3" class="text-center text-muted py-2">No open shifts</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- Quick Actions -->
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-bolt mr-1"></i> Quick Actions <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Shortcuts to frequently used actions like opening a POS shift or recording an expense."></i></h3></div>
+      <div class="card-body">
+        <div class="row text-center">
+          <div class="col-6 mb-2"><a href="{% url 'pos_shift_open' %}" class="btn btn-outline-primary btn-sm w-100 quick-action py-2"><i class="fas fa-play d-block mb-1"></i><small>POS Shift</small></a></div>
+          <div class="col-6 mb-2"><a href="#" data-modal-url="{% url 'expense_create' %}" class="btn btn-outline-danger btn-sm w-100 quick-action py-2"><i class="fas fa-receipt d-block mb-1"></i><small>Add Expense</small></a></div>
+          <div class="col-6 mb-2"><a href="#" data-modal-url="{% url 'goods_receipt_create' %}" data-modal-size="modal-xl" class="btn btn-outline-success btn-sm w-100 quick-action py-2"><i class="fas fa-truck-loading d-block mb-1"></i><small>Stock In</small></a></div>
+          <div class="col-6 mb-2"><a href="{% url 'invoice_list' %}" class="btn btn-outline-info btn-sm w-100 quick-action py-2"><i class="fas fa-file-invoice d-block mb-1"></i><small>Invoices</small></a></div>
+          <div class="col-6 mb-2"><a href="{% url 'report_financial_statement' %}" class="btn btn-outline-dark btn-sm w-100 quick-action py-2"><i class="fas fa-file-invoice-dollar d-block mb-1"></i><small>P&L</small></a></div>
+          <div class="col-6 mb-2"><a href="{% url 'supply_item_list' %}" class="btn btn-outline-secondary btn-sm w-100 quick-action py-2"><i class="fas fa-box-open d-block mb-1"></i><small>Supplies</small></a></div>
+        </div>
+      </div>
+    </div>
+    <!-- Business Flow -->
+    <div class="card card-outline card-info">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-route mr-1"></i> Business Flow</h3>
+        <div class="card-tools"><button type="button" class="btn btn-tool" data-card-widget="collapse"><i class="fas fa-minus"></i></button></div>
+      </div>
+      <div class="card-body p-2">
+        <ol class="mb-0 ps-3" style="font-size:.78rem; line-height:1.7;">
+          <li><strong>Setup</strong> business info, categories, channels</li>
+          <li><strong>List</strong> products/services in Catalog</li>
+          <li><strong>Stock In</strong> via Purchase Order &rarr; GRN</li>
+          <li><strong>Sell</strong> via POS or Sales Order</li>
+          <li><strong>Invoice</strong> from sales for receipts</li>
+          <li><strong>Record</strong> expenses</li>
+          <li><strong>Track</strong> supplies inventory</li>
+          <li><strong>Review</strong> Sales &amp; Expense Reports</li>
+          <li><strong>Set</strong> goals in Target Goals</li>
+          <li><strong>Analyze</strong> P&amp;L in Financial Statement</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Row 5: Pending Approvals + Unpaid Invoices + Reorder Suggestions + Recent Activity ═══ -->
+<div class="row">
+  <div class="col-lg-3 col-md-6">
+    <div class="card card-outline card-warning">
+      <div class="card-header py-2"><h3 class="card-title" style="font-size:.9rem;"><i class="fas fa-clipboard-check mr-1"></i> Pending Approvals <span class="badge bg-warning text-dark ms-1">{{ pending_approvals_total }}</span></h3></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush" style="font-size:.85rem;">
+          <li class="list-group-item d-flex justify-content-between py-2"><span><i class="fas fa-file-alt text-primary mr-1"></i> Purchase Orders</span><span class="badge bg-primary">{{ pending_po }}</span></li>
+          <li class="list-group-item d-flex justify-content-between py-2"><span><i class="fas fa-shopping-cart text-info mr-1"></i> Sales Orders</span><span class="badge bg-info">{{ pending_so }}</span></li>
+          <li class="list-group-item d-flex justify-content-between py-2"><span><i class="fas fa-truck-loading text-success mr-1"></i> Goods Receipts</span><span class="badge bg-success">{{ pending_grn_draft }}</span></li>
+          <li class="list-group-item d-flex justify-content-between py-2"><span><i class="fas fa-shipping-fast text-danger mr-1"></i> Delivery Notes</span><span class="badge bg-danger">{{ pending_dn_draft }}</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <div class="card card-outline card-danger">
+      <div class="card-header py-2"><h3 class="card-title" style="font-size:.9rem;"><i class="fas fa-file-invoice-dollar mr-1"></i> Unpaid Invoices <span class="badge bg-danger ms-1">{{ unpaid_invoice_count }}</span></h3></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0" style="font-size:.82rem;">
+          <tbody>
+            {% for inv in unpaid_invoices %}
+            <tr>
+              <td><a href="{% url 'invoice_detail' inv.pk %}">INV-{{ inv.invoice_number }}</a></td>
+              <td>{{ inv.customer_name|truncatewords:2 }}</td>
+              <td class="text-end text-danger fw-bold">{{ inv.grand_total|floatformat:2|intcomma }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="3" class="text-center text-muted py-3">All invoices paid!</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if unpaid_invoice_count %}
+      <div class="card-footer py-1 text-end"><small class="text-muted">Total: <strong class="text-danger">{{ unpaid_invoice_total|floatformat:2|intcomma }}</strong></small></div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <div class="card card-outline card-info">
+      <div class="card-header py-2"><h3 class="card-title" style="font-size:.9rem;"><i class="fas fa-exclamation-triangle mr-1"></i> Reorder Suggestions <span class="badge bg-info ms-1">{{ reorder_items|length }}</span></h3></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0" style="font-size:.82rem;">
+          <thead><tr><th>Item</th><th class="text-end">On Hand</th><th class="text-end">Reorder</th><th class="text-end">Suggest</th></tr></thead>
+          <tbody>
+            {% for r in reorder_items|slice:":5" %}
+            <tr>
+              <td><strong>{{ r.item.code }}</strong></td>
+              <td class="text-end text-danger">{{ r.on_hand|floatformat:0 }}</td>
+              <td class="text-end">{{ r.reorder_point }}</td>
+              <td class="text-end text-success fw-bold">{{ r.suggested_qty|floatformat:0 }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="4" class="text-center text-muted py-3">Stock levels OK</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if reorder_items %}<div class="card-footer py-1 text-center"><a href="{% url 'report_low_stock' %}" class="text-primary small">View Low Stock Report &rarr;</a></div>{% endif %}
+    </div>
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <div class="card card-outline card-secondary">
+      <div class="card-header py-2"><h3 class="card-title" style="font-size:.9rem;"><i class="fas fa-stream mr-1"></i> Recent Activity</h3></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush" style="font-size:.82rem;">
+          {% for log in recent_auto_docs %}
+          <li class="list-group-item py-1">
+            <small class="text-muted">{{ log.timestamp|timesince }} ago</small><br>
+            <span class="badge bg-secondary">{{ log.action }}</span> <strong>{{ log.document_type }}</strong> {{ log.document_number|default:"" }}
+            <small class="text-muted">by {{ log.user.username }}</small>
+          </li>
+          {% empty %}<li class="list-group-item text-center text-muted py-3">No recent activity</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Row 6: Stock Movements + Recent Transactions ═══ -->
+<div class="row">
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-bar mr-1"></i> Stock Moves (30d)</h3></div>
+      <div class="card-body"><canvas id="movementChart" height="200"></canvas></div>
+    </div>
+  </div>
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-history mr-1"></i> Recent Transactions</h3></div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover table-sm text-nowrap">
+          <thead><tr><th>Type</th><th>Item</th><th>Qty</th><th>Reference</th><th>By</th><th>Date</th></tr></thead>
+          <tbody>
+            {% for move in latest_transactions %}
+            <tr>
+              <td>
+                {% if move.move_type == 'RECEIVE' %}<span class="badge bg-success">{{ move.move_type }}</span>
+                {% elif move.move_type == 'DELIVER' %}<span class="badge bg-primary">{{ move.move_type }}</span>
+                {% elif move.move_type == 'TRANSFER' %}<span class="badge bg-info">{{ move.move_type }}</span>
+                {% elif move.move_type == 'DAMAGE' %}<span class="badge bg-danger">{{ move.move_type }}</span>
+                {% elif move.move_type == 'ADJUST' %}<span class="badge bg-warning">{{ move.move_type }}</span>
+                {% elif move.move_type == 'POS_SALE' %}<span class="badge bg-dark">POS SALE</span>
+                {% elif move.move_type == 'RETURN_IN' %}<span class="badge" style="background:#6f42c1;">RETURN IN</span>
+                {% else %}<span class="badge bg-secondary">{{ move.move_type }}</span>{% endif %}
+              </td>
+              <td>{{ move.item.code }}</td>
+              <td>{{ move.qty }}</td>
+              <td><small>{{ move.reference_number|default:"-" }}</small></td>
+              <td>{{ move.created_by.get_full_name|default:move.created_by.username }}</td>
+              <td>{{ move.posted_at|date:"M d, H:i" }}</td>
+            </tr>
+            {% empty %}<tr><td colspan="6" class="text-center text-muted">No transactions yet.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div><!-- /dash-real -->
+</div><!-- /dash-wrap -->
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// Reveal real content, hide skeleton
+document.getElementById('dash-wrap').classList.add('dash-loaded');
+
+const chartColors = ['#007bff','#28a745','#ffc107','#dc3545','#17a2b8','#6f42c1','#fd7e14','#20c997','#e83e8c','#6c757d'];
+
+// Revenue trend
+const revTrend = {{ revenue_trend|safe }};
+new Chart(document.getElementById('revenueChart'), {
+  type: 'line', data: {
+    labels: revTrend.map(r => r.date),
+    datasets: [{ label: 'Revenue', data: revTrend.map(r => r.revenue), borderColor: '#28a745', backgroundColor: 'rgba(40,167,69,.1)', fill: true, tension: .3, pointRadius: 4 }]
+  }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+});
+
+// Channel pie
+const chLabels = {{ ch_labels|safe }};
+const chData = {{ ch_data|safe }};
+if (chLabels.length > 0) {
+  new Chart(document.getElementById('channelChart'), {
+    type: 'doughnut', data: { labels: chLabels, datasets: [{ data: chData, backgroundColor: chartColors.slice(0, chLabels.length) }] },
+    options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } } }
+  });
+}
+
+// Expense category pie
+const ecLabels = {{ exp_cat_labels|safe }};
+const ecData = {{ exp_cat_data|safe }};
+if (ecLabels.length > 0) {
+  new Chart(document.getElementById('expenseChart'), {
+    type: 'doughnut', data: { labels: ecLabels, datasets: [{ data: ecData, backgroundColor: ['#dc3545','#fd7e14','#ffc107','#17a2b8','#6f42c1'] }] },
+    options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } } }
+  });
+}
+
+// Init tooltips
+[].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]')).forEach(function(el){ new bootstrap.Tooltip(el); });
+
+// Stock movements
+const moveData = {{ recent_moves|safe }};
+const mvColors = { 'RECEIVE':'#28a745','DELIVER':'#007bff','TRANSFER':'#17a2b8','ADJUST':'#ffc107','DAMAGE':'#dc3545','RETURN_IN':'#6f42c1','RETURN_OUT':'#fd7e14','POS_SALE':'#343a40' };
+new Chart(document.getElementById('movementChart'), {
+  type: 'bar', data: {
+    labels: moveData.map(m => m.move_type),
+    datasets: [{ label: 'Moves', data: moveData.map(m => m.count), backgroundColor: moveData.map(m => mvColors[m.move_type] || '#6c757d'), borderRadius: 4 }]
+  }, options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+});
+</script>
+{% endblock %}

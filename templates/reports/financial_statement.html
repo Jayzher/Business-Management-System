@@ -1,0 +1,151 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}Financial Statement{% endblock %}
+{% block page_title %}Financial Statement (P&L){% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'reports_dashboard' %}">Reports</a></li><li class="breadcrumb-item active">Financial Statement</li>{% endblock %}
+
+{% block extra_css %}
+<style>
+  .pnl-table td, .pnl-table th { padding: .5rem .75rem; }
+  .pnl-section { font-weight: 700; background: #f4f6f9; }
+  .pnl-total { font-weight: 700; border-top: 2px solid #333; }
+  .pnl-grand { font-size: 1.1rem; font-weight: 700; border-top: 3px double #333; }
+  .positive { color: #28a745; }
+  .negative { color: #dc3545; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card card-outline card-dark">
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-2"><label class="small">From</label><input type="date" name="date_from" class="form-control form-control-sm" value="{{ filters.date_from }}"></div>
+      <div class="col-md-2"><label class="small">To</label><input type="date" name="date_to" class="form-control form-control-sm" value="{{ filters.date_to }}"></div>
+      <div class="col-md-4">
+        <label class="small">&nbsp;</label>
+        <div class="d-flex flex-wrap">
+          <button type="submit" class="btn btn-dark btn-sm mr-1 mb-1"><i class="fas fa-filter mr-1"></i> Generate</button>
+          <button type="button" class="btn btn-sm btn-success mr-1 mb-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
+          <button type="button" class="btn btn-sm btn-outline-danger mb-1 wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row">
+  <!-- P&L Statement -->
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-file-invoice-dollar mr-1"></i> Profit & Loss Statement</h3></div>
+      <div class="card-body p-0">
+        <table class="table pnl-table mb-0">
+          <tbody>
+            <!-- REVENUE -->
+            <tr class="pnl-section"><td colspan="2">REVENUE</td></tr>
+            <tr><td class="ps-4">Sales Revenue</td><td class="text-right">&#8369; {{ revenue|floatformat:2|intcomma }}</td></tr>
+            {% if discount %}<tr><td class="ps-4">Less: Discounts</td><td class="text-right negative">(&#8369; {{ discount|floatformat:2|intcomma }})</td></tr>{% endif %}
+            <tr class="pnl-total"><td>Net Revenue</td><td class="text-right">&#8369; {{ net_revenue|floatformat:2|intcomma }}</td></tr>
+
+            <!-- COGS -->
+            <tr class="pnl-section"><td colspan="2">COST OF GOODS SOLD</td></tr>
+            <tr><td class="ps-4">Inventory COGS (cost price x qty sold)</td><td class="text-right">&#8369; {{ cogs_inventory|floatformat:2|intcomma }}</td></tr>
+            {% if cogs_expenses %}<tr><td class="ps-4">Direct Cost Expenses (COGS categories)</td><td class="text-right">&#8369; {{ cogs_expenses|floatformat:2|intcomma }}</td></tr>{% endif %}
+            <tr class="pnl-total"><td>Total COGS</td><td class="text-right">&#8369; {{ total_cogs|floatformat:2|intcomma }}</td></tr>
+
+            <!-- GROSS PROFIT -->
+            <tr class="pnl-grand">
+              <td>GROSS PROFIT <span class="badge {% if gross_margin >= 20 %}bg-success{% elif gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ gross_margin|floatformat:1 }}%</span></td>
+              <td class="text-right {% if gross_profit >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ gross_profit|floatformat:2|intcomma }}</td>
+            </tr>
+
+            <!-- OPERATING EXPENSES -->
+            <tr class="pnl-section"><td colspan="2">OPERATING EXPENSES</td></tr>
+            {% for row in opex_rows %}
+            <tr><td class="ps-4">{{ row.category__name }}</td><td class="text-right">&#8369; {{ row.total|floatformat:2|intcomma }}</td></tr>
+            {% empty %}
+            <tr><td class="ps-4 text-muted" colspan="2">No operating expenses recorded</td></tr>
+            {% endfor %}
+            <tr class="pnl-total"><td>Total Operating Expenses</td><td class="text-right">&#8369; {{ total_opex|floatformat:2|intcomma }}</td></tr>
+
+            <!-- NET PROFIT -->
+            <tr class="pnl-grand" style="background:#f0f7ff;">
+              <td>NET PROFIT <span class="badge {% if net_margin >= 10 %}bg-success{% elif net_margin >= 0 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ net_margin|floatformat:1 }}%</span></td>
+              <td class="text-right {% if net_profit >= 0 %}positive{% else %}negative{% endif %}" style="font-size:1.2rem;">&#8369; {{ net_profit|floatformat:2|intcomma }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI Cards + Chart -->
+  <div class="col-lg-5">
+    <div class="row">
+      <div class="col-6">
+        <div class="info-box {% if net_profit >= 0 %}bg-success{% else %}bg-danger{% endif %}">
+          <span class="info-box-icon"><i class="fas fa-dollar-sign"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Net Profit</span>
+            <span class="info-box-number">&#8369; {{ net_profit|floatformat:2|intcomma }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-6">
+        <div class="info-box bg-info">
+          <span class="info-box-icon"><i class="fas fa-percentage"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Net Margin</span>
+            <span class="info-box-number">{{ net_margin|floatformat:1 }}%</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-6">
+        <div class="info-box bg-primary">
+          <span class="info-box-icon"><i class="fas fa-chart-line"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Revenue</span>
+            <span class="info-box-number">&#8369; {{ net_revenue|floatformat:2|intcomma }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-6">
+        <div class="info-box bg-warning">
+          <span class="info-box-icon"><i class="fas fa-coins"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Total Costs (COGS+OPEX)</span>
+            <span class="info-box-number">&#8369; {{ total_cogs|floatformat:2|intcomma }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-bar mr-1"></i> Monthly Trend</h3></div>
+      <div class="card-body"><canvas id="trendChart" height="250"></canvas></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+new Chart(document.getElementById('trendChart'), {
+  type: 'bar',
+  data: {
+    labels: {{ trend_labels|safe }},
+    datasets: [
+      { label: 'Revenue', data: {{ trend_revenue|safe }}, backgroundColor: 'rgba(0,123,255,.7)', borderRadius: 4 },
+      { label: 'Expenses', data: {{ trend_expenses|safe }}, backgroundColor: 'rgba(220,53,69,.7)', borderRadius: 4 },
+      { label: 'Profit', data: {{ trend_profit|safe }}, type: 'line', borderColor: '#28a745', backgroundColor: 'rgba(40,167,69,.1)', tension: .3, fill: true, pointRadius: 4 },
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+    scales: { y: { beginAtZero: true } }
+  }
+});
+</script>
+{% endblock %}

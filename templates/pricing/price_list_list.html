@@ -1,0 +1,46 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Price Lists{% endblock %}
+{% block page_title %}Price Lists{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item active">Price Lists</li>
+{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="#" data-modal-url="{% url 'price_list_create' %}" data-modal-size="modal-xl" class="btn btn-primary"><i class="fas fa-plus mr-1"></i> New Price List</a>
+</div>
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table table-hover table-striped wis-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Warehouse</th>
+          <th>Currency</th>
+          <th>Default</th>
+          <th>Active</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pl in price_lists %}
+        <tr>
+          <td>{{ pl.name }}</td>
+          <td>{{ pl.warehouse|default:"Global" }}</td>
+          <td>{{ pl.currency }}</td>
+          <td>{% if pl.is_default %}<span class="badge bg-primary">Yes</span>{% else %}-{% endif %}</td>
+          <td>{% if pl.is_active %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
+          <td>
+            <a href="#" data-modal-url="{% url 'price_list_edit' pl.pk %}" data-modal-size="modal-xl" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'price_list_delete' pl.pk %}" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted">No price lists found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

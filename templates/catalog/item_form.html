@@ -1,0 +1,77 @@
+{% extends "theme/partials/form.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'item_list' %}">Items</a></li>
+<li class="breadcrumb-item active">{{ title }}</li>
+{% endblock %}
+{% block form_icon %}fas fa-box{% endblock %}
+{% block form_title %}{{ title }}{% endblock %}
+{% block form_card_class %}wis-form-wide{% endblock %}
+{% block cancel_url %}{% url 'item_list' %}{% endblock %}
+
+{% block form_fields %}
+{# ── Identity row ─────────────────────────── #}
+<fieldset class="mb-4">
+  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-tag mr-1"></i> Item Identity</legend>
+  <div class="wis-form-row">
+    {% for field in form %}{% if field.name == 'code' or field.name == 'name' %}
+    <div class="form-group mb-3">
+      <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}{% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}</label>
+      {{ field }}
+      {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+    </div>
+    {% endif %}{% endfor %}
+  </div>
+  <div class="wis-form-row">
+    {% for field in form %}{% if field.name == 'item_type' or field.name == 'category' or field.name == 'default_unit' %}
+    <div class="form-group mb-3">
+      <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}{% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}</label>
+      {{ field }}
+      {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+    </div>
+    {% endif %}{% endfor %}
+  </div>
+</fieldset>
+
+{# ── Pricing row ──────────────────────────── #}
+<fieldset class="mb-4">
+  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-peso-sign mr-1"></i> Pricing</legend>
+  <div class="wis-form-row">
+    {% for field in form %}{% if field.name == 'cost_price' or field.name == 'selling_price' %}
+    <div class="form-group mb-3">
+      <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}{% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}</label>
+      {{ field }}
+      {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+    </div>
+    {% endif %}{% endfor %}
+  </div>
+</fieldset>
+
+{# ── Stock levels row ─────────────────────── #}
+<fieldset class="mb-4">
+  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-cubes mr-1"></i> Stock Levels</legend>
+  <div class="wis-form-row">
+    {% for field in form %}{% if field.name == 'minimum_stock' or field.name == 'maximum_stock' or field.name == 'reorder_point' %}
+    <div class="form-group mb-3">
+      <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}{% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}</label>
+      {{ field }}
+      {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+    </div>
+    {% endif %}{% endfor %}
+  </div>
+</fieldset>
+
+{# ── Additional info ──────────────────────── #}
+<fieldset class="mb-2">
+  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-info-circle mr-1"></i> Additional Info</legend>
+  {% for field in form %}{% if field.name == 'barcode' or field.name == 'description' or field.name == 'image' %}
+  <div class="form-group mb-3">
+    <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}{% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}</label>
+    {{ field }}
+    {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+  </div>
+  {% endif %}{% endfor %}
+</fieldset>
+{% endblock %}
