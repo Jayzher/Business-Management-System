@@ -21,7 +21,14 @@ VENV_PY = BASE_DIR / "env" / "Scripts" / "python.exe"
 MANAGE_PY = BASE_DIR / "manage.py"
 PID_FILE = BASE_DIR / ".devserver.pid"
 
-python_exe = VENV_PY if VENV_PY.exists() else Path(sys.executable)
+if not VENV_PY.exists():
+    print("ERROR: Virtualenv Python not found at", VENV_PY)
+    print("Create/activate the env first, e.g.:")
+    print("  python -m venv env")
+    print("  env\\Scripts\\activate && pip install -r requirements.txt")
+    sys.exit(1)
+
+python_exe = VENV_PY
 
 
 def start_server():
