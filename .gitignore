@@ -16,8 +16,6 @@ ENV/
 *.py,cover
 *.mo
 local_settings.py
-/db.sqlite3
-/media/
 /staticfiles/
 
 # IDE / Editor
