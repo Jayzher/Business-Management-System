@@ -24,7 +24,9 @@
   #search-dropdown .search-item { display: flex; align-items: center; padding: .55rem .85rem; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background .1s; font-size: .92rem; }
   #search-dropdown .search-item:last-child { border-bottom: none; }
   #search-dropdown .search-item:hover, #search-dropdown .search-item.active { background: #007bff; color: #fff; }
+  #search-dropdown .search-item.disabled { cursor: not-allowed; opacity: .55; }
   #search-dropdown .search-item .item-price { margin-left: auto; font-weight: 600; font-size: .85rem; }
+  #search-dropdown .search-item .item-badge { margin-left: .75rem; font-size: .75rem; }
   #search-dropdown .search-item.active .item-price { color: #fff; }
   #search-dropdown .search-empty { padding: .75rem 1rem; color: #adb5bd; text-align: center; }
   /* Qty control */
@@ -210,6 +212,7 @@
 <script>
 const CSRF = '{{ csrf_token }}';
 const SHIFT_ID = {{ shift.pk }};
+const REGISTER_ID = {{ register.pk }};
 let currentSaleId = {{ sale.pk|default:"null" }};
 let currentSaleNo = '{{ sale.sale_no|default:"" }}';
 let searchResultIndex = -1;
@@ -253,7 +256,7 @@ $('#product-search').on('input', function() {
   searchResultIndex = -1;
   if (q.length < 2) { $dropdown.hide().empty(); return; }
   searchTimer = setTimeout(function() {
-    $.getJSON('/api/items/', {search: q, format: 'json'}, function(data) {
+    $.getJSON('/api/items/', {search: q, format: 'json', register: REGISTER_ID}, function(data) {
       const items = data.results || data;
       $dropdown.empty();
       searchResultIndex = -1;
@@ -262,10 +265,18 @@ $('#product-search').on('input', function() {
       }
       items.forEach(function(item, i) {
         const price = item.selling_price ? parseFloat(item.selling_price).toFixed(2) : '';
+        const available = (item.available_qty !== undefined && item.available_qty !== null) ? parseFloat(item.available_qty) : null;
+        const isOut = available !== null && available <= 0;
+        const badge = (available === null)
+          ? ''
+          : (isOut
+              ? '<span class="badge bg-danger item-badge">Out of stock</span>'
+              : '<span class="badge bg-success item-badge">Available: ' + available + '</span>');
         $dropdown.append(
-          `<div class="search-item" data-id="${item.id}" data-code="${item.code}" data-name="${item.name}" data-idx="${i}">
+          `<div class="search-item${isOut ? ' disabled' : ''}" data-id="${item.id}" data-code="${item.code}" data-name="${item.name}" data-available="${available ?? ''}" data-idx="${i}">
             <span><strong>${item.code}</strong> &mdash; ${item.name}</span>
             ${price ? '<span class="item-price">' + price + '</span>' : ''}
+            ${badge}
           </div>`
         );
       });
@@ -320,6 +331,11 @@ $(document).on('click', function(e) {
 $(document).on('click', '#search-dropdown .search-item', function(e) {
   e.preventDefault();
   e.stopPropagation();
+  const available = parseFloat($(this).data('available'));
+  if (!isNaN(available) && available <= 0) {
+    showToast('Out of stock', 'warning');
+    return;
+  }
   if (!currentSaleId) {
     showToast('Create a new sale first (F4)', 'warning');
     return;

@@ -2,8 +2,12 @@ from django import forms
 from django.forms import inlineformset_factory
 from procurement.models import (
     PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine,
-    PurchaseReturn, PurchaseReturnLine,
+    PurchaseReturn, PurchaseReturnLine, GoodsReceiptAttachment,
 )
+
+
+class MultipleFileInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
 
 
 class PurchaseOrderForm(forms.ModelForm):
@@ -123,6 +127,15 @@ GoodsReceiptLineFormSet = inlineformset_factory(
     form=GoodsReceiptLineForm,
     extra=1, can_delete=True,
 )
+
+
+class GoodsReceiptAttachmentForm(forms.ModelForm):
+    class Meta:
+        model = GoodsReceiptAttachment
+        fields = ['file']
+        widgets = {
+            'file': MultipleFileInput(attrs={'class': 'form-control'})
+        }
 
 
 class PurchaseReturnForm(forms.ModelForm):

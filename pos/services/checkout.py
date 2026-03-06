@@ -169,7 +169,8 @@ def post_pos_sale(sale_id, user):
     sale.status = SaleStatus.POSTED
     sale.posted_by = user
     sale.posted_at = now
-    sale.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
+    sale.stock_deducted = True
+    sale.save(update_fields=['status', 'posted_by', 'posted_at', 'stock_deducted', 'updated_at'])
 
     # Update shift totals
     _update_shift_totals(shift)
@@ -179,6 +180,67 @@ def post_pos_sale(sale_id, user):
     auto_create_invoice_from_pos_sale(sale, user)
 
     _create_audit(user, 'POST', sale, {'lines': len(moves), 'grand_total': str(sale.grand_total)})
+    return sale
+
+
+@transaction.atomic
+def sync_pos_sale_stock_moves(sale_id, user):
+    """Idempotent backfill: ensure StockMove rows exist for a completed POS sale.
+
+    If no StockMove rows exist for this sale, create them and deduct balances.
+    Then mark sale.stock_deducted=True.
+    """
+    sale = POSSale.objects.select_for_update().select_related('warehouse', 'location').get(pk=sale_id)
+
+    if sale.status not in [SaleStatus.PAID, SaleStatus.POSTED]:
+        return sale
+
+    # If we already marked deducted, skip.
+    if sale.stock_deducted:
+        return sale
+
+    existing = StockMove.objects.filter(
+        reference_type='POSSale', reference_id=sale.pk, status=MoveStatus.POSTED,
+    )
+    if existing.exists():
+        sale.stock_deducted = True
+        sale.save(update_fields=['stock_deducted', 'updated_at'])
+        return sale
+
+    now = timezone.now()
+    moves = []
+    warehouse = sale.warehouse
+
+    for line in sale.lines.select_related('item', 'unit', 'location').all():
+        loc = line.location or sale.location
+
+        # Deduct using the core inventory helper (enforces negative-stock rule)
+        _update_balance(line.item, loc, -line.qty)
+
+        moves.append(StockMove(
+            move_type=MoveType.POS_SALE,
+            item=line.item,
+            qty=line.qty,
+            unit=line.unit,
+            from_location=loc,
+            to_location=None,
+            reference_type='POSSale',
+            reference_id=sale.pk,
+            reference_number=sale.sale_no,
+            batch_number=line.batch_number,
+            serial_number=line.serial_number,
+            status=MoveStatus.POSTED,
+            created_by=user,
+            posted_by=user,
+            posted_at=now,
+            notes='Backfilled stock move from POS receipt sync',
+        ))
+
+    StockMove.objects.bulk_create(moves)
+    sale.stock_deducted = True
+    # If the sale was PAID but not POSTED, we keep the status as-is (this is sync only).
+    sale.save(update_fields=['stock_deducted', 'updated_at'])
+    _create_audit(user, 'SYNC', sale, {'action': 'sync_pos_sale_stock_moves', 'lines': len(moves)})
     return sale
 
 

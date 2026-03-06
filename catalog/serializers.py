@@ -55,13 +55,19 @@ class ItemSerializer(serializers.ModelSerializer):
 
 
 class ItemListSerializer(serializers.ModelSerializer):
-    """Lighter serializer for list views."""
+    """Lighter serializer for list views with optional available_qty."""
     category_name = serializers.CharField(source='category.name', read_only=True)
     unit_name = serializers.CharField(source='default_unit.abbreviation', read_only=True)
+    available_qty = serializers.SerializerMethodField()
 
     class Meta:
         model = Item
         fields = [
             'id', 'code', 'name', 'item_type', 'category_name',
             'unit_name', 'cost_price', 'selling_price', 'image', 'is_active',
+            'available_qty',
         ]
+
+    def get_available_qty(self, obj):
+        available_map = self.context.get('available_map') or {}
+        return available_map.get(obj.id)

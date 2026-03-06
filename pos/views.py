@@ -613,8 +613,8 @@ def terminal_checkout(request, sale_id):
             'grand_total': str(sale.grand_total),
             'change': str(payment_sum - sale.grand_total),
         })
-    except ValueError as e:
-        # Revert to DRAFT on stock error
+    except Exception as e:
+        # Revert to DRAFT on any failure to avoid "receipt but no stock move" situations
         sale.status = SaleStatus.DRAFT
         sale.save(update_fields=['status', 'updated_at'])
         return JsonResponse({'error': str(e)}, status=400)

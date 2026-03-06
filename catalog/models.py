@@ -57,7 +57,10 @@ class Item(SoftDeleteModel):
     """Base item model for both raw materials and finished products."""
     code = models.CharField(max_length=50, unique=True, db_index=True)
     name = models.CharField(max_length=200)
-    item_type = models.CharField(max_length=20, choices=ItemType.choices, db_index=True)
+    item_type = models.CharField(
+        max_length=20, choices=ItemType.choices, db_index=True,
+        default=ItemType.RAW,
+    )
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name='items')
     default_unit = models.ForeignKey(Unit, on_delete=models.PROTECT, related_name='items')
     description = models.TextField(blank=True, default='')

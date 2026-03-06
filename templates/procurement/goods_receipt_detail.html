@@ -48,7 +48,9 @@
 </div>
 
 <div class="card">
-  <div class="card-header"><h3 class="card-title"><i class="fas fa-list mr-2 text-success"></i>Receipt Lines</h3></div>
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <h3 class="card-title mb-0"><i class="fas fa-list mr-2 text-success"></i>Receipt Lines</h3>
+  </div>
   <div class="card-body table-responsive p-0">
     <table class="table table-hover detail-lines-table mb-0">
       <thead>
@@ -72,4 +74,174 @@
     </table>
   </div>
 </div>
+
+<!-- Attachments Card -->
+<div class="card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <h3 class="card-title mb-0"><i class="fas fa-paperclip mr-2 text-warning"></i>Attachments
+      {% if receipt.attachments.count %}<span class="badge bg-secondary ml-1">{{ receipt.attachments.count }}</span>{% endif %}
+    </h3>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#attachmentModal">
+      <i class="fas fa-upload mr-1"></i> Upload Receipts
+    </button>
+  </div>
+  <div class="card-body">
+    {% if receipt.attachments.exists %}
+    <div class="row g-2" id="attachment-gallery">
+      {% for att in receipt.attachments.all %}
+      {% with fname=att.file.name|lower %}
+      <div class="col-6 col-sm-4 col-md-3 col-lg-2" id="att-card-{{ att.pk }}">
+        <div class="card h-100 shadow-sm border-0">
+          {% if ".jpg" in fname or ".jpeg" in fname or ".png" in fname or ".gif" in fname or ".webp" in fname %}
+          <a href="{{ att.file.url }}" data-gallery="grn-attachments" class="att-preview d-block" style="height:110px;overflow:hidden;background:#f4f4f4;">
+            <img src="{{ att.file.url }}" alt="{{ att.original_name }}" class="img-fluid w-100 h-100" style="object-fit:cover;cursor:zoom-in;">
+          </a>
+          {% else %}
+          <a href="{{ att.file.url }}" target="_blank" class="d-flex align-items-center justify-content-center" style="height:110px;background:#f4f4f4;color:#555;font-size:2.2rem;text-decoration:none;">
+            {% if ".pdf" in fname %}<i class="fas fa-file-pdf text-danger"></i>
+            {% elif ".xlsx" in fname or ".xls" in fname or ".csv" in fname %}<i class="fas fa-file-excel text-success"></i>
+            {% elif ".docx" in fname or ".doc" in fname %}<i class="fas fa-file-word text-primary"></i>
+            {% else %}<i class="fas fa-file text-secondary"></i>{% endif %}
+          </a>
+          {% endif %}
+          <div class="card-body p-1">
+            <p class="mb-0 text-truncate" style="font-size:.72rem;" title="{{ att.original_name }}">{{ att.original_name|default:att.file.name }}</p>
+            <small class="text-muted" style="font-size:.65rem;">{{ att.uploaded_at|date:"M d, Y" }}</small>
+          </div>
+          <div class="card-footer p-1 text-end border-0 bg-transparent">
+            <form method="post" action="{% url 'goods_receipt_attachment_delete' receipt.pk att.pk %}" class="d-inline att-delete-form" data-att-id="{{ att.pk }}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-1" title="Delete" onclick="return confirm('Delete this attachment?')">
+                <i class="fas fa-trash" style="font-size:.7rem;"></i>
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endwith %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center text-muted py-4">
+      <i class="fas fa-paperclip fa-2x mb-2 d-block"></i>No attachments yet. Click <strong>Upload Receipts</strong> to add files.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Upload Modal -->
+<div class="modal fade" id="attachmentModal" tabindex="-1" aria-labelledby="attachmentModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="attachmentModalLabel"><i class="fas fa-upload mr-2"></i>Upload Receipt Attachments</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form method="post" action="{% url 'goods_receipt_attachment_upload' receipt.pk %}" enctype="multipart/form-data" id="attachUploadForm">
+        {% csrf_token %}
+        <div class="modal-body">
+          <div class="mb-2">
+            <label class="form-label fw-semibold">Select Files <small class="text-muted">(images, PDFs, docs — multiple allowed)</small></label>
+            {{ attach_form.file }}
+          </div>
+          <div id="upload-preview" class="row g-2 mt-1"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary"><i class="fas fa-upload mr-1"></i> Upload</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Image Lightbox Modal -->
+<div class="modal fade" id="lightboxModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content bg-dark border-0">
+      <div class="modal-header border-0 pb-0">
+        <span id="lightbox-filename" class="text-white small"></span>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-2">
+        <img id="lightbox-img" src="" alt="" class="img-fluid" style="max-height:80vh;object-fit:contain;">
+      </div>
+      <div class="modal-footer border-0 justify-content-center pt-0">
+        <button class="btn btn-outline-light btn-sm" id="lightbox-prev"><i class="fas fa-chevron-left mr-1"></i> Prev</button>
+        <button class="btn btn-outline-light btn-sm" id="lightbox-next">Next <i class="fas fa-chevron-right ml-1"></i></button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  // ── Upload preview ───────────────────────────────────────────────────
+  const fileInput = document.querySelector('#attachUploadForm input[type=file]');
+  const previewBox = document.getElementById('upload-preview');
+  if (fileInput && previewBox) {
+    fileInput.addEventListener('change', function () {
+      previewBox.innerHTML = '';
+      Array.from(this.files).forEach(function (f) {
+        const col = document.createElement('div');
+        col.className = 'col-4';
+        if (f.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = function (e) {
+            col.innerHTML = '<img src="' + e.target.result + '" class="img-fluid rounded" style="height:70px;object-fit:cover;width:100%;" title="' + f.name + '">';
+          };
+          reader.readAsDataURL(f);
+        } else {
+          col.innerHTML = '<div class="d-flex align-items-center justify-content-center rounded bg-light" style="height:70px;font-size:1.8rem;"><i class="fas fa-file text-secondary"></i></div><small class="text-truncate d-block" style="font-size:.65rem;">' + f.name + '</small>';
+        }
+        previewBox.appendChild(col);
+      });
+    });
+  }
+
+  // ── Lightbox ─────────────────────────────────────────────────────────
+  const gallery = Array.from(document.querySelectorAll('.att-preview'));
+  let current = 0;
+  const lbModal = document.getElementById('lightboxModal');
+  const lbImg = document.getElementById('lightbox-img');
+  const lbName = document.getElementById('lightbox-filename');
+
+  function openLightbox(idx) {
+    current = idx;
+    const a = gallery[idx];
+    lbImg.src = a.href;
+    lbName.textContent = a.querySelector('img').alt;
+    bootstrap.Modal.getOrCreateInstance(lbModal).show();
+  }
+
+  gallery.forEach(function (a, idx) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      openLightbox(idx);
+    });
+  });
+
+  document.getElementById('lightbox-prev').addEventListener('click', function () {
+    current = (current - 1 + gallery.length) % gallery.length;
+    const a = gallery[current];
+    lbImg.src = a.href;
+    lbName.textContent = a.querySelector('img').alt;
+  });
+
+  document.getElementById('lightbox-next').addEventListener('click', function () {
+    current = (current + 1) % gallery.length;
+    const a = gallery[current];
+    lbImg.src = a.href;
+    lbName.textContent = a.querySelector('img').alt;
+  });
+
+  // Hide prev/next if only 1 image
+  if (gallery.length <= 1) {
+    document.getElementById('lightbox-prev').style.display = 'none';
+    document.getElementById('lightbox-next').style.display = 'none';
+  }
+})();
+</script>
 {% endblock %}

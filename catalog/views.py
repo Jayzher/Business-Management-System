@@ -21,6 +21,7 @@ from catalog.serializers import (
 )
 from catalog.forms import CategoryForm, UnitForm, UnitConversionForm, ItemForm
 from inventory.models import StockBalance
+from django.db.models import Sum, F
 from inventory.serializers import StockBalanceSerializer
 
 
@@ -53,6 +54,34 @@ class ItemViewSet(viewsets.ModelViewSet):
         if self.action == 'list':
             return ItemListSerializer
         return ItemSerializer
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # Optional available stock map for a specific register/warehouse
+        register_id = request.query_params.get('register')
+        available_map = {}
+        if register_id:
+            from pos.models import POSRegister
+            register = POSRegister.objects.filter(pk=register_id).select_related('warehouse').first()
+            if register:
+                balances = StockBalance.objects.filter(
+                    location__warehouse=register.warehouse
+                ).values('item').annotate(
+                    available=Sum(F('qty_on_hand') - F('qty_reserved'))
+                )
+                available_map = {row['item']: row['available'] for row in balances}
+
+        page = self.paginate_queryset(queryset)
+        serializer_kwargs = {'context': self.get_serializer_context()}
+        serializer_kwargs['context']['available_map'] = available_map
+
+        if page is not None:
+            serializer = self.get_serializer(page, many=True, **serializer_kwargs)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True, **serializer_kwargs)
+        return Response(serializer.data)
 
     @action(detail=True, methods=['get'])
     def stock(self, request, pk=None):
