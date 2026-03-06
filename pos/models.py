@@ -105,6 +105,7 @@ class POSSale(TimeStampedModel):
         null=True, blank=True, related_name='pos_sales_posted',
     )
     posted_at = models.DateTimeField(null=True, blank=True)
+    stock_deducted = models.BooleanField(default=False)
     notes = models.TextField(blank=True, default='')
 
     class Meta:

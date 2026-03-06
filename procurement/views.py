@@ -7,18 +7,19 @@ from rest_framework.response import Response
 
 from procurement.models import (
     PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine,
-    PurchaseReturn, PurchaseReturnLine,
+    PurchaseReturn, PurchaseReturnLine, GoodsReceiptAttachment,
 )
 from procurement.serializers import PurchaseOrderSerializer, GoodsReceiptSerializer
 from procurement.forms import (
     PurchaseOrderForm, PurchaseOrderLineFormSet,
-    GoodsReceiptForm, GoodsReceiptLineFormSet,
+    GoodsReceiptForm, GoodsReceiptLineFormSet, GoodsReceiptAttachmentForm,
     PurchaseReturnForm, PurchaseReturnLineFormSet,
 )
 from django.utils import timezone
 from inventory.services import post_goods_receipt, cancel_document
 from core.models import DocumentStatus
 from accounts.decorators import procurement_access
+from django.http import HttpResponseRedirect
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -189,9 +190,50 @@ def goods_receipt_list_view(request):
 def goods_receipt_detail_view(request, pk):
     receipt = get_object_or_404(
         GoodsReceipt.objects.select_related('purchase_order', 'supplier', 'warehouse', 'created_by', 'posted_by')
-        .prefetch_related('lines__item', 'lines__unit', 'lines__location'), pk=pk
+        .prefetch_related('lines__item', 'lines__unit', 'lines__location', 'attachments'), pk=pk
     )
-    return render(request, 'procurement/goods_receipt_detail.html', {'receipt': receipt})
+    attach_form = GoodsReceiptAttachmentForm()
+    return render(request, 'procurement/goods_receipt_detail.html', {
+        'receipt': receipt,
+        'attach_form': attach_form,
+    })
+
+
+@login_required
+@procurement_access
+def goods_receipt_attachment_upload(request, pk):
+    receipt = get_object_or_404(GoodsReceipt, pk=pk)
+    if request.method == 'POST':
+        form = GoodsReceiptAttachmentForm(request.POST, request.FILES)
+        files = request.FILES.getlist('file')
+        if files:
+            for f in files:
+                GoodsReceiptAttachment.objects.create(
+                    goods_receipt=receipt,
+                    file=f,
+                    original_name=getattr(f, 'name', ''),
+                    uploaded_by=request.user,
+                )
+        elif form.is_valid():
+            # Fallback single file (unlikely because widget is multiple)
+            f = form.cleaned_data['file']
+            GoodsReceiptAttachment.objects.create(
+                goods_receipt=receipt,
+                file=f,
+                original_name=getattr(f, 'name', ''),
+                uploaded_by=request.user,
+            )
+    return HttpResponseRedirect(request.META.get('HTTP_REFERER', '/procurement/goods-receipts/'))
+
+
+@login_required
+@procurement_access
+def goods_receipt_attachment_delete(request, pk, attachment_id):
+    receipt = get_object_or_404(GoodsReceipt, pk=pk)
+    attachment = get_object_or_404(GoodsReceiptAttachment, pk=attachment_id, goods_receipt=receipt)
+    if request.method == 'POST':
+        attachment.delete()
+    return HttpResponseRedirect(request.META.get('HTTP_REFERER', '/procurement/goods-receipts/'))
 
 
 @login_required

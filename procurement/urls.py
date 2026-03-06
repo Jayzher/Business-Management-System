@@ -18,6 +18,8 @@ urlpatterns = [
     path('goods-receipts/<int:pk>/post/', views.goods_receipt_post_view, name='goods_receipt_post'),
     path('goods-receipts/<int:pk>/cancel/', views.goods_receipt_cancel_view, name='goods_receipt_cancel'),
     path('goods-receipts/<int:pk>/print/', views.goods_receipt_print_view, name='goods_receipt_print'),
+    path('goods-receipts/<int:pk>/attachments/upload/', views.goods_receipt_attachment_upload, name='goods_receipt_attachment_upload'),
+    path('goods-receipts/<int:pk>/attachments/<int:attachment_id>/delete/', views.goods_receipt_attachment_delete, name='goods_receipt_attachment_delete'),
     # Purchase Returns
     path('purchase-returns/', views.purchase_return_list_view, name='purchase_return_list'),
     path('purchase-returns/create/', views.purchase_return_create_view, name='purchase_return_create'),

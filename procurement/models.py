@@ -67,6 +67,21 @@ class GoodsReceiptLine(models.Model):
         return f"GRN Line: {self.item.code} x{self.qty}"
 
 
+class GoodsReceiptAttachment(models.Model):
+    """Supporting files uploaded for a GRN (e.g., receipts, photos, docs)."""
+    goods_receipt = models.ForeignKey(GoodsReceipt, on_delete=models.CASCADE, related_name='attachments')
+    file = models.FileField(upload_to='grn_attachments/%Y/%m/%d/')
+    original_name = models.CharField(max_length=255, blank=True, default='')
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return self.original_name or self.file.name
+
+
 class PurchaseReturn(TransactionalDocument):
     """Return goods to supplier (reverse of GRN)."""
     goods_receipt = models.ForeignKey(

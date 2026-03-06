@@ -128,13 +128,17 @@ def catalog_import(request):
                         result.add_warning(i, f'Created new unit: {unit_name}')
 
                 # Resolve item type
-                item_type_raw = norm.get('item_type', 'FINISHED').upper()
+                item_type_raw = norm.get('item_type', 'RAW').upper()
                 if item_type_raw in ('RAW', 'RAW MATERIAL'):
                     item_type = ItemType.RAW
+                elif item_type_raw in ('FINISHED', 'FINISHED PRODUCT'):
+                    item_type = ItemType.FINISHED
                 elif item_type_raw in ('SERVICE',):
                     item_type = ItemType.SERVICE
                 else:
-                    item_type = ItemType.FINISHED
+                    result.add_error(i, f'Invalid Item Type "{item_type_raw}". Use RAW, FINISHED, or SERVICE.', row)
+                    result.skipped += 1
+                    continue
 
                 defaults = {
                     'name': name or code,
@@ -548,12 +552,15 @@ def supply_import(request):
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 5. PROCUREMENT / STOCK-IN IMPORT
+# Creates a GoodsReceipt (GRN) per date+warehouse+supplier group then posts
+# it via inventory.services.post_goods_receipt() to add stock to inventory.
 # ═══════════════════════════════════════════════════════════════════════════
 
 PROCUREMENT_TEMPLATE_COLUMNS = [
-    'Stock-In Date', 'Product Name', 'Item Code', 'Stocks Added',
-    'Unit Cost', 'Status', 'Notes',
+    'Stock-In Date', 'Warehouse', 'Supplier', 'Product Name', 'Item Code',
+    'Qty', 'Unit', 'Unit Cost', 'Location', 'Notes',
 ]
+
 
 @login_required
 def procurement_import_template(request):
@@ -567,10 +574,14 @@ def procurement_import(request):
             'title': 'Import Stock-In (Procurement)',
             'import_url': 'procurement_import',
             'template_url': 'procurement_import_template',
-            'cancel_url': '/supply-movements/',
+            'cancel_url': '/procurement/goods-receipts/',
         })
 
-    from core.models import SupplyItem, SupplyMovement, SupplyMovementStatus
+    from catalog.models import Item, Unit as CatalogUnit
+    from procurement.models import GoodsReceipt, GoodsReceiptLine
+    from partners.models import Supplier
+    from warehouses.models import Warehouse, Location
+    from inventory.services import post_goods_receipt, generate_document_number
 
     result = ImportResult()
     try:
@@ -579,69 +590,180 @@ def procurement_import(request):
         result.add_error(1, str(e))
         return render(request, 'core/import_summary_modal.html', {
             'result': result,
-            'cancel_url': '/supply-movements/',
+            'cancel_url': '/procurement/goods-receipts/',
         })
 
+    # Resolve defaults (first active warehouse / first supplier) used as fallback
+    default_warehouse = Warehouse.objects.first()
+    default_supplier = Supplier.objects.first()
+
+    # Group rows into GRN batches: one GRN per (date, warehouse, supplier)
+    # We process each row individually but group them into GRNs
+    from collections import defaultdict
+    grn_groups = defaultdict(list)  # key -> list of (i, norm, row)
+
     for i, row in enumerate(rows, start=2):
+        norm = {normalize_header(k): v.strip() for k, v in row.items() if v}
+        date_val = safe_date(norm.get('stock-in_date', norm.get('stockin_date', norm.get('stock_in_date', ''))))
+        if not date_val:
+            result.add_error(i, 'Stock-In Date is required or invalid format.', row)
+            result.skipped += 1
+            continue
+
+        # Resolve warehouse
+        wh_val = norm.get('warehouse', '').strip()
+        warehouse = None
+        if wh_val:
+            warehouse = Warehouse.objects.filter(code__iexact=wh_val).first() or \
+                        Warehouse.objects.filter(name__iexact=wh_val).first()
+        if not warehouse:
+            warehouse = default_warehouse
+        if not warehouse:
+            result.add_error(i, 'No warehouse found and no default warehouse exists.', row)
+            result.skipped += 1
+            continue
+
+        # Resolve supplier
+        sup_val = norm.get('supplier', '').strip()
+        supplier = None
+        if sup_val:
+            supplier = Supplier.objects.filter(name__iexact=sup_val).first() or \
+                       Supplier.objects.filter(code__iexact=sup_val).first()
+        if not supplier:
+            supplier = default_supplier
+        if not supplier:
+            result.add_error(i, 'No supplier found and no default supplier exists.', row)
+            result.skipped += 1
+            continue
+
+        grn_key = (date_val, warehouse.pk, supplier.pk)
+        grn_groups[grn_key].append((i, norm, row, warehouse, supplier, date_val))
+
+    # Process each GRN group
+    for grn_key, line_entries in grn_groups.items():
+        date_val, wh_pk, sup_pk = grn_key
+        warehouse = line_entries[0][3]
+        supplier = line_entries[0][4]
+
         try:
             with transaction.atomic():
-                norm = {normalize_header(k): v.strip() for k, v in row.items() if v}
+                # Get default location for this warehouse
+                default_location = Location.objects.filter(
+                    warehouse=warehouse, is_active=True
+                ).first()
 
-                date_val = safe_date(norm.get('stock-in_date', norm.get('stockin_date', norm.get('stock_in_date', ''))))
-                if not date_val:
-                    result.add_error(i, 'Stock-In Date is required or invalid format.', row)
-                    result.skipped += 1
+                # Build GRN lines first; validate all before creating GRN
+                grn_lines_data = []
+                for (i, norm, row, _wh, _sup, _dt) in line_entries:
+                    item_name = norm.get('product_name', '').strip()
+                    item_code = norm.get('item_code', '').strip()
+
+                    # Resolve catalog item — name first, code fallback, partial fallback
+                    catalog_item = None
+                    suggestion = None
+                    if item_name:
+                        catalog_item = Item.objects.filter(name__iexact=item_name).first()
+                    if not catalog_item and item_code:
+                        catalog_item = Item.objects.filter(code__iexact=item_code).first()
+                    if not catalog_item and item_name:
+                        partial_qs = Item.objects.filter(name__icontains=item_name)
+                        if partial_qs.count() == 1:
+                            catalog_item = partial_qs.first()
+                        elif partial_qs.exists():
+                            suggestion = ', '.join(partial_qs.values_list('name', flat=True)[:5])
+
+                    if not catalog_item:
+                        tried = []
+                        if item_name:
+                            tried.append(f'name "{item_name}"')
+                        if item_code:
+                            tried.append(f'code "{item_code}"')
+                        tried_str = ' and '.join(tried) if tried else '(no name or code provided)'
+                        msg = f'Item not found by {tried_str}.'
+                        if suggestion:
+                            msg += f' Close matches: {suggestion}'
+                        result.add_error(i, msg, row)
+                        result.skipped += 1
+                        continue
+
+                    qty = safe_decimal(norm.get('qty', norm.get('stocks_added', '0')))
+                    if qty <= 0:
+                        result.add_error(i, 'Qty must be greater than 0.', row)
+                        result.skipped += 1
+                        continue
+
+                    # Resolve unit
+                    unit_val = norm.get('unit', '').strip()
+                    unit = None
+                    if unit_val:
+                        unit = CatalogUnit.objects.filter(abbreviation__iexact=unit_val).first() or \
+                               CatalogUnit.objects.filter(name__iexact=unit_val).first()
+                    if not unit:
+                        unit = catalog_item.default_unit
+
+                    # Resolve location
+                    loc_val = norm.get('location', '').strip()
+                    location = None
+                    if loc_val:
+                        location = Location.objects.filter(
+                            warehouse=warehouse, code__iexact=loc_val
+                        ).first()
+                    if not location:
+                        location = default_location
+                    if not location:
+                        result.add_error(i, f'No location found for warehouse "{warehouse.code}".', row)
+                        result.skipped += 1
+                        continue
+
+                    unit_cost = safe_decimal(norm.get('unit_cost', '0'))
+
+                    grn_lines_data.append({
+                        'item': catalog_item,
+                        'location': location,
+                        'qty': qty,
+                        'unit': unit,
+                        'unit_cost': unit_cost,
+                        'notes': norm.get('notes', ''),
+                        'row_num': i,
+                    })
+
+                if not grn_lines_data:
                     continue
 
-                # Resolve supply item
-                item_code = norm.get('item_code', '')
-                item_name = norm.get('product_name', '')
-                supply_item = None
-                if item_code:
-                    supply_item = SupplyItem.objects.filter(code__iexact=item_code).first()
-                if not supply_item and item_name:
-                    supply_item = SupplyItem.objects.filter(name__iexact=item_name).first()
-                if not supply_item:
-                    result.add_error(i, f'Supply item not found: {item_code or item_name}. Skipping.', row)
-                    result.skipped += 1
-                    continue
-
-                qty = safe_decimal(norm.get('stocks_added', '0'))
-                if qty <= 0:
-                    result.add_error(i, 'Stocks Added must be greater than 0.', row)
-                    result.skipped += 1
-                    continue
-
-                unit_cost = safe_decimal(norm.get('unit_cost'))
-
-                # Resolve status
-                status_raw = norm.get('status', 'COMPLETED').upper()
-                status = SupplyMovementStatus.COMPLETED
-                for choice in SupplyMovementStatus.choices:
-                    if status_raw in (choice[0], choice[1].upper()):
-                        status = choice[0]
-                        break
-
-                # Create movement — .save() triggers stock recalculation via signal
-                movement = SupplyMovement.objects.create(
-                    supply_item=supply_item,
-                    movement_type='IN',
-                    qty=qty,
-                    unit_cost=unit_cost,
-                    date=date_val,
-                    status=status,
-                    notes=norm.get('notes', ''),
+                # Create GRN header
+                grn = GoodsReceipt.objects.create(
+                    document_number=generate_document_number('GRN', GoodsReceipt),
+                    purchase_order=None,
+                    supplier=supplier,
+                    warehouse=warehouse,
+                    receipt_date=date_val,
+                    notes=f'Imported via CSV on {date_val}',
                     created_by=request.user,
                 )
-                result.created += 1
+
+                # Create GRN lines
+                for line_data in grn_lines_data:
+                    GoodsReceiptLine.objects.create(
+                        goods_receipt=grn,
+                        item=line_data['item'],
+                        location=line_data['location'],
+                        qty=line_data['qty'],
+                        unit=line_data['unit'],
+                        notes=line_data['notes'],
+                    )
+
+                # Post the GRN — creates StockMoves and updates StockBalances
+                post_goods_receipt(grn, request.user)
+                result.created += len(grn_lines_data)
 
         except Exception as e:
-            result.add_error(i, str(e), row)
-            result.skipped += 1
+            for (i, norm, row, _wh, _sup, _dt) in line_entries:
+                result.add_error(i, f'GRN creation/posting failed: {e}', row)
+                result.skipped += 1
 
     return render(request, 'core/import_summary_modal.html', {
         'result': result,
-        'cancel_url': '/supply-movements/',
+        'cancel_url': '/procurement/goods-receipts/',
     })
 
 
