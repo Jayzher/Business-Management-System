@@ -4,6 +4,7 @@ from inventory.models import (
     StockAdjustment, StockAdjustmentLine,
     DamagedReport, DamagedReportLine,
     StockTransfer, StockTransferLine,
+    InventoryToSupplyTransfer, InventoryToSupplyTransferLine,
 )
 
 
@@ -72,3 +73,16 @@ class StockTransferLineAdmin(admin.ModelAdmin):
     list_display = ['transfer', 'item', 'from_location', 'to_location', 'qty', 'unit']
     list_filter = ['from_location__warehouse', 'to_location__warehouse']
     search_fields = ['transfer__document_number', 'item__code', 'item__name']
+
+
+class InventoryToSupplyTransferLineInline(admin.TabularInline):
+    model = InventoryToSupplyTransferLine
+    extra = 1
+
+
+@admin.register(InventoryToSupplyTransfer)
+class InventoryToSupplyTransferAdmin(admin.ModelAdmin):
+    list_display = ['document_number', 'warehouse', 'transfer_date', 'reason', 'status', 'created_by', 'created_at']
+    list_filter = ['status', 'warehouse']
+    search_fields = ['document_number', 'reason']
+    inlines = [InventoryToSupplyTransferLineInline]

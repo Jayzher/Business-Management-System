@@ -1,4 +1,5 @@
 {% extends "theme/base.html" %}
+{% load custom_filters %}
 
 {% block title %}Receipt {{ sale.sale_no }}{% endblock %}
 {% block page_title %}Receipt {{ sale.sale_no }}{% endblock %}
@@ -76,12 +77,12 @@
         <tr>
           <td>{{ line.item.name }}</td>
           <td><code>{{ line.item.code }}</code></td>
-          <td>{{ line.qty }}</td>
+          <td>{{ line.qty|decimal2 }}</td>
           <td>{{ line.unit.abbreviation }}</td>
-          <td>{{ line.unit_price }}</td>
-          <td>{{ line.discount_amount }}</td>
-          <td>{{ line.tax_rate }}%</td>
-          <td>{{ line.line_total }}</td>
+          <td>{{ line.unit_price|currency }}</td>
+          <td>{{ line.discount_amount|currency }}</td>
+          <td>{{ line.tax_rate|decimal2 }}%</td>
+          <td>{{ line.line_total|currency }}</td>
         </tr>
         {% endfor %}
       </tbody>

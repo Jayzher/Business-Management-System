@@ -14,7 +14,9 @@ class SalesOrderLineSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'item', 'item_code', 'item_name',
             'qty_ordered', 'qty_delivered', 'qty_reserved', 'qty_remaining',
-            'unit', 'unit_abbr', 'unit_price', 'line_total', 'notes',
+            'unit', 'unit_abbr', 'unit_price',
+            'discount_type', 'discount_value', 'line_total',
+            'notes',
         ]
 
 

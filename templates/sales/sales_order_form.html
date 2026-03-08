@@ -7,17 +7,85 @@
 <li class="breadcrumb-item active">{{ title }}</li>
 {% endblock %}
 
+{% block extra_css %}{{ block.super }}
+<style>
+  .bundle-row { background: #f0f7ff; border-left: 4px solid #0d6efd !important; }
+  .bundle-row .card-header { background: linear-gradient(135deg,#e8f0fe 0%,#f0f7ff 100%) !important; }
+  .bundle-row .card-header { min-height: 42px; }
+  .bundle-row .bundle-title { min-width: 0; }
+  .bundle-row .bundle-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .bundle-row .bundle-actions .btn { white-space: nowrap; }
+  .bundle-row .bundle-actions { gap: .4rem !important; }
+  .bundle-row .bundle-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .35rem;
+    min-height: 30px;
+    padding: .25rem .65rem;
+    border-radius: 999px;
+    font-size: .78rem;
+    font-weight: 600;
+    line-height: 1;
+    transition: all .15s ease-in-out;
+  }
+  .bundle-row .bundle-pill-btn i { font-size: .78rem; }
+  .bundle-row .bundle-pill-btn.btn-outline-primary:hover {
+    background: #0d6efd;
+    color: #fff;
+    border-color: #0d6efd;
+  }
+  .bundle-row .bundle-icon-btn {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 0;
+    line-height: 1;
+    transition: all .15s ease-in-out;
+  }
+  .bundle-row .bundle-icon-btn i { font-size: .9rem; }
+  .bundle-row .bundle-icon-btn.text-danger:hover {
+    background: rgba(220,53,69,.12);
+    color: #b02a37 !important;
+  }
+  .bundle-row .bundle-icon-btn.text-secondary:hover {
+    background: rgba(108,117,125,.12);
+    color: #495057 !important;
+  }
+  .bundle-items-modal .table th { background: #f8f9fa; font-size:.82rem; font-weight:600; }
+  .bundle-items-modal .table td { font-size:.83rem; vertical-align:middle; }
+  .bundle-items-modal .price-override { color:#198754; font-weight:700; }
+  .bundle-items-modal .price-catalog { color:#6c757d; text-decoration:line-through; font-size:.78rem; }
+  .so-bundle-total-badge { font-size:.75rem; }
+  #bundle-formset-body .formset-row .card-header { border-bottom: 1px solid #cfe2ff !important; }
+  #bundle-formset-body .so-bundle-preview-btn { min-width: 88px; }
+  @media (max-width: 576px) {
+    .bundle-row .card-header { align-items: flex-start !important; }
+    .bundle-row .bundle-actions { margin-top: .35rem; width: 100%; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<form method="post" novalidate>
+<form method="post" novalidate data-so-form="1" data-price-api="{% url 'api_price_lookup' %}" data-bundle-api="/pricing/api/price-lists/">
   {% csrf_token %}
-  <div class="card">
-    <div class="card-header"><h3 class="card-title">SO Header</h3></div>
+
+  {# SO Header #}
+  <div class="card mb-3">
+    <div class="card-header py-2">
+      <h3 class="card-title mb-0"><i class="fas fa-file-alt me-2 text-primary"></i>SO Header</h3>
+    </div>
     <div class="card-body">
       {% if form.non_field_errors %}<div class="alert alert-danger">{% for e in form.non_field_errors %}{{ e }}{% endfor %}</div>{% endif %}
       <div class="row">
         {% for field in form %}
         <div class="col-md-6 mb-3">
-          <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}</label>
+          <label for="{{ field.id_for_label }}" class="form-label fw-semibold small">
+            {{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}
+          </label>
           {{ field }}
           {% if field.errors %}<div class="text-danger small">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
         </div>
@@ -26,99 +94,192 @@
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-header"><h3 class="card-title">Order Lines</h3></div>
-    <div class="card-body table-responsive p-2">
-      {% include "theme/partials/formset_table.html" %}
+  {# Product Lines #}
+  <div class="card mb-3">
+    <div class="card-header py-2 d-flex align-items-center justify-content-between">
+      <h3 class="card-title mb-0"><i class="fas fa-boxes me-2 text-secondary"></i>Product Lines
+        <span class="badge bg-secondary ms-1" id="so-line-count">0</span>
+      </h3>
+    </div>
+    <div class="card-body p-2">
+      {% with formset=formset %}
+        {% include "theme/partials/formset_table.html" %}
+      {% endwith %}
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-body d-flex justify-content-end align-items-center py-2">
-      <span class="fw-bold me-2" style="font-size:1.1rem;">Grand Total:</span>
-      <span id="so-grand-total" class="text-success fw-bold" style="font-size:1.3rem;">0.00</span>
+  {# Bundle / Package Lines #}
+  <div class="card mb-3 border-primary">
+    <div class="card-header py-2 d-flex align-items-center justify-content-between" style="background:linear-gradient(135deg,#e8f0fe 0%,#fff 100%);border-bottom:2px solid #cfe2ff;">
+      <h3 class="card-title mb-0 text-primary">
+        <i class="fas fa-layer-group me-2"></i>Bundle / Package Sets
+        <span class="badge bg-primary ms-1" id="so-bundle-count">0</span>
+      </h3>
+      <span class="text-muted small">Prices from PriceList override catalog selling price</span>
+    </div>
+    <div class="card-body p-2">
+      {{ bundle_formset.management_form }}
+
+      <div id="bundle-formset-body" class="formset-cards">
+        {% for bform in bundle_formset %}
+        <div class="card mb-2 formset-row bundle-row border shadow-none">
+          <div class="card-header py-2 px-3 d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2 bundle-title">
+              <i class="fas fa-layer-group text-primary mr-1"></i>
+              <span class="fw-semibold text-primary small mr-2">Bundle {{ forloop.counter }}</span>
+              <span class="badge bg-primary so-bundle-total-badge ms-1"></span>
+            </div>
+            <div class="d-flex align-items-center gap-1 bundle-actions">
+              <button type="button" class="btn btn-sm btn-outline-primary so-bundle-preview-btn bundle-pill-btn"
+                      title="Preview bundle items" style="box-shadow:none;">
+                <i class="fas fa-list-ul me-1"></i>Items
+              </button>
+              {% if bform.instance.pk %}
+              <button type="button" class="btn btn-sm btn-link text-secondary formset-flag-btn p-1 bundle-icon-btn"
+                      title="Flag for delete" style="box-shadow:none;">
+                <i class="fas fa-trash"></i>
+              </button>
+              {% endif %}
+              <button type="button" class="btn btn-sm btn-link text-danger formset-delete-row p-1 bundle-icon-btn"
+                      title="Remove bundle" style="box-shadow:none;">
+                <i class="fas fa-times fa-lg"></i>
+              </button>
+            </div>
+          </div>
+          <div class="card-body p-3">
+            <div class="row g-2">
+              {% for field in bform.visible_fields %}
+                {% if field.name != 'DELETE' %}
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold mb-1">
+                    {{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}
+                  </label>
+                  {{ field }}
+                  {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+                </div>
+                {% endif %}
+              {% endfor %}
+              {% for hidden in bform.hidden_fields %}{{ hidden }}{% endfor %}
+              <span style="display:none;">{{ bform.DELETE }}</span>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <button type="button" class="btn btn-sm btn-outline-primary w-100 mt-2" id="add-bundle-row">
+        <i class="fas fa-plus-circle me-1"></i> Add Bundle / Package
+      </button>
+
+      <script type="text/template" id="bundle-empty-row">
+        <div class="card mb-2 formset-row bundle-row border shadow-none">
+          <div class="card-header py-2 px-3 d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2 bundle-title">
+              <i class="fas fa-layer-group text-primary mr-1"></i>
+              <span class="fw-semibold text-primary small mr-2">Bundle</span>
+              <span class="badge bg-primary so-bundle-total-badge ms-1"></span>
+            </div>
+            <div class="d-flex align-items-center ml-auto gap-1 bundle-actions">
+              <button type="button" class="btn btn-sm btn-link text-danger formset-delete-row p-1 bundle-icon-btn"
+                      title="Remove bundle" style="box-shadow:none;">
+                <i class="fas fa-times fa-lg"></i>
+              </button>
+            </div>
+          </div>
+          <div class="card-body p-3">
+            <button type="button" class="btn btn-sm btn-outline-primary so-bundle-preview-btn bundle-pill-btn"
+                      title="Preview bundle items" style="box-shadow:none;">
+              <i class="fas fa-list-ul mr-1"></i>Items
+            </button>
+            <div class="row g-2">
+              {% for field in bundle_formset.empty_form.visible_fields %}
+                {% if field.name != 'DELETE' %}
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold mb-1">{{ field.label }}</label>
+                  {{ field.as_widget }}
+                </div>
+                {% endif %}
+              {% endfor %}
+              {% for hidden in bundle_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+              <span style="display:none;">{{ bundle_formset.empty_form.DELETE }}</span>
+            </div>
+          </div>
+        </div>
+      </script>
     </div>
   </div>
 
-  <div class="mb-3">
-    <button type="submit" class="btn btn-primary"><i class="fas fa-save mr-1"></i> Save</button>
-    <a href="{% url 'sales_order_list' %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i> Cancel</a>
+  {# Grand Total #}
+  <div class="card mb-3">
+    <div class="card-body py-3 px-4">
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="text-muted small">
+          <span id="so-line-subtotal-label" class="me-3"></span>
+          <span id="so-bundle-subtotal-label"></span>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+          <span class="fw-bold mr-1" style="font-size:1rem;">Grand Total:</span>
+          <span id="so-grand-total" class="text-success fw-bold" style="font-size:1.4rem;">0.00</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mb-4">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save me-1"></i> Save</button>
+    <a href="{% url 'sales_order_list' %}" class="btn btn-secondary ms-2"><i class="fas fa-times me-1"></i> Cancel</a>
   </div>
 </form>
-{% endblock %}
 
-{% block extra_js %}
-<script>
-/**
- * Dynamic pricing for Sales Order lines.
- * When item changes → fetch price from PriceList API (fallback to item.selling_price).
- * When qty or unit_price changes → recalculate line total and grand total.
- */
-$(function(){
-  const PRICE_API = '{% url "api_price_lookup" %}';
-
-  function getLineFields($row) {
-    return {
-      $item:  $row.find('select[name$="-item"]'),
-      $qty:   $row.find('input[name$="-qty_ordered"]'),
-      $price: $row.find('input[name$="-unit_price"]'),
-    };
-  }
-
-  function updateGrandTotal() {
-    let grand = 0;
-    $('#formset-body .formset-row').each(function(){
-      const f = getLineFields($(this));
-      const del = $(this).find('input[name$="-DELETE"]');
-      if (del.length && del.is(':checked')) return;
-      const qty = parseFloat(f.$qty.val()) || 0;
-      const price = parseFloat(f.$price.val()) || 0;
-      grand += qty * price;
-    });
-    $('#so-grand-total').text(grand.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}));
-  }
-
-  function fetchPrice($row) {
-    const f = getLineFields($row);
-    const itemId = f.$item.val();
-    if (!itemId) return;
-    const qty = parseFloat(f.$qty.val()) || 1;
-
-    $.getJSON(PRICE_API, {item: itemId, qty: qty}, function(data){
-      if (data.price) {
-        f.$price.val(parseFloat(data.price).toFixed(4));
-      } else {
-        // Fallback: fetch item selling_price from items API
-        $.getJSON('/api/items/' + itemId + '/', function(item){
-          if (item.selling_price && parseFloat(item.selling_price) > 0) {
-            f.$price.val(parseFloat(item.selling_price).toFixed(4));
-          }
-          updateGrandTotal();
-        });
-        return;
-      }
-      updateGrandTotal();
-    });
-  }
-
-  // Item changed → fetch price
-  $(document).on('change', 'select[name$="-item"]', function(){
-    fetchPrice($(this).closest('.formset-row'));
-  });
-
-  // Qty changed → re-fetch price (qty-based pricing) + update total
-  $(document).on('input change', 'input[name$="-qty_ordered"]', function(){
-    const $row = $(this).closest('.formset-row');
-    fetchPrice($row);
-  });
-
-  // Price changed manually → update total
-  $(document).on('input change', 'input[name$="-unit_price"]', function(){
-    updateGrandTotal();
-  });
-
-  // Initial calculation
-  updateGrandTotal();
-});
-</script>
+{# Bundle Items Preview Modal #}
+<div class="modal fade" id="bundleItemsModal" tabindex="-1" aria-labelledby="bundleItemsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content bundle-items-modal">
+      <div class="modal-header py-2" style="background:linear-gradient(135deg,#e8f0fe 0%,#fff 100%);">
+        <h5 class="modal-title text-primary" id="bundleItemsModalLabel">
+          <i class="fas fa-layer-group me-2"></i><span id="bundle-modal-name">Bundle Items</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div id="bundle-modal-spinner" class="text-center py-5">
+          <div class="spinner-border text-primary" role="status"></div>
+          <div class="mt-2 text-muted small">Loading bundle items...</div>
+        </div>
+        <div id="bundle-modal-content" style="display:none;">
+          <div class="px-3 pt-3 pb-1 d-flex align-items-center justify-content-between">
+            <div>
+              <span class="badge bg-primary" id="bundle-modal-item-count"></span>
+              <span class="text-muted small ml-2">PriceList prices override catalog selling prices</span>
+            </div>
+            <div class="fw-bold text-success" id="bundle-modal-subtotal"></div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+              <thead class="thead-light">
+                <tr>
+                  <th style="width:50px;"></th>
+                  <th>Code</th>
+                  <th>Item Name</th>
+                  <th class="text-end">Min Qty</th>
+                  <th class="text-end">Unit</th>
+                  <th class="text-end">Catalog Price</th>
+                  <th class="text-end">Bundle Price</th>
+                </tr>
+              </thead>
+              <tbody id="bundle-modal-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="bundle-modal-empty" style="display:none;" class="text-center py-5 text-muted">
+          <i class="fas fa-box-open fa-2x mb-2"></i>
+          <div>No items in this bundle.</div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

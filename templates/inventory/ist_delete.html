@@ -1,0 +1,25 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Delete {{ object.document_number }}{% endblock %}
+{% block page_title %}Delete Transfer{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'ist_list' %}">Inv → Supply Transfers</a></li>
+<li class="breadcrumb-item active">Delete</li>
+{% endblock %}
+
+{% block content %}
+<div class="card card-danger">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-exclamation-triangle me-2"></i>Confirm Deletion</h3>
+  </div>
+  <div class="card-body">
+    <p>Are you sure you want to delete transfer <strong>{{ object.document_number }}</strong>?</p>
+    <p class="text-muted">This action cannot be undone. Only <strong>DRAFT</strong> transfers can be deleted.</p>
+    <form method="post">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-danger"><i class="fas fa-trash mr-1"></i> Delete</button>
+      <a href="{% url 'ist_detail' object.pk %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i> Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

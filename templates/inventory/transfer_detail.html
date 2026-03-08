@@ -1,4 +1,5 @@
 {% extends "theme/base.html" %}
+{% load custom_filters %}
 
 {% block title %}{{ transfer.document_number }}{% endblock %}
 {% block page_title %}{{ transfer.document_number }}{% endblock %}
@@ -58,7 +59,7 @@
           <td>{% include "theme/partials/item_cell.html" with item=line.item %}</td>
           <td>{{ line.from_location.code }}</td>
           <td>{{ line.to_location.code }}</td>
-          <td class="text-end">{{ line.qty }}</td>
+          <td class="text-end">{{ line.qty|decimal2 }}</td>
           <td>{{ line.unit.abbreviation }}</td>
           <td>{{ line.notes|default:"-" }}</td>
         </tr>

@@ -12,6 +12,7 @@ from inventory.models import (
     StockAdjustment, StockAdjustmentLine,
     DamagedReport, DamagedReportLine,
     StockTransfer, StockTransferLine,
+    InventoryToSupplyTransfer, InventoryToSupplyTransferLine,
 )
 from inventory.serializers import (
     StockMoveSerializer, StockBalanceSerializer,
@@ -22,10 +23,12 @@ from inventory.forms import (
     StockTransferForm, StockTransferLineFormSet,
     StockAdjustmentForm, StockAdjustmentLineFormSet,
     DamagedReportForm, DamagedReportLineFormSet,
+    InventoryToSupplyTransferForm, InventoryToSupplyTransferLineFormSet,
 )
 from django.utils import timezone
 from inventory.services import (
     post_transfer, post_adjustment, post_damaged_report, cancel_document,
+    post_inventory_to_supply, cancel_inventory_to_supply,
 )
 from core.models import DocumentStatus
 from accounts.decorators import warehouse_access
@@ -513,3 +516,117 @@ def damaged_delete_view(request, pk):
         messages.success(request, f'Damaged Report {obj.document_number} deleted.')
         return redirect('damaged_list')
     return render(request, 'inventory/damaged_delete.html', {'object': obj})
+
+
+# ── Inventory-to-Supply Transfer (IST) ─────────────────────────────────────
+
+@login_required
+@warehouse_access
+def ist_list_view(request):
+    transfers = InventoryToSupplyTransfer.objects.select_related(
+        'warehouse', 'created_by'
+    ).all()
+    return render(request, 'inventory/ist_list.html', {'transfers': transfers})
+
+
+@login_required
+@warehouse_access
+def ist_detail_view(request, pk):
+    transfer = get_object_or_404(
+        InventoryToSupplyTransfer.objects
+        .select_related('warehouse', 'created_by', 'posted_by')
+        .prefetch_related('lines__item', 'lines__unit', 'lines__location', 'lines__supply_item'),
+        pk=pk,
+    )
+    return render(request, 'inventory/ist_detail.html', {'transfer': transfer})
+
+
+@login_required
+@warehouse_access
+def ist_create_view(request):
+    from inventory.services import generate_document_number
+    if request.method == 'POST':
+        form = InventoryToSupplyTransferForm(request.POST)
+        formset = InventoryToSupplyTransferLineFormSet(request.POST)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.created_by = request.user
+            if not obj.document_number:
+                obj.document_number = generate_document_number('IST', InventoryToSupplyTransfer)
+            obj.save()
+            formset = InventoryToSupplyTransferLineFormSet(request.POST, instance=obj)
+            if formset.is_valid():
+                formset.save()
+                messages.success(request, f'Transfer {obj.document_number} created.')
+                return redirect('ist_detail', pk=obj.pk)
+    else:
+        form = InventoryToSupplyTransferForm(initial={'transfer_date': timezone.now().date()})
+        formset = InventoryToSupplyTransferLineFormSet()
+    return render(request, 'inventory/ist_form.html', {
+        'form': form, 'formset': formset, 'title': 'New Inventory → Supply Transfer',
+    })
+
+
+@login_required
+@warehouse_access
+def ist_edit_view(request, pk):
+    obj = get_object_or_404(InventoryToSupplyTransfer, pk=pk)
+    if obj.status != 'DRAFT':
+        messages.error(request, 'Only DRAFT transfers can be edited.')
+        return redirect('ist_detail', pk=pk)
+    if request.method == 'POST':
+        form = InventoryToSupplyTransferForm(request.POST, instance=obj)
+        formset = InventoryToSupplyTransferLineFormSet(request.POST, instance=obj)
+        if form.is_valid() and formset.is_valid():
+            form.save()
+            formset.save()
+            messages.success(request, f'Transfer {obj.document_number} updated.')
+            return redirect('ist_detail', pk=obj.pk)
+    else:
+        form = InventoryToSupplyTransferForm(instance=obj)
+        formset = InventoryToSupplyTransferLineFormSet(instance=obj)
+    return render(request, 'inventory/ist_form.html', {
+        'form': form, 'formset': formset,
+        'title': f'Edit Transfer: {obj.document_number}', 'object': obj,
+    })
+
+
+@login_required
+@warehouse_access
+def ist_delete_view(request, pk):
+    obj = get_object_or_404(InventoryToSupplyTransfer, pk=pk)
+    if request.method == 'POST':
+        obj.soft_delete()
+        messages.success(request, f'Transfer {obj.document_number} deleted.')
+        return redirect('ist_list')
+    return render(request, 'inventory/ist_delete.html', {'object': obj})
+
+
+@login_required
+@warehouse_access
+def ist_post_view(request, pk):
+    obj = get_object_or_404(InventoryToSupplyTransfer, pk=pk)
+    if request.method == 'POST':
+        try:
+            post_inventory_to_supply(obj, request.user)
+            messages.success(
+                request,
+                f'Transfer {obj.document_number} posted. '
+                f'Inventory deducted and supply stock updated.',
+            )
+        except ValueError as e:
+            messages.error(request, str(e))
+    return redirect('ist_detail', pk=pk)
+
+
+@login_required
+@warehouse_access
+def ist_cancel_view(request, pk):
+    obj = get_object_or_404(InventoryToSupplyTransfer, pk=pk)
+    if request.method == 'POST':
+        try:
+            cancel_inventory_to_supply(obj, request.user)
+            messages.success(request, f'Transfer {obj.document_number} cancelled. Inventory and supply stock reversed.')
+        except ValueError as e:
+            messages.error(request, str(e))
+    return redirect('ist_detail', pk=pk)

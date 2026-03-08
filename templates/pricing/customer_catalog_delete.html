@@ -1,0 +1,31 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Delete Customer Catalog{% endblock %}
+{% block page_title %}Delete Customer Catalog{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'customer_catalog_list' %}">Customer Price Catalogs</a></li>
+<li class="breadcrumb-item active">Delete</li>
+{% endblock %}
+
+{% block content %}
+<div class="card card-danger">
+  <div class="card-header">
+    <h3 class="card-title">Confirm Deletion</h3>
+  </div>
+  <div class="card-body">
+    <p>Are you sure you want to delete the customer price catalog
+      <strong>"{{ object.name }}"</strong> for customer <strong>{{ object.customer.name }}</strong>?</p>
+    <p class="text-muted small">This will soft-delete the catalog and remove it from the active list.
+      It will no longer be applied to new Sales Orders for this customer.</p>
+  </div>
+  <div class="card-footer d-flex justify-content-end gap-2">
+    <form method="post" style="display:inline;">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-danger"><i class="fas fa-trash mr-1"></i> Yes, Delete</button>
+    </form>
+    <a href="{% url 'customer_catalog_list' %}" class="btn btn-secondary">
+      <i class="fas fa-times mr-1"></i> Cancel
+    </a>
+  </div>
+</div>
+{% endblock %}

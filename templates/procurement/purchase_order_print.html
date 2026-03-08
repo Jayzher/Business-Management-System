@@ -1,5 +1,6 @@
 {% extends "theme/partials/doc_print.html" %}
 {% load humanize %}
+{% load custom_filters %}
 
 {% block doc_header_info %}
 <p>Date: {{ doc.order_date|date:"F d, Y" }}</p>
@@ -33,10 +34,10 @@
       <td>{{ forloop.counter }}</td>
       <td>{{ line.item.code }}</td>
       <td>{{ line.item.name }}</td>
-      <td class="text-right">{{ line.qty_ordered|floatformat:2 }}</td>
+      <td class="text-right">{{ line.qty_ordered|decimal2 }}</td>
       <td>{{ line.unit.abbreviation }}</td>
-      <td class="text-right">{{ line.unit_price|floatformat:2|intcomma }}</td>
-      <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
+      <td class="text-right">{{ line.unit_price|currency }}</td>
+      <td class="text-right"><strong>{{ line.line_total|currency }}</strong></td>
     </tr>
     {% endfor %}
   </tbody>

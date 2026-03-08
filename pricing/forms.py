@@ -1,6 +1,6 @@
 from django import forms
 from django.forms import inlineformset_factory
-from pricing.models import PriceList, PriceListItem, DiscountRule
+from pricing.models import PriceList, PriceListItem, DiscountRule, CustomerPriceCatalog, CustomerPriceCatalogItem
 
 
 class PriceListForm(forms.ModelForm):
@@ -35,8 +35,8 @@ class PriceListItemForm(forms.ModelForm):
         widgets = {
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'price': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'placeholder': 'e.g., 199.99'}),
-            'min_qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.0001', 'placeholder': 'e.g., 1'}),
+            'price': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 199.99'}),
+            'min_qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0', 'placeholder': 'e.g., 1'}),
             'start_date': forms.DateInput(attrs={'class': 'form-control form-control-sm', 'type': 'date'}),
             'end_date': forms.DateInput(attrs={'class': 'form-control form-control-sm', 'type': 'date'}),
         }
@@ -62,7 +62,7 @@ class DiscountRuleForm(forms.ModelForm):
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
             'discount_type': forms.Select(attrs={'class': 'form-control'}),
-            'value': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': 'e.g., 10'}),
+            'value': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 10'}),
             'scope': forms.Select(attrs={'class': 'form-control'}),
         }
         help_texts = {
@@ -71,3 +71,46 @@ class DiscountRuleForm(forms.ModelForm):
             'value': 'Discount value. For percentage enter 20 for 20%. For fixed enter the amount.',
             'scope': 'Per Item = applied to each line. Per Order = applied once to the order total.',
         }
+
+
+class CustomerPriceCatalogForm(forms.ModelForm):
+    class Meta:
+        model = CustomerPriceCatalog
+        fields = ['customer', 'name', 'notes']
+        widgets = {
+            'customer': forms.Select(attrs={'class': 'form-control', 'data-placeholder': 'Select customer'}),
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. VIP Wholesale Pricing'}),
+            'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': 'Internal remarks'}),
+        }
+        help_texts = {
+            'customer': 'Customer this catalog applies to.',
+            'name': 'Descriptive name for this custom price catalog.',
+            'notes': 'Optional internal remarks.',
+        }
+
+
+class CustomerPriceCatalogItemForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound and (not getattr(self, 'instance', None) or not getattr(self.instance, 'pk', None)):
+            if 'price' in self.fields:
+                self.fields['price'].initial = None
+
+    class Meta:
+        model = CustomerPriceCatalogItem
+        fields = ['item', 'unit', 'price', 'notes']
+        widgets = {
+            'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
+            'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
+            'price': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0', 'placeholder': 'e.g. 199.99',
+            }),
+            'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Optional remark'}),
+        }
+
+
+CustomerPriceCatalogItemFormSet = inlineformset_factory(
+    CustomerPriceCatalog, CustomerPriceCatalogItem,
+    form=CustomerPriceCatalogItemForm,
+    extra=1, can_delete=True,
+)

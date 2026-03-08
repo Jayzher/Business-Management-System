@@ -47,7 +47,7 @@ class UnitConversionForm(forms.ModelForm):
             'from_unit': forms.Select(attrs={'class': 'form-control'}),
             'to_unit': forms.Select(attrs={'class': 'form-control'}),
             'factor': forms.NumberInput(attrs={
-                'class': 'form-control', 'step': '0.000001', 'placeholder': 'e.g., 20'
+                'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 20'
             }),
         }
         help_texts = {
@@ -81,19 +81,19 @@ class ItemForm(forms.ModelForm):
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'barcode': forms.TextInput(attrs={'class': 'form-control'}),
             'cost_price': forms.NumberInput(attrs={
-                'class': 'form-control', 'step': '0.01', 'placeholder': 'e.g., 150.00'
+                'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 150.00'
             }),
             'selling_price': forms.NumberInput(attrs={
-                'class': 'form-control', 'step': '0.01', 'placeholder': 'e.g., 250.00'
+                'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 250.00'
             }),
             'minimum_stock': forms.NumberInput(attrs={
-                'class': 'form-control', 'step': '0.0001', 'placeholder': 'e.g., 10'
+                'class': 'form-control', 'step': '1', 'min': '0', 'placeholder': 'e.g., 10'
             }),
             'maximum_stock': forms.NumberInput(attrs={
-                'class': 'form-control', 'step': '0.0001', 'placeholder': 'e.g., 100'
+                'class': 'form-control', 'step': '1', 'min': '0', 'placeholder': 'e.g., 100'
             }),
             'reorder_point': forms.NumberInput(attrs={
-                'class': 'form-control', 'step': '0.0001', 'placeholder': 'e.g., 20'
+                'class': 'form-control', 'step': '1', 'min': '0', 'placeholder': 'e.g., 20'
             }),
             'image': forms.ClearableFileInput(attrs={'class': 'form-control'}),
         }

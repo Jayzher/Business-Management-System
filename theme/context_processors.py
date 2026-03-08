@@ -87,6 +87,7 @@ def sidebar_menu(request):
                 {'label': 'Transfers', 'url': '/inventory/transfers/', 'active_prefix': '/inventory/transfers', 'icon': 'fas fa-right-left'},
                 {'label': 'Adjustments', 'url': '/inventory/adjustments/', 'active_prefix': '/inventory/adjustments', 'icon': 'fas fa-sliders-h'},
                 {'label': 'Damaged Stock', 'url': '/inventory/damaged/', 'active_prefix': '/inventory/damaged', 'icon': 'fas fa-ban'},
+                {'label': 'Inv → Supply', 'url': '/inventory/supply-transfers/', 'active_prefix': '/inventory/supply-transfers', 'icon': 'fas fa-arrow-right-to-bracket'},
             ],
         },
         {
@@ -106,6 +107,7 @@ def sidebar_menu(request):
             'children': [
                 {'label': 'Price Lists', 'url': '/pricing/price-lists/', 'active_prefix': '/pricing/price-lists', 'icon': 'fas fa-tag'},
                 {'label': 'Discount Rules', 'url': '/pricing/discount-rules/', 'active_prefix': '/pricing/discount-rules', 'icon': 'fas fa-percent'},
+                {'label': 'Customer Catalogs', 'url': '/pricing/customer-catalogs/', 'active_prefix': '/pricing/customer-catalogs', 'icon': 'fas fa-user-tag'},
             ],
         },
         {

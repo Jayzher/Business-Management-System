@@ -45,9 +45,9 @@ class PurchaseOrderLineForm(forms.ModelForm):
         fields = ['item', 'qty_ordered', 'unit', 'unit_price', 'notes']
         widgets = {
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'qty_ordered': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.0001', 'placeholder': 'e.g., 10'}),
+            'qty_ordered': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0', 'placeholder': 'e.g., 10'}),
             'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'unit_price': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.0001', 'placeholder': 'e.g., 150.00'}),
+            'unit_price': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 150.00'}),
             'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
         }
         help_texts = {
@@ -105,7 +105,7 @@ class GoodsReceiptLineForm(forms.ModelForm):
         widgets = {
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'location': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.0001', 'placeholder': 'e.g., 5'}),
+            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0', 'placeholder': 'e.g., 5'}),
             'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'batch_number': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
             'serial_number': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
@@ -164,7 +164,7 @@ class PurchaseReturnLineForm(forms.ModelForm):
         widgets = {
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'location': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.0001'}),
+            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0'}),
             'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'reason': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
             'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),

@@ -12,6 +12,7 @@ class MoveType(models.TextChoices):
     RETURN_IN = 'RETURN_IN', 'Return (In)'
     RETURN_OUT = 'RETURN_OUT', 'Return (Out)'
     POS_SALE = 'POS_SALE', 'POS Sale'
+    SUPPLY_OUT = 'SUPPLY_OUT', 'Supply Out'
 
 
 class MoveStatus(models.TextChoices):
@@ -118,6 +119,7 @@ class StockAdjustmentLine(models.Model):
     qty_counted = models.DecimalField(max_digits=15, decimal_places=4)
     qty_system = models.DecimalField(max_digits=15, decimal_places=4, default=0)
     unit = models.ForeignKey('catalog.Unit', on_delete=models.PROTECT)
+    batch_number = models.CharField(max_length=100, blank=True, default='')
     notes = models.TextField(blank=True, default='')
 
     @property
@@ -143,6 +145,7 @@ class DamagedReportLine(models.Model):
     location = models.ForeignKey('warehouses.Location', on_delete=models.PROTECT)
     qty = models.DecimalField(max_digits=15, decimal_places=4)
     unit = models.ForeignKey('catalog.Unit', on_delete=models.PROTECT)
+    batch_number = models.CharField(max_length=100, blank=True, default='')
     reason = models.CharField(max_length=200, blank=True, default='')
     photo = models.ImageField(upload_to='damaged/', blank=True, null=True)
     notes = models.TextField(blank=True, default='')
@@ -176,7 +179,58 @@ class StockTransferLine(models.Model):
     )
     qty = models.DecimalField(max_digits=15, decimal_places=4)
     unit = models.ForeignKey('catalog.Unit', on_delete=models.PROTECT)
+    batch_number = models.CharField(max_length=100, blank=True, default='')
+    serial_number = models.CharField(max_length=100, blank=True, default='')
     notes = models.TextField(blank=True, default='')
 
     def __str__(self):
         return f"Transfer: {self.item.code} x{self.qty}"
+
+
+class InventoryToSupplyTransfer(TransactionalDocument):
+    """
+    Transfer of catalog items out of inventory and into the supply tracker.
+    No expense is created — the item was already in inventory at cost.
+    Posting deducts StockBalance and creates a SupplyMovement (IN) for the
+    matching supply item.
+    """
+    warehouse = models.ForeignKey(
+        'warehouses.Warehouse', on_delete=models.PROTECT,
+        related_name='supply_transfers',
+    )
+    transfer_date = models.DateField()
+    reason = models.CharField(max_length=200, blank=True, default='')
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.document_number
+
+
+class InventoryToSupplyTransferLine(models.Model):
+    """Line item for an Inventory → Supply Transfer."""
+    transfer = models.ForeignKey(
+        InventoryToSupplyTransfer, on_delete=models.CASCADE, related_name='lines',
+    )
+    item = models.ForeignKey(
+        'catalog.Item', on_delete=models.PROTECT,
+        help_text='Catalog item to move out of inventory.',
+    )
+    location = models.ForeignKey(
+        'warehouses.Location', on_delete=models.PROTECT,
+        help_text='Source location to deduct stock from.',
+    )
+    supply_item = models.ForeignKey(
+        'core.SupplyItem', on_delete=models.PROTECT,
+        null=True, blank=True,
+        help_text='Optional: Supply item to credit. If blank, will auto-create/find based on catalog item.',
+    )
+    qty = models.DecimalField(max_digits=15, decimal_places=4)
+    unit = models.ForeignKey('catalog.Unit', on_delete=models.PROTECT)
+    batch_number = models.CharField(max_length=100, blank=True, default='')
+    notes = models.CharField(max_length=200, blank=True, default='')
+
+    def __str__(self):
+        target = self.supply_item.code if self.supply_item else 'Auto'
+        return f"{self.item.code} → {target} x{self.qty}"

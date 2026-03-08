@@ -1,0 +1,54 @@
+{% extends "theme/base.html" %}
+{% block title %}Inv → Supply Transfers{% endblock %}
+{% block page_title %}Inventory → Supply Transfers{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Inv → Supply Transfers</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-boxes me-2 text-warning"></i>Inventory → Supply Transfers</h3>
+    <div class="card-tools">
+      <a href="#" data-modal-url="{% url 'ist_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary">
+        <i class="fas fa-plus mr-1"></i> New Transfer
+      </a>
+    </div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr>
+          <th>IST #</th><th>Warehouse</th><th>Date</th><th>Reason</th>
+          <th>Lines</th><th>Status</th><th>Created By</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in transfers %}
+        <tr>
+          <td><strong>{{ t.document_number }}</strong></td>
+          <td>{{ t.warehouse.code }}</td>
+          <td>{{ t.transfer_date|date:"M d, Y" }}</td>
+          <td>{{ t.reason|default:"-"|truncatechars:40 }}</td>
+          <td><span class="badge bg-secondary">{{ t.lines.count }}</span></td>
+          <td>
+            {% if t.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif t.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif t.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td>
+          <td>{{ t.created_by.get_full_name|default:t.created_by.username }}</td>
+          <td>
+            <a href="{% url 'ist_detail' t.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
+            {% if t.status == 'DRAFT' %}
+            <a href="#" data-modal-url="{% url 'ist_edit' t.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
+            {% endif %}
+            <a href="#" data-modal-url="{% url 'ist_delete' t.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No transfers yet. Click <strong>New Transfer</strong> to get started.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

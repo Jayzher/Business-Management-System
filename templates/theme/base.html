@@ -54,6 +54,9 @@
     #wis-modal .modal-header .btn-close:hover { opacity: 1; }
     #wis-modal-body .card-danger { box-shadow: none; border: none; margin: 0; }
     #wis-modal-body .card-danger > .card-header { display: none; }
+    #globalBundleItemsModal { z-index: 2100; }
+    #globalBundleItemsModal .modal-dialog { z-index: 2101; }
+    body .modal-backdrop.bundle-items-backdrop { z-index: 2090; }
     /* Modal footer buttons */
     #wis-modal-body .btn { border-radius: 6px; font-size: .88rem; }
     #wis-modal-body .btn-primary { background: linear-gradient(135deg, #007bff, #0056b3); border: none; }
@@ -275,10 +278,13 @@ function wisInitSelect2(container) {
   container = container || document;
   $(container).find('select').not('.no-select2').each(function() {
     if ($(this).hasClass('select2-hidden-accessible')) return;
-    $(this).select2({
+    var $select = $(this);
+    var parentModal = $select.closest('.modal');
+    $select.select2({
       theme: 'bootstrap-5',
       width: '100%',
-      placeholder: $(this).attr('placeholder') || 'Select...',
+      placeholder: $select.attr('placeholder') || 'Select...',
+      dropdownParent: parentModal.length ? parentModal : $(document.body),
       allowClear: !$(this).prop('required')
     });
   });
@@ -286,6 +292,14 @@ function wisInitSelect2(container) {
 
 $(function() {
   wisInitSelect2();
+});
+
+/* Ensure Select2 search box is focusable when dropdown opens */
+$(document).on('select2:open', function() {
+  setTimeout(function() {
+    var searchInput = document.querySelector('.select2-container--open .select2-search__field');
+    if (searchInput) searchInput.focus();
+  }, 0);
 });
 
 /* ═══ WIS Toast + Modal System ═══════════════════════════════════════ */
@@ -462,7 +476,14 @@ WIS.refreshContent = function() {
 function wisPruneEmptyFormsetRows(form) {
   var formsetBodies = form.querySelectorAll('#formset-body');
   formsetBodies.forEach(function(tbody) {
-    var totalInput = form.querySelector('input[id$="-TOTAL_FORMS"]');
+    /* Derive prefix from first row field name to find the right TOTAL_FORMS */
+    var totalInput = null;
+    var firstField = tbody.querySelector('.formset-row input[name], .formset-row select[name], .formset-row textarea[name]');
+    if (firstField) {
+      var m = (firstField.getAttribute('name') || '').match(/^([^-]+)-\d+-.+/);
+      if (m) totalInput = form.querySelector('input[name="' + m[1] + '-TOTAL_FORMS"]');
+    }
+    if (!totalInput) totalInput = form.querySelector('input[id$="-TOTAL_FORMS"]');
     var totalCount = totalInput ? parseInt(totalInput.value) : null;
     tbody.querySelectorAll('.formset-row').forEach(function(row) {
       var itemField = row.querySelector('select[name$="-item"]');
@@ -636,19 +657,31 @@ $(document).on('click', '[data-modal-url]', function(e) {
 $(document).on('click', '.formset-delete-row', function(e) {
   e.preventDefault();
   var row = $(this).closest('.formset-row');
+  var $form = $(this).closest('form');
+  var $soForm = $form.filter('[data-so-form="1"]').add($form.closest('[data-so-form="1"]')).first();
   var deleteCheckbox = row.find('input[type="checkbox"][id$="-DELETE"]');
   // If existing form (has DELETE checkbox), flag and hide; if new row (no DELETE checkbox), remove entirely
   if (deleteCheckbox.length) {
     deleteCheckbox.prop('checked', true);
     row.hide();
+    if (typeof wisSoRecalcGrand === 'function' && $soForm.length) wisSoRecalcGrand($soForm);
   } else {
     row.remove();
-    // decrement TOTAL_FORMS for purely client-added rows if needed
-    var totalForms = $(this).closest('form').find('input[id$="-TOTAL_FORMS"]');
-    if (totalForms.length) {
-      var count = Math.max(parseInt(totalForms.val()) - 1, 0);
-      totalForms.val(count);
+    // decrement TOTAL_FORMS for purely client-added rows — scope by prefix
+    var sampleName = row.find('input[name],select[name],textarea[name]').filter('[name]').first().attr('name') || '';
+    var prefixM = sampleName.match(/^([^-]+)-\d+-.+/);
+    var totalForms;
+    if (prefixM) {
+      totalForms = $form.find('input[name="' + prefixM[1] + '-TOTAL_FORMS"]');
     }
+    if (!totalForms || !totalForms.length) {
+      totalForms = $form.find('input[id$="-TOTAL_FORMS"]').first();
+    }
+    if (totalForms && totalForms.length) {
+      totalForms.val(Math.max(parseInt(totalForms.val()) - 1, 0));
+    }
+    // Recalc grand total if inside an SO form
+    if (typeof wisSoRecalcGrand === 'function' && $soForm.length) wisSoRecalcGrand($soForm);
   }
 });
 
@@ -657,6 +690,7 @@ $(document).on('click', '.formset-flag-btn', function(e) {
   e.preventDefault();
   var btn = $(this);
   var row = btn.closest('.formset-row');
+  var $form = btn.closest('form');
   var deleteCheckbox = row.find('input[type="checkbox"][id$="-DELETE"]');
   if (!deleteCheckbox.length) return;
   var isChecked = deleteCheckbox.prop('checked');
@@ -673,6 +707,8 @@ $(document).on('click', '.formset-flag-btn', function(e) {
     btn.find('i').removeClass('fa-trash').addClass('fa-ban');
     row.addClass('table-danger');
   }
+  var $soForm = $form.filter('[data-so-form="1"]').add($form.closest('[data-so-form="1"]')).first();
+  if (typeof wisSoRecalcGrand === 'function' && $soForm.length) wisSoRecalcGrand($soForm);
 });
 
 function wisInitFormsetFlags() {
@@ -690,8 +726,33 @@ function wisInitFormsetFlags() {
 $(document).on('click', '.formset-add-row', function(e) {
   e.preventDefault();
   var form = $(this).closest('form');
-  var tbody = form.find('#formset-body');
-  var totalForms = form.find('input[id$="-TOTAL_FORMS"]');
+  /* Scope TOTAL_FORMS to the card/section that wraps this button + #formset-body */
+  var $section = $(this).closest('[class*="card"], .formset-section, form');
+  var tbody = $section.find('#formset-body').first();
+  if (!tbody.length) tbody = form.find('#formset-body').first();
+  /* The management_form TOTAL_FORMS belongs to the same formset as the adjacent #formset-body.
+     We detect it from the hidden inputs inside #formset-body rows, or fall back. */
+  var totalForms;
+  var firstRow = tbody.find('.formset-row').first();
+  if (firstRow.length) {
+    /* Derive prefix from the first field name in that row, e.g. "lines-0-item" -> "lines" */
+    var sampleName = firstRow.find('input,select,textarea').filter('[name]').first().attr('name') || '';
+    var prefixMatch = sampleName.match(/^([^-]+)-\d+-.+/);
+    if (prefixMatch) {
+      totalForms = form.find('input[name="' + prefixMatch[1] + '-TOTAL_FORMS"]');
+    }
+  }
+  /* Fallback: also look at the empty-row template name pattern */
+  if (!totalForms || !totalForms.length) {
+    var tmplHtml = $('#formset-empty-row').html() || '';
+    var tmplMatch = tmplHtml.match(/name="([^"]+)-__prefix__/);
+    if (tmplMatch) {
+      totalForms = form.find('input[name="' + tmplMatch[1] + '-TOTAL_FORMS"]');
+    }
+  }
+  if (!totalForms || !totalForms.length) {
+    totalForms = form.find('input[id$="-TOTAL_FORMS"]').first();
+  }
   if (!totalForms.length) return;
 
   var formIdx = parseInt(totalForms.val());
@@ -773,6 +834,535 @@ WIS.openModal = function(url, size) {
   setTimeout(function() {
     $('.formset-table select[name$="-item"]').each(function() { if ($(this).val()) wisUpdateItemThumb(this); });
   }, 800);
+};
+
+/* ── Sales Order: auto unit/price + discount totals (works in modal) ── */
+function wisSoGetPriceApi($context) {
+  var $form = ($context && $context.length) ? $context.closest('form[data-so-form="1"]') : $('form[data-so-form="1"]').first();
+  var api = $form.data('price-api');
+  return api || null;
+}
+
+function wisSoCalcLineTotal(qty, price, discType, discVal) {
+  var subtotal = qty * price;
+  var discount = 0;
+  if ((discType || 'PERCENT') === 'PERCENT') {
+    discount = subtotal * (discVal / 100);
+  } else {
+    discount = discVal;
+  }
+  return Math.max(subtotal - discount, 0);
+}
+
+function wisSoUpdateLineAndGrand($row) {
+  if (!$row || !$row.length) return;
+  var del = $row.find('input[name$="-DELETE"]');
+  if (del.length && del.is(':checked')) return;
+
+  var qty = parseFloat($row.find('.so-line-qty').val()) || 0;
+  var price = parseFloat($row.find('.so-line-price').val()) || 0;
+  var discType = $row.find('.so-line-discount-type').val() || 'PERCENT';
+  var discVal = parseFloat($row.find('.so-line-discount-val').val()) || 0;
+  var total = wisSoCalcLineTotal(qty, price, discType, discVal);
+
+  var $badge = $row.find('.so-line-total-badge');
+  if ($badge.length) {
+    if (qty > 0 && price > 0) {
+      $badge.text('₱' + total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    } else {
+      $badge.text('');
+    }
+  }
+
+  var $form = $row.closest('form[data-so-form="1"]');
+  if (!$form.length) return;
+  wisSoRecalcGrand($form);
+}
+
+function wisSoCalcBundleTotal($bundleRow) {
+  /* Synchronous estimate using cached data attr or 0 if not yet fetched */
+  var sub = parseFloat($bundleRow.data('bundle-subtotal')) || 0;
+  var discType = $bundleRow.find('.so-bundle-discount-type').val() || 'PERCENT';
+  var discVal = parseFloat($bundleRow.find('.so-bundle-discount-val').val()) || 0;
+  return wisSoCalcLineTotal(1, sub, discType, discVal);
+}
+
+function wisSoRecalcGrand($form) {
+  if (!$form || !$form.length) return;
+  var lineTotal = 0;
+  var bundleTotal = 0;
+  var lineCount = 0;
+  var bundleCount = 0;
+
+  /* Product lines */
+  $form.find('#formset-body .formset-row').each(function() {
+    var $r = $(this);
+    var d = $r.find('input[name$="-DELETE"]');
+    if (d.length && d.is(':checked')) return;
+    var q = parseFloat($r.find('.so-line-qty').val()) || 0;
+    var p = parseFloat($r.find('.so-line-price').val()) || 0;
+    var dt = $r.find('.so-line-discount-type').val() || 'PERCENT';
+    var dv = parseFloat($r.find('.so-line-discount-val').val()) || 0;
+    lineTotal += wisSoCalcLineTotal(q, p, dt, dv);
+    if (q > 0 && p > 0) lineCount++;
+  });
+
+  /* Bundle lines */
+  $form.find('#bundle-formset-body .formset-row').each(function() {
+    var $r = $(this);
+    var d = $r.find('input[name$="-DELETE"]');
+    if (d.length && d.is(':checked')) return;
+    var bt = wisSoCalcBundleTotal($r);
+    bundleTotal += bt;
+    if (bt > 0) bundleCount++;
+  });
+
+  var grand = lineTotal + bundleTotal;
+  $form.find('#so-grand-total').text(grand.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  $form.find('#so-line-count').text(lineCount || '');
+  $form.find('#so-bundle-count').text(bundleCount || '');
+  if (lineTotal > 0)
+    $form.find('#so-line-subtotal-label').text('Lines: ₱' + lineTotal.toLocaleString(undefined,{minimumFractionDigits:2}));
+  else
+    $form.find('#so-line-subtotal-label').text('');
+  if (bundleTotal > 0)
+    $form.find('#so-bundle-subtotal-label').text('Bundles: ₱' + bundleTotal.toLocaleString(undefined,{minimumFractionDigits:2}));
+  else
+    $form.find('#so-bundle-subtotal-label').text('');
+}
+
+function wisSoApplyPrice($row, priceStr) {
+  var num = parseFloat(priceStr);
+  if (isNaN(num)) return;
+  $row.find('.so-line-price').val(num.toFixed(4));
+  wisSoUpdateLineAndGrand($row);
+}
+
+/* ── Customer Price Catalog cache & helpers ── */
+var _wisCdcCache = {};  /* keyed by customer_id */
+
+function wisSoGetCustomerCatalogPrice($row, itemId, unitId) {
+  if (!itemId) return null;
+  var $form = $row.closest('form[data-so-form="1"]');
+  var catalog = $form.data('customer-catalog');
+  if (!catalog) return null;
+  /* Exact item+unit match */
+  var exact = catalog[String(itemId) + '_' + String(unitId)];
+  if (exact !== undefined) return exact;
+  /* Any-unit fallback: first price for this item */
+  var fallback = catalog['_item_' + String(itemId)];
+  return fallback !== undefined ? fallback : null;
+}
+
+function wisSoLoadCustomerCatalog($form, customerId) {
+  if (!customerId) {
+    $form.data('customer-catalog', null);
+    return;
+  }
+  if (_wisCdcCache[customerId] !== undefined) {
+    $form.data('customer-catalog', _wisCdcCache[customerId]);
+    /* Re-price existing lines */
+    $form.find('#formset-body .formset-row').each(function() {
+      var $r = $(this);
+      if ($r.find('input[name$="-DELETE"]').is(':checked')) return;
+      wisSoFetchPrice($r);
+    });
+    return;
+  }
+  $.getJSON('/pricing/api/customer-catalog/' + customerId + '/', function(data) {
+    var catalog = {};
+    if (data && data.items) {
+      $.each(data.items, function(i, it) {
+        /* Exact match */
+        catalog[String(it.item_id) + '_' + String(it.unit_id)] = it.price;
+        /* Any-unit fallback (first one wins) */
+        if (catalog['_item_' + String(it.item_id)] === undefined) {
+          catalog['_item_' + String(it.item_id)] = it.price;
+        }
+      });
+    }
+    _wisCdcCache[customerId] = catalog;
+    $form.data('customer-catalog', catalog);
+    /* Re-price all visible product lines */
+    if (data && data.has_catalog) {
+      $form.find('#formset-body .formset-row').each(function() {
+        var $r = $(this);
+        if ($r.find('input[name$="-DELETE"]').is(':checked')) return;
+        wisSoFetchPrice($r);
+      });
+      /* Show a subtle toast */
+      if (window.WIS && typeof WIS.toast === 'function') {
+        WIS.toast('<i class="fas fa-user-tag mr-1"></i>Customer price catalog applied: ' + data.customer_name, 'info');
+      }
+    }
+  }).fail(function() {
+    _wisCdcCache[customerId] = {};
+    $form.data('customer-catalog', {});
+  });
+}
+
+function wisSoFetchPrice($row) {
+  var api = wisSoGetPriceApi($row);
+  if (!api) {
+    wisSoUpdateLineAndGrand($row);
+    return;
+  }
+
+  var itemId = $row.find('.so-line-item').val();
+  if (!itemId) {
+    wisSoUpdateLineAndGrand($row);
+    return;
+  }
+  var qty = parseFloat($row.find('.so-line-qty').val()) || 1;
+  var unitId = $row.find('.so-line-unit').val() || '';
+
+  /* ── Customer catalog override (highest priority) ── */
+  var cdcPrice = wisSoGetCustomerCatalogPrice($row, itemId, unitId);
+  if (cdcPrice !== null) {
+    wisSoApplyPrice($row, cdcPrice);
+    /* Mark the field to show it came from customer catalog */
+    $row.find('.so-line-price')
+        .attr('title', 'Customer catalog price')
+        .css('border-color', '#0d6efd');
+    return;
+  }
+  /* Clear catalog highlight if no override */
+  $row.find('.so-line-price').removeAttr('title').css('border-color', '');
+
+  $.getJSON(api, { item: itemId, qty: qty, unit: unitId }, function(data) {
+    if (data && data.price && parseFloat(data.price) > 0) {
+      wisSoApplyPrice($row, data.price);
+    } else {
+      $.getJSON('/api/items/' + itemId + '/', function(item) {
+        if (item && item.selling_price && parseFloat(item.selling_price) > 0) {
+          wisSoApplyPrice($row, item.selling_price);
+        } else {
+          wisSoUpdateLineAndGrand($row);
+        }
+      }).fail(function() { wisSoUpdateLineAndGrand($row); });
+    }
+  }).fail(function() {
+    var itemId2 = $row.find('.so-line-item').val();
+    if (!itemId2) { wisSoUpdateLineAndGrand($row); return; }
+    $.getJSON('/api/items/' + itemId2 + '/', function(item) {
+      if (item && item.selling_price && parseFloat(item.selling_price) > 0) {
+        wisSoApplyPrice($row, item.selling_price);
+      } else {
+        wisSoUpdateLineAndGrand($row);
+      }
+    }).fail(function() { wisSoUpdateLineAndGrand($row); });
+  });
+}
+
+function wisSoSetUnitThenPrice($row) {
+  var itemId = $row.find('.so-line-item').val();
+  if (!itemId) { wisSoUpdateLineAndGrand($row); return; }
+
+  $.getJSON('/api/items/' + itemId + '/', function(item) {
+    var $unitSel = $row.find('.so-line-unit');
+    var cur = $unitSel.val();
+    if ((!cur || cur === '') && item && item.default_unit) {
+      $unitSel.val(String(item.default_unit)).trigger('change');
+    }
+    wisSoFetchPrice($row);
+  }).fail(function() {
+    wisSoFetchPrice($row);
+  });
+}
+
+/* ── Bundle row fetch subtotal then recalc grand ── */
+function wisSoBundleFetch($row) {
+  var plId = $row.find('.so-bundle-pricelist').val();
+  if (!plId) {
+    $row.data('bundle-subtotal', 0);
+    $row.find('.so-bundle-total-badge').text('');
+    var $form = $row.closest('form[data-so-form="1"]');
+    if ($form.length) wisSoRecalcGrand($form);
+    return;
+  }
+  var $form = $row.closest('form[data-so-form="1"]');
+  var apiBase = $form.data('bundle-api') || '/pricing/api/price-lists/';
+  var api = apiBase + plId + '/items/';
+  $.getJSON(api, function(data) {
+    var sub = 0;
+    if (data && data.items) {
+      var qty = parseFloat($row.find('.so-bundle-qty').val()) || 1;
+      $.each(data.items, function(i, it) {
+        sub += parseFloat(it.price) * qty;
+      });
+    }
+    $row.data('bundle-subtotal', sub);
+    var discType = $row.find('.so-bundle-discount-type').val() || 'PERCENT';
+    var discVal = parseFloat($row.find('.so-bundle-discount-val').val()) || 0;
+    var total = wisSoCalcLineTotal(1, sub, discType, discVal);
+    var $badge = $row.find('.so-bundle-total-badge');
+    if (total > 0) {
+      $badge.text('₱' + total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    } else {
+      $badge.text('');
+    }
+    if ($form.length) wisSoRecalcGrand($form);
+  }).fail(function() {
+    $row.data('bundle-subtotal', 0);
+    if ($form.length) wisSoRecalcGrand($form);
+  });
+}
+
+function wisSoBundleUpdateBadgeAndGrand($row) {
+  /* Re-use cached subtotal; only recalc discount */
+  var sub = parseFloat($row.data('bundle-subtotal')) || 0;
+  var discType = $row.find('.so-bundle-discount-type').val() || 'PERCENT';
+  var discVal = parseFloat($row.find('.so-bundle-discount-val').val()) || 0;
+  var total = wisSoCalcLineTotal(1, sub, discType, discVal);
+  var $badge = $row.find('.so-bundle-total-badge');
+  if (total > 0) {
+    $badge.text('₱' + total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  } else {
+    $badge.text('');
+  }
+  var $form = $row.closest('form[data-so-form="1"]');
+  if ($form.length) wisSoRecalcGrand($form);
+}
+
+function wisSoBundleUpdateAll($formEl) {
+  var $form = $($formEl);
+  $form.find('#bundle-formset-body .formset-row').each(function() {
+    var $r = $(this);
+    var d = $r.find('input[name$="-DELETE"]');
+    if (d.length && d.is(':checked')) return;
+    var plId = $r.find('.so-bundle-pricelist').val();
+    if (plId && !$r.data('bundle-subtotal')) wisSoBundleFetch($r);
+    else wisSoBundleUpdateBadgeAndGrand($r);
+  });
+  wisSoRecalcGrand($form);
+}
+
+function wisSoBundlePreviewTable(items) {
+  var rows = '';
+  items.forEach(function(it) {
+    var img = it.item_image
+      ? '<img src="' + it.item_image + '" style="height:28px;width:28px;object-fit:cover;border-radius:4px;">'
+      : '<span class="text-muted"><i class="fas fa-image"></i></span>';
+    var catalog = parseFloat(it.catalog_price) || 0;
+    var bundle = parseFloat(it.price) || 0;
+    var priceOverride = bundle !== catalog
+      ? '<div style="color:#6c757d;text-decoration:line-through;font-size:.78rem;">₱' + catalog.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</div>'
+      : '';
+    rows +=
+      '<tr>' +
+        '<td class="text-center">' + img + '</td>' +
+        '<td><code class="small">' + (it.item_code || '') + '</code></td>' +
+        '<td>' + (it.item_name || '') + '</td>' +
+        '<td class="text-end">' + (parseFloat(it.min_qty) || 0).toLocaleString() + '</td>' +
+        '<td class="text-end">' + (it.unit_abbr || '') + '</td>' +
+        '<td class="text-end text-muted" style="font-size:.82rem;">₱' + catalog.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>' +
+        '<td class="text-end"><span style="color:#198754;font-weight:700;">₱' + bundle.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</span>' + priceOverride + '</td>' +
+      '</tr>';
+  });
+
+  return '' +
+    '<div class="d-flex align-items-center justify-content-between mb-2">' +
+      '<div><span class="badge bg-primary">' + items.length + ' items</span><span class="text-muted small ml-2">PriceList prices override catalog selling prices</span></div>' +
+    '</div>' +
+    '<div class="table-responsive">' +
+      '<table class="table table-sm table-hover mb-0">' +
+        '<thead>' +
+          '<tr>' +
+            '<th style="width:50px;"></th>' +
+            '<th>Code</th>' +
+            '<th>Item Name</th>' +
+            '<th class="text-end">Min Qty</th>' +
+            '<th class="text-end">Unit</th>' +
+            '<th class="text-end">Catalog Price</th>' +
+            '<th class="text-end">Bundle Price</th>' +
+          '</tr>' +
+        '</thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>' +
+    '</div>';
+}
+
+/* ── Sales Order bundle add row ── */
+$(document).on('click', 'form[data-so-form="1"] #add-bundle-row', function(e) {
+  e.preventDefault();
+  var $form = $(this).closest('form[data-so-form="1"]');
+  var $body = $form.find('#bundle-formset-body');
+  var $total = $form.find('input[name="bundles-TOTAL_FORMS"]');
+  if (!$body.length || !$total.length) return;
+
+  var idx = parseInt($total.val(), 10) || 0;
+  var tmpl = $form.find('#bundle-empty-row').html() || $('#bundle-empty-row').html() || '';
+  if (!tmpl) return;
+
+  var $row = $(tmpl.replace(/__prefix__/g, idx));
+  $row.find('input, select, textarea').each(function() {
+    var $field = $(this);
+    var name = $field.attr('name');
+    var id = $field.attr('id');
+    if (name) $field.attr('name', name.replace(/__prefix__/g, idx));
+    if (id) $field.attr('id', id.replace(/__prefix__/g, idx));
+
+    if ($field.is('input[type="checkbox"]')) {
+      $field.prop('checked', false).hide();
+    } else if ($field.is('select')) {
+      $field.prop('selectedIndex', 0).trigger('change');
+    } else {
+      $field.val('');
+    }
+  });
+
+  $body.append($row);
+  $total.val(idx + 1);
+  wisInitSelect2($row[0]);
+  wisSoBundleUpdateBadgeAndGrand($row);
+  wisSoBundleUpdateAll($form[0]);
+});
+
+/* ── Sales Order bundle preview modal ── */
+$(document).on('click', 'form[data-so-form="1"] .so-bundle-preview-btn', function() {
+  var $row = $(this).closest('.formset-row');
+  var $form = $(this).closest('form[data-so-form="1"]');
+  var plId = $row.find('.so-bundle-pricelist').val();
+  if (!plId) {
+    if (window.WIS && typeof WIS.toast === 'function') WIS.toast('Select a Price List first.', 'warning');
+    return;
+  }
+
+  var apiBase = $form.data('bundle-api') || '/pricing/api/price-lists/';
+  var api = apiBase + plId + '/items/';
+
+  var qty = parseFloat($row.find('.so-bundle-qty').val()) || 1;
+  var discType = $row.find('.so-bundle-discount-type').val() || 'PERCENT';
+  var discVal = parseFloat($row.find('.so-bundle-discount-val').val()) || 0;
+
+  Swal.fire({
+    title: 'Bundle Items',
+    html: '<div class="text-center py-4"><div class="spinner-border text-primary"></div><div class="mt-2 text-muted small">Loading bundle items...</div></div>',
+    width: 1000,
+    showConfirmButton: false,
+    showCloseButton: true,
+    customClass: { popup: 'text-start' }
+  });
+
+  $.getJSON(api, function(data) {
+    var title = data.name || 'Bundle Items';
+    if (!data.items || !data.items.length) {
+      Swal.update({
+        title: title,
+        html: '<div class="text-center py-5 text-muted"><i class="fas fa-box-open fa-2x mb-2"></i><div>No items in this bundle.</div></div>',
+        showConfirmButton: true,
+        confirmButtonText: 'Close'
+      });
+      return;
+    }
+
+    var subtotal = 0;
+    $.each(data.items, function(i, it) {
+      subtotal += (parseFloat(it.price) || 0) * qty;
+    });
+
+    var discAmt = discType === 'PERCENT' ? subtotal * (discVal / 100) : discVal;
+    var grandBundle = Math.max(subtotal - discAmt, 0);
+    var discStr = discVal > 0
+      ? ' <span class="text-muted small">(-' + (discType === 'PERCENT' ? discVal + '%' : '₱' + discVal) + ')</span>'
+      : '';
+
+    Swal.update({
+      title: title,
+      html: wisSoBundlePreviewTable(data.items) +
+        '<div class="text-end mt-3 fw-bold text-success">Bundle Total: <strong>₱' + grandBundle.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</strong>' + discStr + '</div>',
+      showConfirmButton: true,
+      confirmButtonText: 'Close'
+    });
+  }).fail(function() {
+    Swal.update({
+      title: 'Bundle Items',
+      html: '<div class="text-danger py-5 text-center"><i class="fas fa-exclamation-triangle me-1"></i>Failed to load bundle items.</div>',
+      showConfirmButton: true,
+      confirmButtonText: 'Close'
+    });
+  });
+});
+
+/* ── Delegated handler: Customer change — load/reload catalog ── */
+$(document).on('change select2:select select2:unselect', 'form[data-so-form="1"] select[name="customer"]', function() {
+  var $form = $(this).closest('form[data-so-form="1"]');
+  var customerId = $(this).val();
+  wisSoLoadCustomerCatalog($form, customerId || null);
+});
+
+/* ── Delegated handlers: Product Lines ── */
+$(document).on('change', 'form[data-so-form="1"] .so-line-item', function() {
+  wisSoSetUnitThenPrice($(this).closest('.formset-row'));
+});
+
+$(document).on('input change', 'form[data-so-form="1"] .so-line-qty', function() {
+  wisSoFetchPrice($(this).closest('.formset-row'));
+});
+
+$(document).on('change', 'form[data-so-form="1"] .so-line-unit', function() {
+  wisSoFetchPrice($(this).closest('.formset-row'));
+});
+
+$(document).on('change input', 'form[data-so-form="1"] .so-line-discount-type, form[data-so-form="1"] .so-line-discount-val', function() {
+  wisSoUpdateLineAndGrand($(this).closest('.formset-row'));
+});
+
+/* ── Delegated handlers: Bundle Lines ── */
+$(document).on('change', 'form[data-so-form="1"] .so-bundle-pricelist', function() {
+  wisSoBundleFetch($(this).closest('.formset-row'));
+});
+
+$(document).on('input change', 'form[data-so-form="1"] .so-bundle-qty', function() {
+  /* qty change needs re-fetch to recompute sub */
+  wisSoBundleFetch($(this).closest('.formset-row'));
+});
+
+$(document).on('change input', 'form[data-so-form="1"] .so-bundle-discount-type, form[data-so-form="1"] .so-bundle-discount-val', function() {
+  wisSoBundleUpdateBadgeAndGrand($(this).closest('.formset-row'));
+});
+
+/* ── Manual price override helper ── */
+$(document).on('dblclick', 'form[data-so-form="1"] .so-line-price', function() {
+  $(this).removeAttr('readonly').addClass('border-warning').focus();
+});
+$(document).on('blur', 'form[data-so-form="1"] .so-line-price', function() {
+  $(this).attr('readonly', 'readonly').removeClass('border-warning');
+});
+$(document).on('input', 'form[data-so-form="1"] .so-line-price', function() {
+  wisSoUpdateLineAndGrand($(this).closest('.formset-row'));
+});
+
+function wisSoInit(container) {
+  var $c = container ? $(container) : $(document);
+  /* Load customer catalog for any already-selected customer */
+  $c.find('form[data-so-form="1"]').each(function() {
+    var $form = $(this);
+    var customerId = $form.find('select[name="customer"]').val();
+    if (customerId) wisSoLoadCustomerCatalog($form, customerId);
+  });
+  /* Init product lines */
+  $c.find('form[data-so-form="1"] #formset-body .formset-row').each(function() {
+    wisSoUpdateLineAndGrand($(this));
+  });
+  /* Init bundle lines */
+  $c.find('form[data-so-form="1"] #bundle-formset-body .formset-row').each(function() {
+    wisSoBundleFetch($(this));
+  });
+  /* Final grand total */
+  $c.find('form[data-so-form="1"]').each(function() {
+    wisSoRecalcGrand($(this));
+  });
+}
+
+/* Init on normal page load */
+$(function() { wisSoInit(document); });
+
+/* Init after modal content injected */
+var _origOpenModalSo = WIS.openModal;
+WIS.openModal = function(url, size) {
+  _origOpenModalSo(url, size);
+  setTimeout(function() { wisSoInit(wisModalBody); }, 900);
 };
 
 /* ── PDF Export (print-to-PDF) ─────────────────────────────────────── */
