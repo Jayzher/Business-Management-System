@@ -1,5 +1,5 @@
 from django.contrib import admin
-from sales.models import SalesOrder, SalesOrderLine, DeliveryNote, DeliveryLine
+from sales.models import SalesOrder, SalesOrderLine, SalesOrderPriceListLine, DeliveryNote, DeliveryLine
 
 
 class SalesOrderLineInline(admin.TabularInline):
@@ -7,12 +7,18 @@ class SalesOrderLineInline(admin.TabularInline):
     extra = 1
 
 
+class SalesOrderPriceListLineInline(admin.TabularInline):
+    model = SalesOrderPriceListLine
+    extra = 0
+    fields = ['price_list', 'qty_multiplier', 'discount_type', 'discount_value', 'notes']
+
+
 @admin.register(SalesOrder)
 class SalesOrderAdmin(admin.ModelAdmin):
     list_display = ['document_number', 'customer', 'warehouse', 'order_date', 'delivery_date', 'status', 'created_by']
     list_filter = ['status', 'customer', 'warehouse']
     search_fields = ['document_number', 'customer__name']
-    inlines = [SalesOrderLineInline]
+    inlines = [SalesOrderLineInline, SalesOrderPriceListLineInline]
 
 
 class DeliveryLineInline(admin.TabularInline):

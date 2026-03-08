@@ -26,4 +26,11 @@ urlpatterns = [
     path('damaged/<int:pk>/delete/', views.damaged_delete_view, name='damaged_delete'),
     path('damaged/<int:pk>/post/', views.damaged_post_view, name='damaged_post'),
     path('damaged/<int:pk>/cancel/', views.damaged_cancel_view, name='damaged_cancel'),
+    path('supply-transfers/', views.ist_list_view, name='ist_list'),
+    path('supply-transfers/create/', views.ist_create_view, name='ist_create'),
+    path('supply-transfers/<int:pk>/', views.ist_detail_view, name='ist_detail'),
+    path('supply-transfers/<int:pk>/edit/', views.ist_edit_view, name='ist_edit'),
+    path('supply-transfers/<int:pk>/delete/', views.ist_delete_view, name='ist_delete'),
+    path('supply-transfers/<int:pk>/post/', views.ist_post_view, name='ist_post'),
+    path('supply-transfers/<int:pk>/cancel/', views.ist_cancel_view, name='ist_cancel'),
 ]

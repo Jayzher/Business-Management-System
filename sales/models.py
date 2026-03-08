@@ -3,6 +3,11 @@ from django.conf import settings
 from core.models import TransactionalDocument, SalesChannel
 
 
+class SalesOrderLineDiscountType(models.TextChoices):
+    PERCENT = 'PERCENT', 'Percentage (%)'
+    AMOUNT  = 'AMOUNT',  'Fixed Amount'
+
+
 class FulfillmentType(models.TextChoices):
     DELIVER = 'DELIVER', 'Delivery'
     PICKUP = 'PICKUP', 'Pickup'
@@ -51,10 +56,17 @@ class SalesOrderLine(models.Model):
     qty_reserved = models.DecimalField(max_digits=15, decimal_places=4, default=0)
     unit = models.ForeignKey('catalog.Unit', on_delete=models.PROTECT)
     unit_price = models.DecimalField(max_digits=15, decimal_places=4, default=0)
-    discount_pct = models.DecimalField(
-        max_digits=5, decimal_places=2, default=0,
-        help_text='Discount percentage for this line',
+    discount_type = models.CharField(
+        max_length=10,
+        choices=SalesOrderLineDiscountType.choices,
+        default=SalesOrderLineDiscountType.PERCENT,
     )
+    discount_value = models.DecimalField(
+        max_digits=15, decimal_places=4, default=0,
+        help_text='Discount amount or percentage depending on discount_type',
+    )
+    batch_number = models.CharField(max_length=100, blank=True, default='')
+    serial_number = models.CharField(max_length=100, blank=True, default='')
     notes = models.TextField(blank=True, default='')
 
     @property
@@ -64,7 +76,10 @@ class SalesOrderLine(models.Model):
     @property
     def discount_amount(self):
         from decimal import Decimal
-        return (self.qty_ordered * self.unit_price) * (self.discount_pct / Decimal('100'))
+        if self.discount_type == SalesOrderLineDiscountType.AMOUNT:
+            return self.discount_value
+        subtotal = self.qty_ordered * self.unit_price
+        return subtotal * (self.discount_value / Decimal('100'))
 
     @property
     def line_total(self):
@@ -72,6 +87,57 @@ class SalesOrderLine(models.Model):
 
     def __str__(self):
         return f"SO Line: {self.item.code} x{self.qty_ordered}"
+
+
+class SalesOrderPriceListLine(models.Model):
+    """
+    A PriceList (bundle/package) applied to a Sales Order.
+    Each PriceListItem inside becomes an effective line at the PriceList price
+    (overriding the catalog item selling_price).
+    """
+    sales_order = models.ForeignKey(
+        SalesOrder, on_delete=models.CASCADE, related_name='price_list_lines',
+    )
+    price_list = models.ForeignKey(
+        'pricing.PriceList', on_delete=models.PROTECT, related_name='so_lines',
+    )
+    qty_multiplier = models.DecimalField(
+        max_digits=15, decimal_places=4, default=1,
+        help_text='Multiply every PriceListItem qty by this factor (usually 1).',
+    )
+    discount_type = models.CharField(
+        max_length=10,
+        choices=SalesOrderLineDiscountType.choices,
+        default=SalesOrderLineDiscountType.PERCENT,
+    )
+    discount_value = models.DecimalField(
+        max_digits=15, decimal_places=4, default=0,
+        help_text='Bundle-level discount applied on top of individual item prices.',
+    )
+    notes = models.TextField(blank=True, default='')
+
+    @property
+    def bundle_subtotal(self):
+        from decimal import Decimal
+        total = Decimal('0')
+        for pli in self.price_list.items.select_related('item', 'unit').all():
+            total += pli.price * self.qty_multiplier
+        return total
+
+    @property
+    def bundle_discount_amount(self):
+        from decimal import Decimal
+        sub = self.bundle_subtotal
+        if self.discount_type == SalesOrderLineDiscountType.AMOUNT:
+            return self.discount_value
+        return sub * (self.discount_value / Decimal('100'))
+
+    @property
+    def bundle_total(self):
+        return self.bundle_subtotal - self.bundle_discount_amount
+
+    def __str__(self):
+        return f"Bundle: {self.price_list.name} x{self.qty_multiplier}"
 
 
 class DeliveryNote(TransactionalDocument):
@@ -98,6 +164,8 @@ class DeliveryLine(models.Model):
     location = models.ForeignKey('warehouses.Location', on_delete=models.PROTECT)
     qty = models.DecimalField(max_digits=15, decimal_places=4)
     unit = models.ForeignKey('catalog.Unit', on_delete=models.PROTECT)
+    batch_number = models.CharField(max_length=100, blank=True, default='')
+    serial_number = models.CharField(max_length=100, blank=True, default='')
     notes = models.TextField(blank=True, default='')
 
     def __str__(self):

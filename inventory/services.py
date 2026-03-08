@@ -151,6 +151,8 @@ def post_delivery(delivery, user):
             reference_type='DeliveryNote',
             reference_id=delivery.pk,
             reference_number=delivery.document_number,
+            batch_number=getattr(line, 'batch_number', '') or '',
+            serial_number=getattr(line, 'serial_number', '') or '',
             status=MoveStatus.POSTED,
             created_by=user,
             posted_by=user,
@@ -212,6 +214,8 @@ def post_transfer(transfer, user):
             reference_type='StockTransfer',
             reference_id=transfer.pk,
             reference_number=transfer.document_number,
+            batch_number=getattr(line, 'batch_number', '') or '',
+            serial_number=getattr(line, 'serial_number', '') or '',
             status=MoveStatus.POSTED,
             created_by=user,
             posted_by=user,
@@ -495,6 +499,171 @@ def post_sales_return(sr, user):
 
     _create_audit(user, 'POST', sr, {'lines': len(moves)})
     return sr
+
+
+@transaction.atomic
+def post_inventory_to_supply(ist, user):
+    """
+    Post an Inventory-to-Supply Transfer (IST).
+    For each line:
+      - Deduct StockBalance (inventory) for item @ location.
+      - Create SUPPLY_OUT StockMove.
+      - Auto-create or find matching SupplyItem based on catalog item.
+      - Create SupplyMovement (IN) for the supply_item, using item.cost_price as unit cost.
+    """
+    from inventory.models import InventoryToSupplyTransfer
+    from core.models import SupplyMovement, SupplyItem
+    from core.models import DocumentStatus
+
+    if ist.status != DocumentStatus.DRAFT:
+        raise ValueError(f"IST {ist.document_number} is not in DRAFT status.")
+
+    now = timezone.now()
+    moves = []
+    supply_movements = []
+
+    for line in ist.lines.select_related('item', 'unit', 'location').all():
+        # Deduct inventory stock
+        _update_balance(line.item, line.location, -line.qty)
+
+        move = StockMove(
+            move_type=MoveType.SUPPLY_OUT,
+            item=line.item,
+            qty=line.qty,
+            unit=line.unit,
+            from_location=line.location,
+            to_location=None,
+            reference_type='InventoryToSupplyTransfer',
+            reference_id=ist.pk,
+            reference_number=ist.document_number,
+            batch_number=line.batch_number or '',
+            notes=line.notes or '',
+            status=MoveStatus.POSTED,
+            created_by=user,
+            posted_by=user,
+            posted_at=now,
+        )
+        moves.append(move)
+
+        # Auto-create or find matching supply item based on catalog item
+        # If supply_item was manually selected, use it; otherwise auto-create/find
+        if hasattr(line, 'supply_item') and line.supply_item:
+            supply_item = line.supply_item
+        else:
+            # Try to find existing supply item with matching code
+            supply_item, created = SupplyItem.objects.get_or_create(
+                code=line.item.code,
+                defaults={
+                    'name': line.item.name,
+                    'unit': line.unit.abbreviation,
+                    'cost_per_unit': line.item.cost_price or Decimal('0'),
+                    'category': None,
+                    'supplier_brand': '',
+                    'notes': f'Auto-created from inventory item {line.item.code}',
+                }
+            )
+            if created:
+                _create_audit(user, 'AUTO_CREATE_SUPPLY', supply_item, {
+                    'source': 'IST',
+                    'catalog_item': line.item.code,
+                })
+
+        # Credit supply tracker
+        unit_cost = (line.item.cost_price or Decimal('0'))
+        sm = SupplyMovement(
+            supply_item=supply_item,
+            movement_type='IN',
+            qty=line.qty,
+            unit_cost=unit_cost,
+            date=ist.transfer_date,
+            batch_number=line.batch_number or '',
+            reference=ist.document_number,
+            notes=f"From inventory transfer {ist.document_number}",
+            created_by=user,
+        )
+        supply_movements.append(sm)
+
+    StockMove.objects.bulk_create(moves)
+
+    # Save supply movements individually so the .save() triggers current_stock recalc
+    for sm in supply_movements:
+        sm.save()
+
+    ist.status = DocumentStatus.POSTED
+    ist.posted_by = user
+    ist.posted_at = now
+    ist.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
+
+    _create_audit(user, 'POST', ist, {'lines': len(moves)})
+    return ist
+
+
+@transaction.atomic
+def cancel_inventory_to_supply(ist, user):
+    """
+    Cancel an Inventory-to-Supply Transfer.
+    - DRAFT/APPROVED: mark cancelled (no moves to reverse).
+    - POSTED: reverse StockMoves (restores inventory balance) AND
+              create cancellation OUT SupplyMovements (restores supply tracker).
+    """
+    from core.models import DocumentStatus, SupplyMovement
+
+    if ist.status == DocumentStatus.CANCELLED:
+        raise ValueError(f"{ist.document_number} is already cancelled.")
+
+    now = timezone.now()
+
+    if ist.status == DocumentStatus.POSTED:
+        # Reverse StockMoves (restores inventory StockBalance)
+        original_moves = StockMove.objects.filter(
+            reference_type='InventoryToSupplyTransfer',
+            reference_id=ist.pk,
+            status=MoveStatus.POSTED,
+        )
+        reversal_moves = []
+        for orig in original_moves:
+            reversal = StockMove(
+                move_type=orig.move_type,
+                item=orig.item,
+                qty=orig.qty,
+                unit=orig.unit,
+                from_location=orig.to_location,
+                to_location=orig.from_location,
+                reference_type=orig.reference_type,
+                reference_id=orig.reference_id,
+                reference_number=f"REV-{orig.reference_number}",
+                batch_number=orig.batch_number,
+                notes=f"Reversal of move #{orig.pk}",
+                status=MoveStatus.POSTED,
+                created_by=user,
+                posted_by=user,
+                posted_at=now,
+            )
+            reversal_moves.append(reversal)
+            if orig.from_location:
+                _update_balance(orig.item, orig.from_location, orig.qty)
+
+        StockMove.objects.bulk_create(reversal_moves)
+
+        # Reverse SupplyMovements: add OUT movements to cancel each IN
+        for line in ist.lines.select_related('supply_item', 'unit').all():
+            sm_cancel = SupplyMovement(
+                supply_item=line.supply_item,
+                movement_type='OUT',
+                qty=line.qty,
+                unit_cost=Decimal('0'),
+                date=timezone.now().date(),
+                batch_number=line.batch_number or '',
+                reference=f"CANCEL-{ist.document_number}",
+                notes=f"Cancellation of {ist.document_number}",
+                created_by=user,
+            )
+            sm_cancel.save()
+
+    ist.status = DocumentStatus.CANCELLED
+    ist.save(update_fields=['status', 'updated_at'])
+    _create_audit(user, 'CANCEL', ist, {})
+    return ist
 
 
 def generate_document_number(prefix, model_class):

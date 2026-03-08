@@ -1,76 +1,89 @@
 {{ formset.management_form }}
-<table class="table table-bordered table-sm formset-table">
-  <thead class="thead-light">
-    <tr>
-      <th style="width:40px;"></th>
-      <th style="width:60px;">Image</th>
-      {% for field in formset.forms.0.visible_fields %}
-        {% if field.name != 'DELETE' %}<th>{{ field.label }}</th>{% endif %}
-      {% endfor %}
-      <th style="width:60px;">Delete</th>
-    </tr>
-  </thead>
-  <tbody id="formset-body">
-    {% for form in formset %}
-    <tr class="formset-row">
-      <td class="text-center align-middle p-0">
-        <button type="button" class="btn btn-sm btn-link text-danger formset-delete-row p-0" title="Remove row" style="box-shadow:none;">
-          <i class="fas fa-times"></i>
+
+<div id="formset-body" class="formset-cards">
+  {% for form in formset %}
+  <div class="card mb-2 formset-row border shadow-none">
+    <div class="card-header py-2 px-3 d-flex align-items-center justify-content-between"
+         style="background:#f8f9fa; border-bottom:1px solid #dee2e6;">
+      <div class="d-flex align-items-center gap-2">
+        <button type="button" class="btn btn-link p-0 formset-thumb-btn" title="Preview item image" style="line-height:1;">
+          <i class="fas fa-image text-secondary"></i>
         </button>
-      </td>
-      <td class="text-center align-middle p-1 thumb-cell">
-        <button type="button" class="btn btn-link p-0 formset-thumb-btn" title="Preview image">
-          <i class="fas fa-image fa-lg"></i>
-        </button>
-        <img class="formset-item-thumb d-none" alt="" loading="lazy">
-      </td>
-      {% for field in form.visible_fields %}
-        {% if field.name != 'DELETE' %}
-        <td class="{% if field.errors %}has-error{% endif %}">
-          {{ field }}
-        </td>
-        {% endif %}
-      {% endfor %}
-      {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
-      <td class="text-center align-middle p-0">
+        <img class="formset-item-thumb d-none rounded" alt="" loading="lazy"
+             style="height:28px; width:28px; object-fit:cover;">
+        <span class="fw-semibold text-muted small">Line {{ forloop.counter }}</span>
+        <span class="badge bg-info so-line-total-badge ms-2" style="font-size:.75rem;"></span>
+      </div>
+      <div class="d-flex align-items-center gap-1">
         {% if form.instance.pk %}
-        <button type="button" class="btn btn-sm btn-link text-secondary formset-flag-btn p-0" title="Flag for delete" style="box-shadow:none;">
+        <button type="button" class="btn btn-sm btn-link text-secondary formset-flag-btn p-1" title="Flag for delete" style="box-shadow:none;">
           <i class="fas fa-trash"></i>
         </button>
         {% endif %}
+        <button type="button" class="btn btn-sm btn-link text-danger formset-delete-row p-1" title="Remove row" style="box-shadow:none;">
+          <i class="fas fa-times fa-lg"></i>
+        </button>
+      </div>
+    </div>
+    <div class="card-body p-3">
+      <div class="row g-2">
+        {% for field in form.visible_fields %}
+          {% if field.name != 'DELETE' %}
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold mb-1">
+              {{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}
+            </label>
+            {{ field }}
+            {% if field.errors %}
+              <div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>
+            {% endif %}
+          </div>
+          {% endif %}
+        {% endfor %}
+        {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
         <span style="display:none;">{{ form.DELETE }}</span>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
 <button type="button" class="btn btn-sm btn-success formset-add-row w-100 mt-2" id="add-formset-row">
   <i class="fas fa-plus-circle me-1"></i> Add Row
 </button>
 
 <script type="text/template" id="formset-empty-row">
-  <tr class="formset-row">
-    <td class="text-center align-middle p-0">
-      <button type="button" class="btn btn-sm btn-link text-danger formset-delete-row p-0" title="Remove row" style="box-shadow:none;">
-        <i class="fas fa-times"></i>
-      </button>
-    </td>
-    <td class="text-center align-middle p-1 thumb-cell">
-      <button type="button" class="btn btn-link p-0 formset-thumb-btn" title="Preview image">
-        <i class="fas fa-image fa-lg"></i>
-      </button>
-      <img class="formset-item-thumb d-none" alt="" loading="lazy">
-    </td>
-    {% for field in formset.empty_form.visible_fields %}
-      {% if field.name != 'DELETE' %}
-      <td>
-        {{ field.as_widget }}
-      </td>
-      {% endif %}
-    {% endfor %}
-    {% for hidden in formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
-    <td class="text-center align-middle p-0">
-      <span style="display:none;">{{ formset.empty_form.DELETE }}</span>
-    </td>
-  </tr>
+  <div class="card mb-2 formset-row border shadow-none">
+    <div class="card-header py-2 px-3 d-flex align-items-center justify-content-between"
+         style="background:#f8f9fa; border-bottom:1px solid #dee2e6;">
+      <div class="d-flex align-items-center gap-2">
+        <button type="button" class="btn btn-link p-0 formset-thumb-btn" title="Preview item image" style="line-height:1;">
+          <i class="fas fa-image text-secondary"></i>
+        </button>
+        <img class="formset-item-thumb d-none rounded" alt="" loading="lazy"
+             style="height:28px; width:28px; object-fit:cover;">
+        <span class="fw-semibold text-muted small">Line</span>
+        <span class="badge bg-info so-line-total-badge ms-2" style="font-size:.75rem;"></span>
+      </div>
+      <div class="d-flex align-items-center gap-1">
+        <button type="button" class="btn btn-sm btn-link text-danger formset-delete-row p-1" title="Remove row" style="box-shadow:none;">
+          <i class="fas fa-times fa-lg"></i>
+        </button>
+      </div>
+    </div>
+    <div class="card-body p-3">
+      <div class="row g-2">
+        {% for field in formset.empty_form.visible_fields %}
+          {% if field.name != 'DELETE' %}
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold mb-1">{{ field.label }}</label>
+            {{ field.as_widget }}
+          </div>
+          {% endif %}
+        {% endfor %}
+        {% for hidden in formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+        <span style="display:none;">{{ formset.empty_form.DELETE }}</span>
+      </div>
+    </div>
+  </div>
 </script>

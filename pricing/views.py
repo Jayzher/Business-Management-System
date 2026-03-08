@@ -7,9 +7,12 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from pricing.models import PriceList, PriceListItem, DiscountRule
+from pricing.models import PriceList, PriceListItem, DiscountRule, CustomerPriceCatalog, CustomerPriceCatalogItem
 from pricing.serializers import PriceListSerializer, PriceListItemSerializer, DiscountRuleSerializer
-from pricing.forms import PriceListForm, PriceListItemFormSet, DiscountRuleForm
+from pricing.forms import (
+    PriceListForm, PriceListItemFormSet, DiscountRuleForm,
+    CustomerPriceCatalogForm, CustomerPriceCatalogItemFormSet,
+)
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -31,6 +34,43 @@ class DiscountRuleViewSet(viewsets.ModelViewSet):
     queryset = DiscountRule.objects.all()
     serializer_class = DiscountRuleSerializer
     filterset_fields = ['discount_type', 'scope', 'is_active']
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def bundle_items(request, pk):
+    """
+    Return all PriceListItems for a PriceList (bundle/package).
+    Used by the SO bundle preview modal.
+    """
+    pl = get_object_or_404(PriceList, pk=pk)
+    items = (
+        PriceListItem.objects
+        .filter(price_list=pl)
+        .select_related('item', 'unit', 'item__category')
+        .order_by('item__code')
+    )
+    data = {
+        'id': pl.pk,
+        'name': pl.name,
+        'currency': pl.currency,
+        'items': [
+            {
+                'id': pli.pk,
+                'item_id': pli.item_id,
+                'item_code': pli.item.code,
+                'item_name': pli.item.name,
+                'item_image': pli.item.image.url if pli.item.image else None,
+                'unit_id': pli.unit_id,
+                'unit_abbr': pli.unit.abbreviation,
+                'price': str(pli.price),
+                'min_qty': str(pli.min_qty),
+                'catalog_price': str(pli.item.selling_price),
+            }
+            for pli in items
+        ],
+    }
+    return Response(data)
 
 
 @api_view(['GET'])
@@ -210,3 +250,110 @@ def discount_rule_delete_view(request, pk):
         messages.success(request, f'Discount Rule "{obj.name}" deleted.')
         return redirect('discount_rule_list')
     return render(request, 'pricing/discount_rule_delete.html', {'object': obj})
+
+
+# ── Customer Price Catalog API ─────────────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def customer_catalog_api(request, customer_pk):
+    """
+    Return all active CustomerPriceCatalogItems for a customer, keyed by
+    item_id + unit_id so the SO form can look up overridden prices.
+    Response:
+      { customer_id, has_catalog, items: [{item_id, unit_id, price, item_code, item_name, unit_abbr}] }
+    """
+    from partners.models import Customer
+    customer = get_object_or_404(Customer, pk=customer_pk)
+    catalogs = (
+        CustomerPriceCatalog.objects
+        .filter(customer=customer, is_active=True)
+        .prefetch_related('items__item', 'items__unit')
+    )
+    items = []
+    seen = set()
+    for cat in catalogs:
+        for ci in cat.items.select_related('item', 'unit').all():
+            key = (ci.item_id, ci.unit_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append({
+                'item_id': ci.item_id,
+                'unit_id': ci.unit_id,
+                'price': str(ci.price),
+                'item_code': ci.item.code,
+                'item_name': ci.item.name,
+                'unit_abbr': ci.unit.abbreviation,
+                'catalog_name': cat.name,
+            })
+    return Response({
+        'customer_id': customer.pk,
+        'customer_name': customer.name,
+        'has_catalog': len(items) > 0,
+        'items': items,
+    })
+
+
+# ── Customer Price Catalog Template Views ─────────────────────────────────
+
+@login_required
+def customer_catalog_list_view(request):
+    catalogs = (
+        CustomerPriceCatalog.objects
+        .select_related('customer')
+        .prefetch_related('items')
+        .filter(is_active=True)
+        .order_by('customer__name', 'name')
+    )
+    return render(request, 'pricing/customer_catalog_list.html', {'catalogs': catalogs})
+
+
+@login_required
+def customer_catalog_create_view(request):
+    if request.method == 'POST':
+        form = CustomerPriceCatalogForm(request.POST)
+        formset = CustomerPriceCatalogItemFormSet(request.POST)
+        if form.is_valid():
+            obj = form.save()
+            formset = CustomerPriceCatalogItemFormSet(request.POST, instance=obj)
+            if formset.is_valid():
+                formset.save()
+                messages.success(request, f'Customer Catalog "{obj.name}" created.')
+                return redirect('customer_catalog_list')
+    else:
+        form = CustomerPriceCatalogForm()
+        formset = CustomerPriceCatalogItemFormSet()
+    return render(request, 'pricing/customer_catalog_form.html', {
+        'form': form, 'formset': formset, 'title': 'Create Customer Price Catalog',
+    })
+
+
+@login_required
+def customer_catalog_edit_view(request, pk):
+    obj = get_object_or_404(CustomerPriceCatalog, pk=pk)
+    if request.method == 'POST':
+        form = CustomerPriceCatalogForm(request.POST, instance=obj)
+        formset = CustomerPriceCatalogItemFormSet(request.POST, instance=obj)
+        if form.is_valid() and formset.is_valid():
+            form.save()
+            formset.save()
+            messages.success(request, f'Customer Catalog "{obj.name}" updated.')
+            return redirect('customer_catalog_list')
+    else:
+        form = CustomerPriceCatalogForm(instance=obj)
+        formset = CustomerPriceCatalogItemFormSet(instance=obj)
+    return render(request, 'pricing/customer_catalog_form.html', {
+        'form': form, 'formset': formset, 'title': f'Edit: {obj.name}',
+        'object': obj,
+    })
+
+
+@login_required
+def customer_catalog_delete_view(request, pk):
+    obj = get_object_or_404(CustomerPriceCatalog, pk=pk)
+    if request.method == 'POST':
+        obj.soft_delete()
+        messages.success(request, f'Customer Catalog "{obj.name}" deleted.')
+        return redirect('customer_catalog_list')
+    return render(request, 'pricing/customer_catalog_delete.html', {'object': obj})

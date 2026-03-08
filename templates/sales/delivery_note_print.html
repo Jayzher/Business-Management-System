@@ -1,4 +1,5 @@
 {% extends "theme/partials/doc_print.html" %}
+{% load custom_filters %}
 {% load humanize %}
 
 {% block doc_header_info %}
@@ -34,7 +35,7 @@
       <td>{{ line.item.code }}</td>
       <td>{{ line.item.name }}</td>
       <td>{{ line.location }}</td>
-      <td class="text-right">{{ line.qty|floatformat:2 }}</td>
+      <td class="text-right">{{ line.qty|decimal2 }}</td>
       <td>{{ line.unit.abbreviation }}</td>
     </tr>
     {% endfor %}

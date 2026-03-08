@@ -1,5 +1,5 @@
 from django.contrib import admin
-from pricing.models import PriceList, PriceListItem, DiscountRule
+from pricing.models import PriceList, PriceListItem, DiscountRule, CustomerPriceCatalog, CustomerPriceCatalogItem
 
 
 class PriceListItemInline(admin.TabularInline):
@@ -24,3 +24,21 @@ class PriceListItemAdmin(admin.ModelAdmin):
 class DiscountRuleAdmin(admin.ModelAdmin):
     list_display = ['name', 'discount_type', 'value', 'scope', 'is_active']
     list_filter = ['discount_type', 'scope', 'is_active']
+
+
+class CustomerPriceCatalogItemInline(admin.TabularInline):
+    model = CustomerPriceCatalogItem
+    extra = 1
+    fields = ['item', 'unit', 'price', 'notes']
+
+
+@admin.register(CustomerPriceCatalog)
+class CustomerPriceCatalogAdmin(admin.ModelAdmin):
+    list_display = ['customer', 'name', 'item_count', 'is_active']
+    list_filter = ['is_active', 'customer']
+    search_fields = ['customer__name', 'customer__code', 'name']
+    inlines = [CustomerPriceCatalogItemInline]
+
+    @admin.display(description='Items')
+    def item_count(self, obj):
+        return obj.items.count()

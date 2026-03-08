@@ -73,7 +73,7 @@ class ExpenseForm(forms.ModelForm):
             'date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'category': forms.Select(attrs={'class': 'form-control'}),
             'item_description': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Item or service description'}),
-            'amount': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': 'e.g., 1250.00'}),
+            'amount': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 1250.00'}),
             'status': forms.Select(attrs={'class': 'form-control'}),
             'vendor': forms.TextInput(attrs={'class': 'form-control'}),
             'business_address': forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': 'Vendor business address'}),
@@ -112,11 +112,11 @@ class SupplyItemForm(forms.ModelForm):
             'code': forms.TextInput(attrs={'class': 'form-control'}),
             'category': forms.Select(attrs={'class': 'form-control'}),
             'supplier_brand': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Supplier or brand name'}),
-            'units_per_piece': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.0001', 'placeholder': 'e.g., 1'}),
+            'units_per_piece': forms.NumberInput(attrs={'class': 'form-control', 'step': '1', 'min': '0', 'placeholder': 'e.g., 1'}),
             'unit': forms.TextInput(attrs={'class': 'form-control'}),
-            'cost_per_unit': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': 'e.g., 50.00'}),
-            'minimum_stock': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.0001', 'placeholder': 'e.g., 5'}),
-            'low_stock_alert_level': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.0001', 'placeholder': 'e.g., 10'}),
+            'cost_per_unit': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 50.00'}),
+            'minimum_stock': forms.NumberInput(attrs={'class': 'form-control', 'step': '1', 'min': '0', 'placeholder': 'e.g., 5'}),
+            'low_stock_alert_level': forms.NumberInput(attrs={'class': 'form-control', 'step': '1', 'min': '0', 'placeholder': 'e.g., 10'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
         }
 
@@ -131,13 +131,15 @@ class SupplyMovementForm(forms.ModelForm):
 
     class Meta:
         model = SupplyMovement
-        fields = ['supply_item', 'movement_type', 'qty', 'unit_cost', 'date', 'notes']
+        fields = ['supply_item', 'movement_type', 'qty', 'unit_cost', 'date', 'batch_number', 'reference', 'notes']
         widgets = {
             'supply_item': forms.Select(attrs={'class': 'form-control'}),
             'movement_type': forms.Select(attrs={'class': 'form-control'}),
-            'qty': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.0001', 'placeholder': 'e.g., 10'}),
-            'unit_cost': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': 'e.g., 75.00'}),
+            'qty': forms.NumberInput(attrs={'class': 'form-control', 'step': '1', 'min': '0', 'placeholder': 'e.g., 10'}),
+            'unit_cost': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 75.00'}),
             'date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'batch_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Batch/lot # (optional)'}),
+            'reference': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. IST-000001'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
         }
 
@@ -161,8 +163,8 @@ class TargetGoalForm(forms.ModelForm):
             'title': forms.TextInput(attrs={'class': 'form-control'}),
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'category': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Sales, Expenses'}),
-            'target_value': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': 'e.g., 100000'}),
-            'current_value': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'placeholder': 'e.g., 25000'}),
+            'target_value': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 100000'}),
+            'current_value': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 25000'}),
             'unit_label': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. PHP, units'}),
             'priority': forms.Select(attrs={'class': 'form-control'}),
             'status': forms.Select(attrs={'class': 'form-control'}),

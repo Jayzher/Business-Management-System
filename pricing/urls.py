@@ -2,6 +2,8 @@ from django.urls import path
 from pricing import views
 
 urlpatterns = [
+    path('api/price-lists/<int:pk>/items/', views.bundle_items, name='api_bundle_items'),
+    path('api/customer-catalog/<int:customer_pk>/', views.customer_catalog_api, name='api_customer_catalog'),
     path('price-lists/', views.price_list_list_view, name='price_list_list'),
     path('price-lists/create/', views.price_list_create_view, name='price_list_create'),
     path('price-lists/<int:pk>/edit/', views.price_list_edit_view, name='price_list_edit'),
@@ -10,4 +12,8 @@ urlpatterns = [
     path('discount-rules/create/', views.discount_rule_create_view, name='discount_rule_create'),
     path('discount-rules/<int:pk>/edit/', views.discount_rule_edit_view, name='discount_rule_edit'),
     path('discount-rules/<int:pk>/delete/', views.discount_rule_delete_view, name='discount_rule_delete'),
+    path('customer-catalogs/', views.customer_catalog_list_view, name='customer_catalog_list'),
+    path('customer-catalogs/create/', views.customer_catalog_create_view, name='customer_catalog_create'),
+    path('customer-catalogs/<int:pk>/edit/', views.customer_catalog_edit_view, name='customer_catalog_edit'),
+    path('customer-catalogs/<int:pk>/delete/', views.customer_catalog_delete_view, name='customer_catalog_delete'),
 ]

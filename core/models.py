@@ -343,6 +343,8 @@ class SupplyMovement(TimeStampedModel):
         max_length=20, choices=SupplyMovementStatus.choices,
         default=SupplyMovementStatus.COMPLETED,
     )
+    batch_number = models.CharField(max_length=100, blank=True, default='')
+    reference = models.CharField(max_length=100, blank=True, default='', help_text='Document reference (e.g. IST-000001)')
     notes = models.TextField(blank=True, default='')
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,

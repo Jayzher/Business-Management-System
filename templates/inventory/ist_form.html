@@ -1,0 +1,54 @@
+{% extends "theme/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'ist_list' %}">Inv → Supply Transfers</a></li>
+<li class="breadcrumb-item active">{{ title }}</li>
+{% endblock %}
+
+{% block content %}
+<form method="post" novalidate>
+  {% csrf_token %}
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fas fa-boxes me-2 text-warning"></i>Transfer Header</h3>
+    </div>
+    <div class="card-body">
+      {% if form.non_field_errors %}
+      <div class="alert alert-danger">{% for e in form.non_field_errors %}{{ e }}{% endfor %}</div>
+      {% endif %}
+      <div class="row">
+        {% for field in form %}
+        <div class="col-md-6 mb-3">
+          <label for="{{ field.id_for_label }}" class="form-label">
+            {{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}
+          </label>
+          {{ field }}
+          {% if field.help_text %}<small class="text-muted">{{ field.help_text }}</small>{% endif %}
+          {% if field.errors %}<div class="text-danger small">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <div class="alert alert-info py-2 mb-0">
+        <i class="fas fa-info-circle me-1"></i>
+        <strong>No expense will be created.</strong> Items are moved from the inventory stock balance directly into the supply tracker at their current cost price. Posting is irreversible without cancellation.
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fas fa-list me-2 text-success"></i>Transfer Lines</h3>
+    </div>
+    <div class="card-body table-responsive p-2">
+      {% include "theme/partials/formset_table.html" %}
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <button type="submit" class="btn btn-primary"><i class="fas fa-save mr-1"></i> Save</button>
+    <a href="{% url 'ist_list' %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i> Cancel</a>
+  </div>
+</form>
+{% endblock %}

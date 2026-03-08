@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from sales.models import SalesOrder, DeliveryNote, SalesReturn, SalesReturnLine
 from sales.serializers import SalesOrderSerializer, DeliveryNoteSerializer
 from sales.forms import (
-    SalesOrderForm, SalesOrderLineFormSet,
+    SalesOrderForm, SalesOrderLineFormSet, SalesOrderPriceListLineFormSet,
     DeliveryNoteForm, DeliveryLineFormSet,
     SalesReturnForm, SalesReturnLineFormSet,
 )
@@ -250,21 +250,26 @@ def delivery_detail_view(request, pk):
 def sales_order_create_view(request):
     if request.method == 'POST':
         form = SalesOrderForm(request.POST)
-        formset = SalesOrderLineFormSet(request.POST)
+        formset = SalesOrderLineFormSet(request.POST, prefix='lines')
+        bundle_formset = SalesOrderPriceListLineFormSet(request.POST, prefix='bundles')
         if form.is_valid():
             so = form.save(commit=False)
             so.created_by = request.user
             so.save()
-            formset = SalesOrderLineFormSet(request.POST, instance=so)
-            if formset.is_valid():
+            formset = SalesOrderLineFormSet(request.POST, instance=so, prefix='lines')
+            bundle_formset = SalesOrderPriceListLineFormSet(request.POST, instance=so, prefix='bundles')
+            if formset.is_valid() and bundle_formset.is_valid():
                 formset.save()
+                bundle_formset.save()
                 messages.success(request, f'Sales Order {so.document_number} created.')
                 return redirect('sales_order_detail', pk=so.pk)
     else:
         form = SalesOrderForm()
-        formset = SalesOrderLineFormSet()
+        formset = SalesOrderLineFormSet(prefix='lines')
+        bundle_formset = SalesOrderPriceListLineFormSet(prefix='bundles')
     return render(request, 'sales/sales_order_form.html', {
-        'form': form, 'formset': formset, 'title': 'Create Sales Order',
+        'form': form, 'formset': formset, 'bundle_formset': bundle_formset,
+        'title': 'Create Sales Order',
     })
 
 
@@ -277,17 +282,21 @@ def sales_order_edit_view(request, pk):
         return redirect('sales_order_detail', pk=pk)
     if request.method == 'POST':
         form = SalesOrderForm(request.POST, instance=so)
-        formset = SalesOrderLineFormSet(request.POST, instance=so)
-        if form.is_valid() and formset.is_valid():
+        formset = SalesOrderLineFormSet(request.POST, instance=so, prefix='lines')
+        bundle_formset = SalesOrderPriceListLineFormSet(request.POST, instance=so, prefix='bundles')
+        if form.is_valid() and formset.is_valid() and bundle_formset.is_valid():
             form.save()
             formset.save()
+            bundle_formset.save()
             messages.success(request, f'Sales Order {so.document_number} updated.')
             return redirect('sales_order_detail', pk=so.pk)
     else:
         form = SalesOrderForm(instance=so)
-        formset = SalesOrderLineFormSet(instance=so)
+        formset = SalesOrderLineFormSet(instance=so, prefix='lines')
+        bundle_formset = SalesOrderPriceListLineFormSet(instance=so, prefix='bundles')
     return render(request, 'sales/sales_order_form.html', {
-        'form': form, 'formset': formset, 'title': f'Edit SO: {so.document_number}',
+        'form': form, 'formset': formset, 'bundle_formset': bundle_formset,
+        'title': f'Edit SO: {so.document_number}',
     })
 
 

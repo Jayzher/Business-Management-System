@@ -1,8 +1,10 @@
 from django import forms
 from django.forms import inlineformset_factory
 from sales.models import (
-    SalesOrder, SalesOrderLine, DeliveryNote, DeliveryLine,
+    SalesOrder, SalesOrderLine, SalesOrderPriceListLine,
+    DeliveryNote, DeliveryLine,
     SalesReturn, SalesReturnLine,
+    SalesOrderLineDiscountType,
 )
 
 
@@ -21,7 +23,7 @@ class SalesOrderForm(forms.ModelForm):
             'fulfillment_type': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'shipping_address': forms.Textarea(attrs={'class': 'form-control form-control-sm', 'rows': 3, 'placeholder': 'Delivery address'}),
             'currency': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'PHP'}),
-            'exchange_rate': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.000001'}),
+            'exchange_rate': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0'}),
             'payment_status': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'sales_channel': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'receipt_no': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Receipt / reference number'}),
@@ -54,21 +56,41 @@ class SalesOrderLineForm(forms.ModelForm):
 
     class Meta:
         model = SalesOrderLine
-        fields = ['item', 'qty_ordered', 'unit', 'unit_price', 'discount_pct', 'notes']
+        fields = ['item', 'qty_ordered', 'unit', 'unit_price', 'discount_type', 'discount_value', 'batch_number', 'serial_number', 'notes']
         widgets = {
-            'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'qty_ordered': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.0001', 'placeholder': 'e.g., 5'}),
-            'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'unit_price': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.0001', 'placeholder': 'e.g., 250.00'}),
-            'discount_pct': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'placeholder': '0.00'}),
+            'item': forms.Select(attrs={
+                'class': 'form-control form-control-sm so-line-item',
+            }),
+            'qty_ordered': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm so-line-qty',
+                'step': '1', 'min': '0', 'placeholder': 'e.g., 5',
+            }),
+            'unit': forms.Select(attrs={
+                'class': 'form-control form-control-sm so-line-unit',
+            }),
+            'unit_price': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm so-line-price',
+                'step': '0.01', 'min': '0', 'placeholder': 'Auto-populated',
+                'readonly': 'readonly',
+            }),
+            'discount_type': forms.Select(attrs={
+                'class': 'form-control form-control-sm so-line-discount-type',
+            }),
+            'discount_value': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm so-line-discount-val',
+                'step': '0.01', 'placeholder': '0.00', 'min': '0',
+            }),
+            'batch_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Batch # (optional)'}),
+            'serial_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Serial # (optional)'}),
             'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
         }
         help_texts = {
             'item': 'Product being sold.',
             'qty_ordered': 'Quantity the customer wants.',
             'unit': 'Unit of measure.',
-            'unit_price': 'Selling price per unit. Used to compute line total and profit margin.',
-            'discount_pct': 'Discount percentage for this line (e.g. 10 for 10%).',
+            'unit_price': 'Auto-filled from PriceList or item selling price.',
+            'discount_type': 'Percentage (%) or Fixed Amount discount.',
+            'discount_value': 'Discount value (% or fixed amount per line type).',
             'notes': 'Optional line-level remarks.',
         }
 
@@ -77,6 +99,43 @@ SalesOrderLineFormSet = inlineformset_factory(
     SalesOrder, SalesOrderLine,
     form=SalesOrderLineForm,
     extra=1, can_delete=True,
+)
+
+
+class SalesOrderPriceListLineForm(forms.ModelForm):
+    class Meta:
+        model = SalesOrderPriceListLine
+        fields = ['price_list', 'qty_multiplier', 'discount_type', 'discount_value', 'notes']
+        widgets = {
+            'price_list': forms.Select(attrs={
+                'class': 'form-control form-control-sm so-bundle-pricelist',
+            }),
+            'qty_multiplier': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm so-bundle-qty',
+                'step': '1', 'min': '1', 'placeholder': '1',
+            }),
+            'discount_type': forms.Select(attrs={
+                'class': 'form-control form-control-sm so-bundle-discount-type',
+            }),
+            'discount_value': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm so-bundle-discount-val',
+                'step': '0.01', 'min': '0', 'placeholder': '0.00',
+            }),
+            'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+        }
+        help_texts = {
+            'price_list': 'Select a Bundle/Package Price List.',
+            'qty_multiplier': 'Multiplier applied to every item qty in this bundle (default 1).',
+            'discount_type': 'Percentage (%) or Fixed Amount discount on this bundle.',
+            'discount_value': 'Bundle-level discount value.',
+            'notes': 'Optional remarks for this bundle.',
+        }
+
+
+SalesOrderPriceListLineFormSet = inlineformset_factory(
+    SalesOrder, SalesOrderPriceListLine,
+    form=SalesOrderPriceListLineForm,
+    extra=0, can_delete=True,
 )
 
 
@@ -122,12 +181,14 @@ class DeliveryLineForm(forms.ModelForm):
 
     class Meta:
         model = DeliveryLine
-        fields = ['item', 'location', 'qty', 'unit', 'notes']
+        fields = ['item', 'location', 'qty', 'unit', 'batch_number', 'serial_number', 'notes']
         widgets = {
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'location': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.0001', 'placeholder': 'e.g., 3'}),
+            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0', 'placeholder': 'e.g., 3'}),
             'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
+            'batch_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Batch # (optional)'}),
+            'serial_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Serial # (optional)'}),
             'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
         }
         help_texts = {
@@ -135,6 +196,8 @@ class DeliveryLineForm(forms.ModelForm):
             'location': 'Warehouse location to pick stock from.',
             'qty': 'Quantity to deliver.',
             'unit': 'Unit of measure.',
+            'batch_number': 'Batch/lot number for traceability.',
+            'serial_number': 'Serial number for individually tracked items.',
             'notes': 'Line-level delivery notes.',
         }
 
@@ -174,7 +237,7 @@ class SalesReturnLineForm(forms.ModelForm):
         widgets = {
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'location': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.0001'}),
+            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0'}),
             'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'reason': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
             'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
