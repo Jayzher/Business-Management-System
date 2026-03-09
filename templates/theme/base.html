@@ -934,12 +934,17 @@ function wisSoRecalcGrand($form) {
 function wisSoApplyPrice($row, priceStr) {
   var num = parseFloat(priceStr);
   if (isNaN(num)) return;
-  $row.find('.so-line-price').val(num.toFixed(4));
+  $row.find('.so-line-price').val(num.toFixed(2));
   wisSoUpdateLineAndGrand($row);
 }
 
 /* ── Customer Price Catalog cache & helpers ── */
 var _wisCdcCache = {};  /* keyed by customer_id */
+
+function wisSoGetOrderDate($form) {
+  if (!$form || !$form.length) return '';
+  return $form.find('input[name="order_date"]').val() || '';
+}
 
 function wisSoGetCustomerCatalogPrice($row, itemId, unitId) {
   if (!itemId) return null;
@@ -955,12 +960,14 @@ function wisSoGetCustomerCatalogPrice($row, itemId, unitId) {
 }
 
 function wisSoLoadCustomerCatalog($form, customerId) {
+  var orderDate = wisSoGetOrderDate($form);
+  var cacheKey = String(customerId || '') + '|' + String(orderDate || '');
   if (!customerId) {
     $form.data('customer-catalog', null);
     return;
   }
-  if (_wisCdcCache[customerId] !== undefined) {
-    $form.data('customer-catalog', _wisCdcCache[customerId]);
+  if (_wisCdcCache[cacheKey] !== undefined) {
+    $form.data('customer-catalog', _wisCdcCache[cacheKey]);
     /* Re-price existing lines */
     $form.find('#formset-body .formset-row').each(function() {
       var $r = $(this);
@@ -969,7 +976,7 @@ function wisSoLoadCustomerCatalog($form, customerId) {
     });
     return;
   }
-  $.getJSON('/pricing/api/customer-catalog/' + customerId + '/', function(data) {
+  $.getJSON('/pricing/api/customer-catalog/' + customerId + '/', { order_date: orderDate }, function(data) {
     var catalog = {};
     if (data && data.items) {
       $.each(data.items, function(i, it) {
@@ -981,7 +988,7 @@ function wisSoLoadCustomerCatalog($form, customerId) {
         }
       });
     }
-    _wisCdcCache[customerId] = catalog;
+    _wisCdcCache[cacheKey] = catalog;
     $form.data('customer-catalog', catalog);
     /* Re-price all visible product lines */
     if (data && data.has_catalog) {
@@ -992,22 +999,23 @@ function wisSoLoadCustomerCatalog($form, customerId) {
       });
       /* Show a subtle toast */
       if (window.WIS && typeof WIS.toast === 'function') {
-        WIS.toast('<i class="fas fa-user-tag mr-1"></i>Customer price catalog applied: ' + data.customer_name, 'info');
+        WIS.toast('<i class="fas fa-user-tag mr-1"></i>Customer price catalog applied: ' + data.customer_name + (data.effective_date ? ' (' + data.effective_date + ')' : ''), 'info');
       }
+    } else {
+      $form.find('#formset-body .formset-row').each(function() {
+        var $r = $(this);
+        if ($r.find('input[name$="-DELETE"]').is(':checked')) return;
+        wisSoFetchPrice($r);
+      });
     }
   }).fail(function() {
-    _wisCdcCache[customerId] = {};
+    _wisCdcCache[cacheKey] = {};
     $form.data('customer-catalog', {});
   });
 }
 
 function wisSoFetchPrice($row) {
   var api = wisSoGetPriceApi($row);
-  if (!api) {
-    wisSoUpdateLineAndGrand($row);
-    return;
-  }
-
   var itemId = $row.find('.so-line-item').val();
   if (!itemId) {
     wisSoUpdateLineAndGrand($row);
@@ -1028,6 +1036,17 @@ function wisSoFetchPrice($row) {
   }
   /* Clear catalog highlight if no override */
   $row.find('.so-line-price').removeAttr('title').css('border-color', '');
+
+  if (!api) {
+    $.getJSON('/api/items/' + itemId + '/', function(item) {
+      if (item && item.selling_price && parseFloat(item.selling_price) > 0) {
+        wisSoApplyPrice($row, item.selling_price);
+      } else {
+        wisSoUpdateLineAndGrand($row);
+      }
+    }).fail(function() { wisSoUpdateLineAndGrand($row); });
+    return;
+  }
 
   $.getJSON(api, { item: itemId, qty: qty, unit: unitId }, function(data) {
     if (data && data.price && parseFloat(data.price) > 0) {
@@ -1288,6 +1307,12 @@ $(document).on('click', 'form[data-so-form="1"] .so-bundle-preview-btn', functio
 $(document).on('change select2:select select2:unselect', 'form[data-so-form="1"] select[name="customer"]', function() {
   var $form = $(this).closest('form[data-so-form="1"]');
   var customerId = $(this).val();
+  wisSoLoadCustomerCatalog($form, customerId || null);
+});
+
+$(document).on('change', 'form[data-so-form="1"] input[name="order_date"]', function() {
+  var $form = $(this).closest('form[data-so-form="1"]');
+  var customerId = $form.find('select[name="customer"]').val();
   wisSoLoadCustomerCatalog($form, customerId || null);
 });
 

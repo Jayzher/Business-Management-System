@@ -70,7 +70,7 @@
 {% endblock %}
 
 {% block content %}
-<form method="post" novalidate data-so-form="1" data-price-api="{% url 'api_price_lookup' %}" data-bundle-api="/pricing/api/price-lists/">
+<form method="post" novalidate data-so-form="1" data-bundle-api="/pricing/api/price-lists/">
   {% csrf_token %}
 
   {# SO Header #}

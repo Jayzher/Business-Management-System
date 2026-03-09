@@ -87,6 +87,38 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
             line.save(update_fields=['qty_reserved'])
             if remaining > 0:
                 errors.append(f"{line.item.code}: could not reserve {remaining}")
+
+        for bundle in so.price_list_lines.select_related('price_list').prefetch_related(
+            'price_list__items__item', 'price_list__items__unit'
+        ).all():
+            for pli in bundle.price_list.items.select_related('item', 'unit').all():
+                qty_to_reserve = pli.min_qty * bundle.qty_multiplier
+                if qty_to_reserve <= 0:
+                    continue
+                from inventory.models import StockBalance
+                balances = StockBalance.objects.filter(
+                    item=pli.item,
+                    location__warehouse=so.warehouse,
+                ).order_by('-qty_on_hand')
+                remaining_bundle = qty_to_reserve
+                for bal in balances:
+                    available = bal.qty_on_hand - bal.qty_reserved
+                    if available <= 0:
+                        continue
+                    reserve_qty = min(remaining_bundle, available)
+                    try:
+                        reserve_stock(
+                            pli.item, bal.location, reserve_qty,
+                            'SalesOrder', so.pk, request.user,
+                        )
+                        remaining_bundle -= reserve_qty
+                    except ValueError:
+                        continue
+                    if remaining_bundle <= 0:
+                        break
+                if remaining_bundle > 0:
+                    errors.append(f"[Bundle {bundle.price_list.name}] {pli.item.code}: could not reserve {remaining_bundle}")
+
         if errors:
             return Response({'status': 'partial', 'errors': errors})
         return Response({'status': 'reserved'})
@@ -221,7 +253,11 @@ def sales_order_list_view(request):
 def sales_order_detail_view(request, pk):
     order = get_object_or_404(
         SalesOrder.objects.select_related('customer', 'warehouse', 'created_by', 'approved_by', 'posted_by')
-        .prefetch_related('lines__item', 'lines__unit'), pk=pk
+        .prefetch_related(
+            'lines__item', 'lines__unit',
+            'price_list_lines__price_list__items__item',
+            'price_list_lines__price_list__items__unit',
+        ), pk=pk
     )
     return render(request, 'sales/sales_order_detail.html', {'order': order})
 

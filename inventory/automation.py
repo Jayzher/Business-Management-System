@@ -112,6 +112,22 @@ def auto_create_delivery_from_so(so, user):
             notes=f'From SO line: {so_line.item.code}',
         )
 
+    for bundle in so.price_list_lines.select_related('price_list').prefetch_related(
+        'price_list__items__item', 'price_list__items__unit'
+    ).all():
+        for pli in bundle.price_list.items.select_related('item', 'unit').all():
+            qty = pli.min_qty * bundle.qty_multiplier
+            if qty <= 0:
+                continue
+            DeliveryLine.objects.create(
+                delivery=dn,
+                item=pli.item,
+                location=default_location,
+                qty=qty,
+                unit=pli.unit,
+                notes=f'From bundle {bundle.price_list.name}',
+            )
+
     return dn
 
 
@@ -133,6 +149,8 @@ def auto_create_invoice_from_so(so, user):
     inv_number = f"{num:06d}"
 
     subtotal = sum(l.line_total for l in so.lines.all())
+    for bundle in so.price_list_lines.all():
+        subtotal += bundle.bundle_total
 
     inv = Invoice.objects.create(
         invoice_number=inv_number,
@@ -156,6 +174,21 @@ def auto_create_invoice_from_so(so, user):
             unit_price=line.unit_price,
             line_total=line.line_total,
         )
+
+    for bundle in so.price_list_lines.select_related('price_list').prefetch_related(
+        'price_list__items__item', 'price_list__items__unit'
+    ).all():
+        for pli in bundle.price_list.items.select_related('item', 'unit').all():
+            qty = pli.min_qty * bundle.qty_multiplier
+            InvoiceLine.objects.create(
+                invoice=inv,
+                item_code=pli.item.code,
+                item_name=f'[Bundle: {bundle.price_list.name}] {pli.item.name}',
+                qty=qty,
+                unit=pli.unit.abbreviation,
+                unit_price=pli.price,
+                line_total=pli.price * qty,
+            )
 
     return inv
 
@@ -181,11 +214,14 @@ def auto_create_invoice_from_delivery(delivery, user):
 
     # Calculate totals from SO lines if available, else from delivery lines
     if delivery.sales_order:
-        subtotal = sum(l.line_total for l in delivery.sales_order.lines.all())
+        so = delivery.sales_order
+        subtotal = sum(l.line_total for l in so.lines.all())
+        for bundle in so.price_list_lines.all():
+            subtotal += bundle.bundle_total
         inv = Invoice.objects.create(
             invoice_number=inv_number,
             date=date.today(),
-            sales_order=delivery.sales_order,
+            sales_order=so,
             customer_name=delivery.customer.name if delivery.customer else '',
             customer_address=getattr(delivery.customer, 'address', '') if delivery.customer else '',
             subtotal=subtotal,
@@ -194,7 +230,7 @@ def auto_create_invoice_from_delivery(delivery, user):
             notes=f'Auto-created from delivery {delivery.document_number}',
             created_by=user,
         )
-        for line in delivery.sales_order.lines.select_related('item', 'unit'):
+        for line in so.lines.select_related('item', 'unit'):
             InvoiceLine.objects.create(
                 invoice=inv,
                 item_code=line.item.code,
@@ -204,6 +240,20 @@ def auto_create_invoice_from_delivery(delivery, user):
                 unit_price=line.unit_price,
                 line_total=line.line_total,
             )
+        for bundle in so.price_list_lines.select_related('price_list').prefetch_related(
+            'price_list__items__item', 'price_list__items__unit'
+        ).all():
+            for pli in bundle.price_list.items.select_related('item', 'unit').all():
+                qty = pli.min_qty * bundle.qty_multiplier
+                InvoiceLine.objects.create(
+                    invoice=inv,
+                    item_code=pli.item.code,
+                    item_name=f'[Bundle: {bundle.price_list.name}] {pli.item.name}',
+                    qty=qty,
+                    unit=pli.unit.abbreviation,
+                    unit_price=pli.price,
+                    line_total=pli.price * qty,
+                )
     else:
         # No SO linked — create basic invoice from delivery lines
         inv = Invoice.objects.create(
