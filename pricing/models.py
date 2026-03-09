@@ -1,4 +1,6 @@
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 from core.models import SoftDeleteModel
 
 
@@ -48,10 +50,42 @@ class CustomerPriceCatalog(SoftDeleteModel):
         related_name='price_catalogs',
     )
     name = models.CharField(max_length=200, help_text='Descriptive name, e.g. "VIP Wholesale Pricing".')
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True, default='')
 
     class Meta:
-        ordering = ['customer__name', 'name']
+        ordering = ['customer__name', 'name', 'start_date']
+
+    def clean(self):
+        super().clean()
+        if self.start_date and self.end_date and self.start_date > self.end_date:
+            raise ValidationError({'end_date': 'End date must be on or after the start date.'})
+
+        overlap_qs = CustomerPriceCatalog.objects.filter(
+            customer=self.customer,
+            is_active=True,
+        )
+        if self.pk:
+            overlap_qs = overlap_qs.exclude(pk=self.pk)
+
+        new_start = self.start_date
+        new_end = self.end_date
+
+        if new_start is not None:
+            overlap_qs = overlap_qs.filter(Q(end_date__isnull=True) | Q(end_date__gte=new_start))
+
+        if new_end is not None:
+            overlap_qs = overlap_qs.filter(Q(start_date__isnull=True) | Q(start_date__lte=new_end))
+
+        overlapping = overlap_qs.select_related('customer').first()
+        if overlapping:
+            overlap_start = overlapping.start_date.isoformat() if overlapping.start_date else 'no start'
+            overlap_end = overlapping.end_date.isoformat() if overlapping.end_date else 'no end'
+            raise ValidationError(
+                f'Another active customer pricing catalog for {self.customer.name} overlaps this date range: '
+                f'{overlapping.name} ({overlap_start} to {overlap_end}).'
+            )
 
     def __str__(self):
         return f"{self.customer.name} – {self.name}"

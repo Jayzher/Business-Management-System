@@ -42,9 +42,25 @@
       <td class="text-right"><strong>{{ line.line_total|currency }}</strong></td>
     </tr>
     {% endfor %}
+    {% for bundle in doc.price_list_lines.all %}
+    <tr style="background:#e8f0fe;">
+      <td colspan="7" style="padding:4px 8px;"><strong style="color:#0d6efd;">&#9643; Bundle: {{ bundle.price_list.name }}</strong> &times;{{ bundle.qty_multiplier|decimal2 }} multiplier</td>
+    </tr>
+    {% for pli in bundle.price_list.items.all %}
+    <tr style="background:#f0f7ff;">
+      <td></td>
+      <td>{{ pli.item.code }}</td>
+      <td>{{ pli.item.name }}</td>
+      <td class="text-right">{{ pli.min_qty|decimal2 }}</td>
+      <td>{{ pli.unit.abbreviation }}</td>
+      <td class="text-right">{{ pli.price|currency }}</td>
+      <td class="text-right"><strong>{{ pli.price|currency }}</strong></td>
+    </tr>
+    {% endfor %}
+    {% endfor %}
   </tbody>
 </table>
 <table class="totals" style="width:300px;margin-left:auto;">
-  <tr><td class="text-right grand">TOTAL ({{ doc.currency }})</td><td class="text-right grand">{% with lines=doc.lines.all %}{% for l in lines %}{% if forloop.last %}{{ l.line_total|floatformat:2|intcomma }}{% endif %}{% endfor %}{% endwith %}</td></tr>
+  <tr><td class="text-right grand">TOTAL ({{ doc.currency }})</td><td class="text-right grand"><strong>{{ doc.grand_total|currency }}</strong></td></tr>
 </table>
 {% endblock %}

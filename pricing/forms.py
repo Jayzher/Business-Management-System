@@ -76,15 +76,19 @@ class DiscountRuleForm(forms.ModelForm):
 class CustomerPriceCatalogForm(forms.ModelForm):
     class Meta:
         model = CustomerPriceCatalog
-        fields = ['customer', 'name', 'notes']
+        fields = ['customer', 'name', 'start_date', 'end_date', 'notes']
         widgets = {
             'customer': forms.Select(attrs={'class': 'form-control', 'data-placeholder': 'Select customer'}),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. VIP Wholesale Pricing'}),
+            'start_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'end_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 2, 'placeholder': 'Internal remarks'}),
         }
         help_texts = {
             'customer': 'Customer this catalog applies to.',
             'name': 'Descriptive name for this custom price catalog.',
+            'start_date': 'Optional effective start date. Leave blank to apply immediately from the beginning.',
+            'end_date': 'Optional effective end date. Leave blank for no expiry.',
             'notes': 'Optional internal remarks.',
         }
 

@@ -2,6 +2,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
+from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -265,10 +266,26 @@ def customer_catalog_api(request, customer_pk):
     """
     from partners.models import Customer
     customer = get_object_or_404(Customer, pk=customer_pk)
+    order_date = request.query_params.get('order_date')
+    if order_date:
+        try:
+            effective_date = timezone.datetime.strptime(order_date, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({'error': 'Invalid order_date. Use YYYY-MM-DD.'}, status=400)
+    else:
+        effective_date = timezone.now().date()
     catalogs = (
         CustomerPriceCatalog.objects
-        .filter(customer=customer, is_active=True)
+        .filter(
+            customer=customer,
+            is_active=True,
+        )
+        .filter(
+            Q(start_date__isnull=True) | Q(start_date__lte=effective_date),
+            Q(end_date__isnull=True) | Q(end_date__gte=effective_date),
+        )
         .prefetch_related('items__item', 'items__unit')
+        .order_by('start_date', 'name')
     )
     items = []
     seen = set()
@@ -290,6 +307,7 @@ def customer_catalog_api(request, customer_pk):
     return Response({
         'customer_id': customer.pk,
         'customer_name': customer.name,
+        'effective_date': effective_date.isoformat(),
         'has_catalog': len(items) > 0,
         'items': items,
     })
@@ -314,7 +332,7 @@ def customer_catalog_create_view(request):
     if request.method == 'POST':
         form = CustomerPriceCatalogForm(request.POST)
         formset = CustomerPriceCatalogItemFormSet(request.POST)
-        if form.is_valid():
+        if form.is_valid() and formset.is_valid():
             obj = form.save()
             formset = CustomerPriceCatalogItemFormSet(request.POST, instance=obj)
             if formset.is_valid():
