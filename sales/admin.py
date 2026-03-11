@@ -16,7 +16,7 @@ class SalesOrderPriceListLineInline(admin.TabularInline):
 @admin.register(SalesOrder)
 class SalesOrderAdmin(admin.ModelAdmin):
     list_display = ['document_number', 'customer', 'warehouse', 'order_date', 'delivery_date', 'status', 'created_by']
-    list_filter = ['status', 'customer', 'warehouse']
+    list_filter = ['status', 'customer', 'warehouse', 'fulfillment_type']
     search_fields = ['document_number', 'customer__name']
     inlines = [SalesOrderLineInline, SalesOrderPriceListLineInline]
 
