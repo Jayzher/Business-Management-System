@@ -4,11 +4,25 @@ from sales.models import (
     SalesOrder, SalesOrderLine, SalesOrderPriceListLine,
     DeliveryNote, DeliveryLine,
     SalesReturn, SalesReturnLine,
-    SalesOrderLineDiscountType,
+    SalesOrderLineDiscountType, SalesPickup, SalesPickupLine
 )
 
 
 class SalesOrderForm(forms.ModelForm):
+    exchange_rate = forms.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        required=True,
+        widget=forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0'}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound and getattr(self, 'instance', None) and getattr(self.instance, 'pk', None):
+            value = getattr(self.instance, 'exchange_rate', None)
+            if value is not None:
+                self.initial['exchange_rate'] = f"{value:.2f}"
+
     class Meta:
         model = SalesOrder
         fields = ['document_number', 'customer', 'warehouse', 'order_date', 'delivery_date',
@@ -23,7 +37,6 @@ class SalesOrderForm(forms.ModelForm):
             'fulfillment_type': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'shipping_address': forms.Textarea(attrs={'class': 'form-control form-control-sm', 'rows': 3, 'placeholder': 'Delivery address'}),
             'currency': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'PHP'}),
-            'exchange_rate': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0'}),
             'payment_status': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'sales_channel': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'receipt_no': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Receipt / reference number'}),
@@ -63,7 +76,7 @@ class SalesOrderLineForm(forms.ModelForm):
             }),
             'qty_ordered': forms.NumberInput(attrs={
                 'class': 'form-control form-control-sm so-line-qty',
-                'step': '1', 'min': '0', 'placeholder': 'e.g., 5',
+                'step': '0.01', 'min': '0', 'placeholder': 'e.g., 5',
             }),
             'unit': forms.Select(attrs={
                 'class': 'form-control form-control-sm so-line-unit',
@@ -103,6 +116,32 @@ SalesOrderLineFormSet = inlineformset_factory(
 
 
 class SalesOrderPriceListLineForm(forms.ModelForm):
+    qty_multiplier = forms.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        required=True,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control form-control-sm so-bundle-qty',
+            'step': '0.01', 'min': '1', 'placeholder': '1',
+        }),
+    )
+    discount_value = forms.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        required=True,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control form-control-sm so-bundle-discount-val',
+            'step': '0.01', 'min': '0', 'placeholder': '0.00',
+        }),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound and getattr(self, 'instance', None) and getattr(self.instance, 'pk', None):
+            for name in ['qty_multiplier', 'discount_value']:
+                value = getattr(self.instance, name, None)
+                if value is not None:
+                    self.initial[name] = f"{value:.2f}"
     class Meta:
         model = SalesOrderPriceListLine
         fields = ['price_list', 'qty_multiplier', 'discount_type', 'discount_value', 'notes']
@@ -110,16 +149,8 @@ class SalesOrderPriceListLineForm(forms.ModelForm):
             'price_list': forms.Select(attrs={
                 'class': 'form-control form-control-sm so-bundle-pricelist',
             }),
-            'qty_multiplier': forms.NumberInput(attrs={
-                'class': 'form-control form-control-sm so-bundle-qty',
-                'step': '1', 'min': '1', 'placeholder': '1',
-            }),
             'discount_type': forms.Select(attrs={
                 'class': 'form-control form-control-sm so-bundle-discount-type',
-            }),
-            'discount_value': forms.NumberInput(attrs={
-                'class': 'form-control form-control-sm so-bundle-discount-val',
-                'step': '0.01', 'min': '0', 'placeholder': '0.00',
             }),
             'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
         }
@@ -185,7 +216,7 @@ class DeliveryLineForm(forms.ModelForm):
         widgets = {
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'location': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0', 'placeholder': 'e.g., 3'}),
+            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 3'}),
             'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'batch_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Batch # (optional)'}),
             'serial_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Serial # (optional)'}),
@@ -205,6 +236,74 @@ class DeliveryLineForm(forms.ModelForm):
 DeliveryLineFormSet = inlineformset_factory(
     DeliveryNote, DeliveryLine,
     form=DeliveryLineForm,
+    extra=1, can_delete=True,
+)
+
+
+class SalesPickupForm(forms.ModelForm):
+    class Meta:
+        model = SalesPickup
+        fields = [
+            'document_number', 'sales_order', 'customer', 'warehouse',
+            'pickup_date', 'pickup_by', 'notes',
+        ]
+        widgets = {
+            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'e.g., PU-000123'}),
+            'sales_order': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Optional: link to SO'}),
+            'customer': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select customer'}),
+            'warehouse': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select warehouse'}),
+            'pickup_date': forms.DateInput(attrs={'class': 'form-control form-control-sm', 'type': 'date'}),
+            'pickup_by': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Person picking up'}),
+            'notes': forms.Textarea(attrs={'class': 'form-control form-control-sm', 'rows': 3, 'placeholder': 'Pickup notes or instructions'}),
+        }
+        help_texts = {
+            'document_number': 'Unique pickup document number.',
+            'sales_order': 'Link to an SO. Leave blank for ad-hoc pickups.',
+            'customer': 'Customer receiving the items.',
+            'warehouse': 'Warehouse where pickup will be prepared.',
+            'pickup_date': 'Pickup date.',
+            'pickup_by': 'Name of the person who will pick up the goods.',
+            'notes': 'Pickup remarks or special instructions.',
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['sales_order'].required = False
+
+
+class SalesPickupLineForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound and (not getattr(self, 'instance', None) or not getattr(self.instance, 'pk', None)):
+            if 'qty' in self.fields:
+                self.fields['qty'].initial = None
+
+    class Meta:
+        model = SalesPickupLine
+        fields = ['item', 'location', 'qty', 'unit', 'batch_number', 'serial_number', 'notes']
+        widgets = {
+            'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
+            'location': forms.Select(attrs={'class': 'form-control form-control-sm'}),
+            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 3'}),
+            'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
+            'batch_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Batch # (optional)'}),
+            'serial_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Serial # (optional)'}),
+            'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+        }
+        help_texts = {
+            'item': 'Item being picked up.',
+            'location': 'Warehouse location to pick stock from.',
+            'qty': 'Quantity to release for pickup.',
+            'unit': 'Unit of measure.',
+            'batch_number': 'Batch/lot number for traceability.',
+            'serial_number': 'Serial number for individually tracked items.',
+            'notes': 'Line-level pickup notes.',
+        }
+
+
+SalesPickupLineFormSet = inlineformset_factory(
+    SalesPickup, SalesPickupLine,
+    form=SalesPickupLineForm,
     extra=1, can_delete=True,
 )
 
@@ -237,7 +336,7 @@ class SalesReturnLineForm(forms.ModelForm):
         widgets = {
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'location': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0'}),
+            'qty': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0'}),
             'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'reason': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
             'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),

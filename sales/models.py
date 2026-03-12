@@ -46,6 +46,59 @@ class SalesOrder(TransactionalDocument):
     class Meta:
         ordering = ['-created_at']
 
+    @property
+    def total_qty(self):
+        from decimal import Decimal
+        return sum((line.qty for line in self.lines.all()), Decimal('0'))
+
+    @property
+    def total_amount(self):
+        """Estimate delivery amount from linked SO line prices when available."""
+        from decimal import Decimal
+        total = Decimal('0')
+        if not self.sales_order_id:
+            return total
+        so_lines = list(self.sales_order.lines.select_related('item', 'unit').all())
+        for line in self.lines.select_related('item', 'unit').all():
+            match = next((l for l in so_lines if l.item_id == line.item_id and l.unit_id == line.unit_id), None)
+            if match:
+                total += line.qty * match.unit_price
+        return total
+
+    @property
+    def line_qty_total(self):
+        from decimal import Decimal
+        return sum((line.qty_ordered for line in self.lines.all()), Decimal('0'))
+
+    @property
+    def line_amount_total(self):
+        from decimal import Decimal
+        return sum((line.line_total for line in self.lines.all()), Decimal('0'))
+
+    @property
+    def qty_delivered_total(self):
+        from decimal import Decimal
+        return sum((line.qty_delivered for line in self.lines.all()), Decimal('0'))
+
+    @property
+    def qty_reserved_total(self):
+        from decimal import Decimal
+        return sum((line.qty_reserved for line in self.lines.all()), Decimal('0'))
+
+    @property
+    def qty_remaining_total(self):
+        from decimal import Decimal
+        return sum((line.qty_remaining for line in self.lines.all()), Decimal('0'))
+
+    @property
+    def bundle_amount_total(self):
+        from decimal import Decimal
+        return sum((bundle.bundle_total for bundle in self.price_list_lines.all()), Decimal('0'))
+
+    @property
+    def grand_total(self):
+        return self.line_amount_total + self.bundle_amount_total
+
 
 class SalesOrderLine(models.Model):
     """Sales order line items."""
@@ -170,6 +223,39 @@ class DeliveryLine(models.Model):
 
     def __str__(self):
         return f"Delivery Line: {self.item.code} x{self.qty}"
+
+
+class SalesPickup(TransactionalDocument):
+    """Pickup document for Sales Orders with PICKUP fulfillment."""
+    sales_order = models.ForeignKey(
+        SalesOrder, on_delete=models.PROTECT, related_name='pickups',
+        null=True, blank=True
+    )
+    customer = models.ForeignKey('partners.Customer', on_delete=models.PROTECT, related_name='pickups')
+    warehouse = models.ForeignKey('warehouses.Warehouse', on_delete=models.PROTECT, related_name='pickups')
+    pickup_date = models.DateField()
+    pickup_by = models.CharField(max_length=100, blank=True, default='')
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Pickup {self.document_number}"
+
+
+class SalesPickupLine(models.Model):
+    """Pickup line items."""
+    pickup = models.ForeignKey(SalesPickup, on_delete=models.CASCADE, related_name='lines')
+    item = models.ForeignKey('catalog.Item', on_delete=models.PROTECT)
+    location = models.ForeignKey('warehouses.Location', on_delete=models.PROTECT)
+    qty = models.DecimalField(max_digits=15, decimal_places=4)
+    unit = models.ForeignKey('catalog.Unit', on_delete=models.PROTECT)
+    batch_number = models.CharField(max_length=100, blank=True, default='')
+    serial_number = models.CharField(max_length=100, blank=True, default='')
+    notes = models.TextField(blank=True, default='')
+
+    def __str__(self):
+        return f"Pickup Line: {self.item.code} x{self.qty}"
 
 
 class SalesReturn(TransactionalDocument):

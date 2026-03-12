@@ -1,0 +1,46 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Pickups{% endblock %}
+{% block page_title %}Pickups{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Pickups</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Pickup List</h3>
+    <div class="card-tools"><a href="#" data-modal-url="{% url 'pickup_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Pickup</a></div>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
+        <tr><th>Pickup #</th><th>SO #</th><th>Customer</th><th>Warehouse</th><th>Pickup Date</th><th>Status</th><th>Created By</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for p in pickups %}
+        <tr>
+          <td><a href="{% url 'pickup_detail' p.pk %}">{{ p.document_number }}</a></td>
+          <td>{{ p.sales_order.document_number|default:"-" }}</td>
+          <td>{{ p.customer.name }}</td>
+          <td>{{ p.warehouse.code }}</td>
+          <td>{{ p.pickup_date|date:"M d, Y" }}</td>
+          <td>
+            {% if p.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif p.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif p.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td>
+          <td>{{ p.created_by.get_full_name|default:p.created_by.username }}</td>
+          <td>
+            <a href="{% url 'pickup_detail' p.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
+            {% if p.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'pickup_edit' p.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>{% endif %}
+            <a href="#" data-modal-url="{% url 'pickup_delete' p.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="text-center text-muted">No pickups.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

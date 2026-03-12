@@ -5,15 +5,16 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from sales.models import SalesOrder, DeliveryNote, SalesReturn, SalesReturnLine
-from sales.serializers import SalesOrderSerializer, DeliveryNoteSerializer
+from sales.models import SalesOrder, DeliveryNote, SalesReturn, SalesReturnLine, SalesPickup
+from sales.serializers import SalesOrderSerializer, DeliveryNoteSerializer, SalesPickupSerializer
 from sales.forms import (
     SalesOrderForm, SalesOrderLineFormSet, SalesOrderPriceListLineFormSet,
     DeliveryNoteForm, DeliveryLineFormSet,
+    SalesPickupForm, SalesPickupLineFormSet,
     SalesReturnForm, SalesReturnLineFormSet,
 )
 from django.utils import timezone
-from inventory.services import post_delivery, reserve_stock, cancel_document
+from inventory.services import post_delivery, reserve_stock, cancel_document, post_sales_pickup
 from core.models import DocumentStatus
 from accounts.decorators import sales_access
 
@@ -38,12 +39,18 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
         so.approved_by = request.user
         so.approved_at = timezone.now()
         so.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
-        # Auto-create Delivery Note + Invoice
-        from inventory.automation import auto_create_delivery_from_so, auto_create_invoice_from_so
+        from inventory.automation import auto_create_delivery_from_so, auto_create_invoice_from_so, auto_create_pickup_from_so
         result = {'status': 'approved'}
-        dn = auto_create_delivery_from_so(so, request.user)
-        if dn:
-            result['delivery_document_number'] = dn.document_number
+        dn = None
+        pickup = None
+        if so.fulfillment_type == 'DELIVER':
+            dn = auto_create_delivery_from_so(so, request.user)
+            if dn:
+                result['delivery_document_number'] = dn.document_number
+        elif so.fulfillment_type == 'PICKUP':
+            pickup = auto_create_pickup_from_so(so, request.user)
+            if pickup:
+                result['pickup_document_number'] = pickup.document_number
         inv = auto_create_invoice_from_so(so, request.user)
         if inv:
             result['invoice_number'] = inv.invoice_number
@@ -142,6 +149,29 @@ class DeliveryNoteViewSet(viewsets.ModelViewSet):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+class SalesPickupViewSet(viewsets.ModelViewSet):
+    queryset = SalesPickup.objects.select_related(
+        'sales_order', 'customer', 'warehouse', 'created_by'
+    ).prefetch_related('lines').all()
+    serializer_class = SalesPickupSerializer
+    filterset_fields = ['status', 'customer', 'warehouse']
+    search_fields = ['document_number', 'customer__name']
+
+    @action(detail=True, methods=['post'], url_path='post')
+    def post_pickup(self, request, pk=None):
+        pickup = self.get_object()
+        try:
+            post_sales_pickup(pickup, request.user)
+            from inventory.automation import auto_create_invoice_from_pickup
+            inv = auto_create_invoice_from_pickup(pickup, request.user)
+            data = {'status': 'posted', 'document_number': pickup.document_number}
+            if inv:
+                data['invoice_number'] = inv.invoice_number
+            return Response(data)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 # ── Template Views ─────────────────────────────────────────────────────────
 
 @login_required
@@ -157,12 +187,17 @@ def sales_order_approve_view(request, pk):
             so.approved_at = timezone.now()
             so.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
             messages.success(request, f'Sales Order {so.document_number} approved.')
-            # Auto-create Delivery Note
-            from inventory.automation import auto_create_delivery_from_so, auto_create_invoice_from_so
-            dn = auto_create_delivery_from_so(so, request.user)
-            if dn:
-                messages.info(request, f'Delivery Note {dn.document_number} auto-created.')
-            # Auto-create Invoice
+            from inventory.automation import auto_create_delivery_from_so, auto_create_invoice_from_so, auto_create_pickup_from_so
+            dn = None
+            pickup = None
+            if so.fulfillment_type == 'DELIVER':
+                dn = auto_create_delivery_from_so(so, request.user)
+                if dn:
+                    messages.info(request, f'Delivery Note {dn.document_number} auto-created.')
+            elif so.fulfillment_type == 'PICKUP':
+                pickup = auto_create_pickup_from_so(so, request.user)
+                if pickup:
+                    messages.info(request, f'Pickup {pickup.document_number} auto-created.')
             inv = auto_create_invoice_from_so(so, request.user)
             if inv:
                 messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
@@ -402,6 +437,126 @@ def delivery_delete_view(request, pk):
         messages.success(request, f'Delivery Note {dn.document_number} deleted.')
         return redirect('delivery_list')
     return render(request, 'sales/delivery_delete.html', {'object': dn})
+
+
+@login_required
+@sales_access
+def pickup_list_view(request):
+    pickups = SalesPickup.objects.select_related(
+        'sales_order', 'customer', 'warehouse', 'created_by'
+    ).all()
+    return render(request, 'sales/pickup_list.html', {'pickups': pickups})
+
+
+@login_required
+@sales_access
+def pickup_detail_view(request, pk):
+    pickup = get_object_or_404(
+        SalesPickup.objects.select_related('sales_order', 'customer', 'warehouse', 'created_by', 'posted_by')
+        .prefetch_related('lines__item', 'lines__unit', 'lines__location'), pk=pk
+    )
+    return render(request, 'sales/pickup_detail.html', {'pickup': pickup})
+
+
+@login_required
+@sales_access
+def pickup_create_view(request):
+    if request.method == 'POST':
+        form = SalesPickupForm(request.POST)
+        formset = SalesPickupLineFormSet(request.POST)
+        if form.is_valid():
+            pickup = form.save(commit=False)
+            pickup.created_by = request.user
+            pickup.save()
+            formset = SalesPickupLineFormSet(request.POST, instance=pickup)
+            if formset.is_valid():
+                formset.save()
+                messages.success(request, f'Pickup {pickup.document_number} created.')
+                return redirect('pickup_detail', pk=pickup.pk)
+    else:
+        form = SalesPickupForm()
+        formset = SalesPickupLineFormSet()
+    return render(request, 'sales/pickup_form.html', {
+        'form': form, 'formset': formset, 'title': 'Create Pickup',
+    })
+
+
+@login_required
+@sales_access
+def pickup_edit_view(request, pk):
+    pickup = get_object_or_404(SalesPickup, pk=pk)
+    if pickup.status != 'DRAFT':
+        messages.error(request, 'Only DRAFT pickups can be edited.')
+        return redirect('pickup_detail', pk=pk)
+    if request.method == 'POST':
+        form = SalesPickupForm(request.POST, instance=pickup)
+        formset = SalesPickupLineFormSet(request.POST, instance=pickup)
+        if form.is_valid() and formset.is_valid():
+            form.save()
+            formset.save()
+            messages.success(request, f'Pickup {pickup.document_number} updated.')
+            return redirect('pickup_detail', pk=pickup.pk)
+    else:
+        form = SalesPickupForm(instance=pickup)
+        formset = SalesPickupLineFormSet(instance=pickup)
+    return render(request, 'sales/pickup_form.html', {
+        'form': form, 'formset': formset, 'title': f'Edit Pickup: {pickup.document_number}',
+    })
+
+
+@login_required
+@sales_access
+def pickup_delete_view(request, pk):
+    pickup = get_object_or_404(SalesPickup, pk=pk)
+    if request.method == 'POST':
+        pickup.soft_delete()
+        messages.success(request, f'Pickup {pickup.document_number} deleted.')
+        return redirect('pickup_list')
+    return render(request, 'sales/pickup_delete.html', {'object': pickup})
+
+
+@login_required
+@sales_access
+def pickup_post_view(request, pk):
+    pickup = get_object_or_404(SalesPickup, pk=pk)
+    if request.method == 'POST':
+        try:
+            post_sales_pickup(pickup, request.user)
+            messages.success(request, f'Pickup {pickup.document_number} posted. Stock updated.')
+            from inventory.automation import auto_create_invoice_from_pickup
+            inv = auto_create_invoice_from_pickup(pickup, request.user)
+            if inv:
+                messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
+        except ValueError as e:
+            messages.error(request, str(e))
+    return redirect('pickup_detail', pk=pk)
+
+
+@login_required
+@sales_access
+def pickup_cancel_view(request, pk):
+    pickup = get_object_or_404(SalesPickup, pk=pk)
+    if request.method == 'POST':
+        try:
+            cancel_document(pickup, request.user)
+            messages.success(request, f'Pickup {pickup.document_number} cancelled.')
+        except ValueError as e:
+            messages.error(request, str(e))
+    return redirect('pickup_detail', pk=pk)
+
+
+@login_required
+@sales_access
+def pickup_print_view(request, pk):
+    from core.models import BusinessProfile
+    pickup = get_object_or_404(
+        SalesPickup.objects.select_related('sales_order', 'customer', 'warehouse', 'created_by', 'approved_by')
+        .prefetch_related('lines__item', 'lines__unit', 'lines__location'), pk=pk
+    )
+    profile = BusinessProfile.get_instance()
+    return render(request, 'sales/pickup_print.html', {
+        'doc': pickup, 'doc_title': 'PICKUP', 'doc_number': pickup.document_number, 'profile': profile,
+    })
 
 
 # ── Sales Returns ─────────────────────────────────────────────────────────

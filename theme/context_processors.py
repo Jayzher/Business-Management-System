@@ -53,6 +53,7 @@ def sidebar_menu(request):
             'children': [
                 {'label': 'Sales Orders', 'url': '/sales/orders/', 'active_prefix': '/sales/orders', 'icon': 'fas fa-file-invoice'},
                 {'label': 'Deliveries', 'url': '/sales/deliveries/', 'active_prefix': '/sales/deliveries', 'icon': 'fas fa-truck-fast'},
+                {'label': 'Pickups', 'url': '/sales/pickups/', 'active_prefix': '/sales/pickups', 'icon': 'fas fa-shopping-basket'},
                 {'label': 'Sales Returns', 'url': '/sales/returns/', 'active_prefix': '/sales/returns', 'icon': 'fas fa-undo'},
                 {'label': 'Invoices', 'url': '/core/invoices/', 'active_prefix': '/core/invoices', 'icon': 'fas fa-file-invoice-dollar'},
                 {'label': 'Sales Channels', 'url': '/core/channels/', 'active_prefix': '/core/channels', 'icon': 'fas fa-bullhorn'},
@@ -75,6 +76,14 @@ def sidebar_menu(request):
                 {'label': 'Supply Items', 'url': '/core/supplies/', 'active_prefix': '/core/supplies', 'icon': 'fas fa-box-open'},
                 {'label': 'Movements', 'url': '/core/supply-movements/', 'active_prefix': '/core/supply-movements', 'icon': 'fas fa-right-left'},
                 {'label': 'Supply Categories', 'url': '/core/supply-categories/', 'active_prefix': '/core/supply-categories', 'icon': 'fas fa-tags'},
+            ],
+        },
+        {
+            'label': 'Services',
+            'icon': 'fas fa-tools',
+            'tour_id': 'nav-services',
+            'children': [
+                {'label': 'Customer Services', 'url': '/services/', 'active_prefix': '/services/', 'icon': 'fas fa-clipboard-check'},
             ],
         },
         {

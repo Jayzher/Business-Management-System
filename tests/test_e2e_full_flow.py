@@ -335,7 +335,12 @@ class FullProcessFlowTest(StaticLiveServerTestCase):
         self.select_by_text('lines-0-item', '[ITEM-001] Aluminum Profile 6063')
         self.fill_field('lines-0-qty_ordered', '25')
         self.select_by_text('lines-0-unit', 'Pieces (pcs)')
-        self.fill_field('lines-0-unit_price', '250.00')
+        # unit_price is readonly (auto-populated by JS); set via JS to bypass readonly
+        price_el = self.wait.until(EC.presence_of_element_located((By.NAME, 'lines-0-unit_price')))
+        self.browser.execute_script(
+            "arguments[0].removeAttribute('readonly'); arguments[0].value = arguments[1];",
+            price_el, '250.00',
+        )
         self.submit_form()
         self.assert_form_saved('SO-000001')
 
@@ -511,6 +516,8 @@ class FullProcessFlowTest(StaticLiveServerTestCase):
             ('/procurement/goods-receipts/', 'Goods Receipts'),
             ('/sales/orders/', 'Sales Orders'),
             ('/sales/deliveries/', 'Deliveries'),
+            ('/sales/pickups/', 'Pickups'),
+            ('/services/', 'Customer Services'),
             ('/inventory/moves/', 'Stock Movements'),
             ('/inventory/transfers/', 'Transfers'),
             ('/inventory/adjustments/', 'Adjustments'),

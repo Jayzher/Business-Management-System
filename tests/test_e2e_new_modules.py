@@ -284,6 +284,9 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         self._step_50_import_sales_orders_csv()
         self._step_51_import_with_errors_shows_summary()
 
+        # Phase 12: Services Module
+        self._step_52_services_create_and_complete()
+
     # ═══════════════════════════════════════════════════════════════════
     # PHASE 1: Core CRUD Modules
     # ═══════════════════════════════════════════════════════════════════
@@ -1036,6 +1039,9 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
             # Sales
             ('/sales/orders/', 'Sales Order'),
             ('/sales/deliveries/', 'Deliver'),
+            ('/sales/pickups/', 'Pickup'),
+            # Services
+            ('/services/', 'Service'),
             # Inventory
             ('/inventory/moves/', 'Movement'),
             ('/inventory/transfers/', 'Transfer'),
@@ -1831,3 +1837,81 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         body = self.browser.page_source
         self.assertIn('VALID-001', body, 'Valid item should be imported')
         self.assertIn('VALID-002', body, 'Second valid item should be imported')
+
+    # ═══════════════════════════════════════════════════════════════════
+    # PHASE 12: Services Module
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _step_52_services_create_and_complete(self):
+        """Create a customer service, verify list and detail, check status workflow."""
+        # ── List page loads ──────────────────────────────────────────────────
+        self.browser.get(self.url('/services/'))
+        self.assert_no_errors()
+        self.assert_text_present('Customer Services')
+
+        # ── Create page loads ────────────────────────────────────────────────
+        self.browser.get(self.url('/services/create/'))
+        self.assert_no_errors()
+        self.assert_text_present('New Customer Service')
+
+        # Fill form fields
+        svc_num = f'SVC-{date.today().strftime("%Y%m%d")}-001'
+        self.fill_field('service_number', svc_num)
+        self.fill_field('service_name', 'Cooling Unit Maintenance')
+        self.fill_field('customer_name', 'Juan Dela Cruz')
+        self.fill_date_field('service_date', date.today().isoformat())
+        self.fill_field('address', '123 Test Street, Manila')
+
+        # Submit
+        self.browser.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
+        time.sleep(1.5)
+
+        # ── Verify service was created ────────────────────────────────────────
+        self.browser.get(self.url('/services/'))
+        self.assert_no_errors()
+        body = self.browser.page_source
+        self.assertIn(svc_num, body, f'Service {svc_num} should appear in list')
+        self.assertIn('Juan Dela Cruz', body, 'Customer name should appear in list')
+
+        # ── Verify detail page ────────────────────────────────────────────────
+        link = self.browser.find_element(By.PARTIAL_LINK_TEXT, svc_num)
+        self.browser.execute_script('arguments[0].click();', link)
+        time.sleep(0.8)
+        self.assert_no_errors()
+        body = self.browser.page_source
+        self.assertIn('Cooling Unit Maintenance', body, 'Service name should appear on detail page')
+        self.assertIn('Juan Dela Cruz', body, 'Customer name should appear on detail page')
+        self.assertIn('Draft', body, 'Status should be Draft')
+
+        # ── Verify edit page shows completion_date field ──────────────────────
+        svc_url = self.browser.current_url
+        svc_pk = svc_url.rstrip('/').split('/')[-1]
+        self.browser.get(self.url(f'/services/{svc_pk}/edit/'))
+        self.assert_no_errors()
+        # completion_date field should be present in edit form
+        completion_fields = self.browser.find_elements(By.NAME, 'completion_date')
+        self.assertGreater(
+            len(completion_fields), 0,
+            'completion_date field should be present on edit form'
+        )
+
+        # ── Verify completion_date NOT on create form ─────────────────────────
+        self.browser.get(self.url('/services/create/'))
+        self.assert_no_errors()
+        create_completion_fields = self.browser.find_elements(By.NAME, 'completion_date')
+        self.assertEqual(
+            len(create_completion_fields), 0,
+            'completion_date field should NOT be present on create form'
+        )
+
+        # ── Verify sidebar has Services entry ─────────────────────────────────
+        self.browser.get(self.url('/services/'))
+        sidebar = self.browser.find_elements(By.CSS_SELECTOR, '[data-tour-id="nav-services"]')
+        self.assertGreater(len(sidebar), 0, 'Sidebar should have nav-services tour id')
+
+        # ── Verify Dictionary has Services tab ────────────────────────────────
+        self.browser.get(self.url('/core/dictionary/'))
+        self.assert_no_errors()
+        body = self.browser.page_source
+        self.assertIn('Customer Service', body, 'Dictionary should mention Customer Service')
+        self.assertIn('Service Completion', body, 'Dictionary should mention Service Completion')
