@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'audit',
     'pricing',
     'pos',
+    'services',
     'theme',
 ]
 

@@ -180,6 +180,60 @@ def post_delivery(delivery, user):
 
 
 @transaction.atomic
+def post_sales_pickup(pickup, user):
+    """
+    Post a Sales Pickup: behaves like a Delivery Note but for PICKUP fulfillment.
+    Creates DELIVER StockMoves and updates balances.
+    """
+    from sales.models import SalesPickup
+    from core.models import DocumentStatus
+
+    if pickup.status != DocumentStatus.DRAFT:
+        raise ValueError(f"Pickup {pickup.document_number} is not in DRAFT status.")
+
+    now = timezone.now()
+    moves = []
+
+    for line in pickup.lines.all():
+        move = StockMove(
+            move_type=MoveType.DELIVER,
+            item=line.item,
+            qty=line.qty,
+            unit=line.unit,
+            from_location=line.location,
+            to_location=None,
+            reference_type='SalesPickup',
+            reference_id=pickup.pk,
+            reference_number=pickup.document_number,
+            batch_number=getattr(line, 'batch_number', '') or '',
+            serial_number=getattr(line, 'serial_number', '') or '',
+            status=MoveStatus.POSTED,
+            created_by=user,
+            posted_by=user,
+            posted_at=now,
+        )
+        moves.append(move)
+        _update_balance(line.item, line.location, -line.qty)
+
+        # Update SO delivered qty if linked
+        if pickup.sales_order:
+            so_lines = pickup.sales_order.lines.filter(item=line.item)
+            for so_line in so_lines:
+                so_line.qty_delivered += line.qty
+                so_line.save(update_fields=['qty_delivered'])
+
+    StockMove.objects.bulk_create(moves)
+
+    pickup.status = DocumentStatus.POSTED
+    pickup.posted_by = user
+    pickup.posted_at = now
+    pickup.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
+
+    _create_audit(user, 'POST', pickup, {'lines': len(moves)})
+    return pickup
+
+
+@transaction.atomic
 def post_transfer(transfer, user):
     """
     Post a Stock Transfer: creates TRANSFER StockMoves (out + in) and updates balances.

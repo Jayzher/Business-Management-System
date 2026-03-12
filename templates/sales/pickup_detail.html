@@ -1,0 +1,74 @@
+{% extends "theme/base.html" %}
+{% load custom_filters %}
+
+{% block title %}{{ pickup.document_number }}{% endblock %}
+{% block page_title %}{{ pickup.document_number }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'pickup_list' %}">Pickups</a></li>
+<li class="breadcrumb-item active">{{ pickup.document_number }}</li>
+{% endblock %}
+
+{% block content %}
+{% include "theme/partials/status_workflow.html" with status=pickup.status doc_type="PU" %}
+{% include "theme/partials/doc_actions.html" with obj=pickup edit_url_name="pickup_edit" delete_url_name="pickup_delete" post_url_name="pickup_post" cancel_url_name="pickup_cancel" print_url_name="pickup_print" list_url_name="pickup_list" %}
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-shopping-basket me-2 text-primary"></i>Pickup Details</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Pickup #</th><td><strong>{{ pickup.document_number }}</strong></td></tr>
+          <tr><th>Status</th><td>
+            {% if pickup.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
+            {% elif pickup.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
+            {% elif pickup.status == 'CANCELLED' %}<span class="badge bg-danger">Cancelled</span>
+            {% endif %}
+          </td></tr>
+          <tr><th>SO #</th><td>{{ pickup.sales_order.document_number|default:"-" }}</td></tr>
+          <tr><th>Customer</th><td>{{ pickup.customer.name }}</td></tr>
+          <tr><th>Warehouse</th><td>{{ pickup.warehouse.name }}</td></tr>
+          <tr><th>Pickup Date</th><td>{{ pickup.pickup_date|date:"M d, Y" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle me-2 text-secondary"></i>Pickup & Audit</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Pickup By</th><td>{{ pickup.pickup_by|default:"-" }}</td></tr>
+          <tr><th>Created By</th><td>{{ pickup.created_by.get_full_name|default:pickup.created_by.username }}</td></tr>
+          <tr><th>Posted By</th><td>{{ pickup.posted_by.get_full_name|default:"-" }}</td></tr>
+          <tr><th>Posted At</th><td>{{ pickup.posted_at|date:"M d, Y H:i"|default:"-" }}</td></tr>
+          <tr><th>Notes</th><td>{{ pickup.notes|default:"-" }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-list me-2 text-success"></i>Pickup Lines</h3></div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover detail-lines-table mb-0">
+      <thead>
+        <tr><th>Item</th><th>Location</th><th class="text-end">Qty</th><th>Unit</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for line in pickup.lines.all %}
+        <tr>
+          <td>{% include "theme/partials/item_cell.html" with item=line.item %}</td>
+          <td>{{ line.location.code }}</td>
+          <td class="text-end">{{ line.qty|decimal2 }}</td>
+          <td>{{ line.unit.abbreviation }}</td>
+          <td>{{ line.notes|default:"-" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

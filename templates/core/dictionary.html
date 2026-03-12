@@ -107,6 +107,11 @@
     </button>
   </li>
   <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-services" data-bs-toggle="tab" data-bs-target="#mod-services" type="button" role="tab">
+      <i class="fas fa-tools me-1"></i> Services <span class="badge bg-primary term-count"></span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
     <button class="nav-link" id="tab-general" data-bs-toggle="tab" data-bs-target="#mod-general" type="button" role="tab">
       <i class="fas fa-cog me-1"></i> General <span class="badge bg-secondary term-count"></span>
     </button>
@@ -229,6 +234,11 @@
       <div class="dict-term-example"><strong>Example:</strong> DN-2026-001 delivers 10 Chocolate Cakes from WH-MAIN/B-01 to Maria's Cafe.</div>
     </div>
     <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-shopping-basket"></i> Pickup</div>
+      <div class="dict-term-desc">A document used when a customer <strong>collects goods directly</strong> from your warehouse or store instead of having them delivered. Posting a Pickup decreases stock balances just like a Delivery Note.</div>
+      <div class="dict-term-example"><strong>Example:</strong> PU-2026-001 records that Maria's Cafe picked up 5 Chocolate Cakes from WH-MAIN/B-01 at the counter.</div>
+    </div>
+    <div class="dict-term">
       <div class="dict-term-name"><i class="fas fa-broadcast-tower"></i> Sales Channel</div>
       <div class="dict-term-desc">The method or platform through which a sale is made. Used to track revenue by source.</div>
       <div class="dict-term-example"><strong>Example:</strong> Channels like "Walk-in", "Online Store", "GrabFood" help you see which platform generates the most revenue.</div>
@@ -237,6 +247,30 @@
       <div class="dict-term-name"><i class="fas fa-file-invoice-dollar"></i> Invoice</div>
       <div class="dict-term-desc">A billing document generated from a Sales Order or POS Sale. Contains line items, totals, and payment terms. Can be printed for the customer.</div>
       <div class="dict-term-example"><strong>Example:</strong> Invoice INV-2026-001 for Maria's Cafe totaling 3,500.00 for 10 cakes.</div>
+    </div>
+  </div>
+
+  <!-- SERVICES -->
+  <div class="tab-pane fade" id="mod-services" role="tabpanel" data-module="Services">
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-tools"></i> Customer Service</div>
+      <div class="dict-term-desc">A job order or service record used to track work performed for a customer. Contains a service name, customer name (free text), service date, address, and optional product/parts lines. When marked <strong>Completed</strong>, parts are deducted from inventory and an invoice is auto-generated.</div>
+      <div class="dict-term-example"><strong>Example:</strong> SVC-000001 — AC Unit Repair for Juan Dela Cruz on 2026-01-15 using 1 Refrigerant Gas and 1 Capacitor.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-clipboard-list"></i> Service Line</div>
+      <div class="dict-term-desc">A product or part used during a service. The unit price is auto-filled from the Item catalog selling price. The line total (qty × unit price) contributes to the service grand total.</div>
+      <div class="dict-term-example"><strong>Example:</strong> 2 × Refrigerant Gas at 500.00 each = 1,000.00 line total.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-check-circle"></i> Service Completion</div>
+      <div class="dict-term-desc">The action of marking a service as <strong>Completed</strong>. This triggers two automatic actions: (1) stock deduction from the warehouse for each product line, and (2) generation of an Invoice for the customer.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Completing SVC-000001 deducts 2 Refrigerant Gas from WH-MAIN/B-01 and creates INV-2026-001 for Juan Dela Cruz.</div>
+    </div>
+    <div class="dict-term">
+      <div class="dict-term-name"><i class="fas fa-money-bill-wave"></i> Service Amount</div>
+      <div class="dict-term-desc">An optional manual service fee that overrides the product line total when calculating the grand total. Useful when the service charge differs from the sum of parts used.</div>
+      <div class="dict-term-example"><strong>Example:</strong> Parts total is 1,500.00 but the service fee is 2,000.00 — setting Amount to 2,000.00 overrides the line total.</div>
     </div>
   </div>
 

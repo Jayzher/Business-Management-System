@@ -246,6 +246,7 @@
           '<ul style="padding-left:1.2rem;" class="mb-0">' +
           '<li><strong>Sales Orders</strong> — Formal customer orders</li>' +
           '<li><strong>Deliveries</strong> — Ship goods to customers</li>' +
+          '<li><strong>Pickups</strong> — Customer collects goods directly from your warehouse</li>' +
           '<li><strong>Invoices</strong> — Generate professional invoices</li>' +
           '<li><strong>Sales Channels</strong> — Track where sales come from (Store, Online, etc.)</li></ul>',
       },
@@ -267,6 +268,15 @@
           '<li><strong>Movements</strong> — Record stock-in and stock-out</li>' +
           '<li><strong>Supply Categories</strong> — Organize supply items</li></ul>' +
           '<p class="mt-1 mb-0"><small>Low stock alerts appear when levels drop below minimum.</small></p>',
+      },
+      {
+        selector: '[data-tour-id="nav-services"]',
+        title: '🔧 Services Module',
+        desc: '<p>Manage <strong>customer service jobs</strong> and repair orders:</p>' +
+          '<ul style="padding-left:1.2rem;" class="mb-0">' +
+          '<li><strong>Customer Services</strong> — Create service records with product lines</li>' +
+          '<li><strong>Completion</strong> — Completing a service deducts parts from inventory</li>' +
+          '<li><strong>Invoice</strong> — An invoice is auto-generated when the service is completed</li></ul>',
       },
       {
         selector: '[data-tour-id="nav-inventory"]',
@@ -882,6 +892,28 @@
       }
     },
 
+    /* Pickup Detail */
+    '/sales/pickups/': {
+      title: 'Pickups Guide',
+      steps: function () {
+        var s = [];
+        var path = window.location.pathname;
+        if (path.match(/\/sales\/pickups\/\d+\//)) {
+          s.push({ popover: { title: '🛒 Pickup Details', description: 'Full details of this Pickup — linked SO, customer, warehouse, pickup date, and all items the customer will collect directly from your warehouse.', position: 'center' } });
+          if (exists('.table-bordered')) s.push({ element: '.table-bordered', popover: { title: '📄 Pickup Info', description: 'Shows Pickup number, status, linked SO, customer, warehouse, pickup date, and notes.', position: 'right' } });
+          if (exists('.table-hover')) s.push({ element: '.table-hover', popover: { title: '📦 Pickup Lines', description: 'Each line shows the item, source location, quantity prepared for pickup, unit, and notes.', position: 'top' } });
+          return s;
+        }
+        if (path.indexOf('/create/') !== -1) {
+          s.push({ popover: { title: '➕ New Pickup', description: 'Create a Pickup document when a customer collects goods directly from your warehouse. Link to a Sales Order or create ad-hoc, then add items and quantities to release.', position: 'center' } });
+          return s;
+        }
+        s.push({ popover: { title: '🛒 Customer Pickups', description: 'Pickups record when customers collect goods themselves instead of having them delivered. <strong>Posting a pickup decreases stock balance</strong> just like a delivery.', position: 'center' } });
+        if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Pickup List', description: 'Shows pickup number, related SO, customer, warehouse, status, and date. Click to view details.', position: 'top' } });
+        return s;
+      }
+    },
+
     /* Warehouse Detail */
     '/warehouses/': {
       title: 'Warehouses Guide',
@@ -1001,6 +1033,32 @@
         s.push({ popover: { title: '📦 Item Master List', description: 'Your product catalog — all items, raw materials, and services. Use the search and sort to find items quickly.', position: 'center' } });
         if (exists('.btn-primary')) s.push({ element: '.btn-primary', popover: { title: '➕ New Item', description: 'Click to add a new product, raw material, or service.', position: 'left' } });
         if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Item Table', description: 'Shows Code, Name, Type, Category, Unit, and Status. Use DataTables search and pagination to navigate. Click any code to view details.', position: 'top' } });
+        return s;
+      }
+    },
+
+    /* Services */
+    '/services/': {
+      title: 'Customer Services Guide',
+      steps: function () {
+        var s = [];
+        var path = window.location.pathname;
+        if (path.match(/\/services\/\d+\//)) {
+          if (path.indexOf('/edit/') !== -1) {
+            s.push({ popover: { title: '✏️ Edit Service', description: 'Update service details. The <strong>Completion Date</strong> field is only available on the edit form.', position: 'center' } });
+            return s;
+          }
+          s.push({ popover: { title: '🔧 Service Details', description: 'Full details of this customer service record — service info, product/parts lines, totals, and action buttons.', position: 'center' } });
+          if (exists('.table-bordered')) s.push({ element: '.table-bordered', popover: { title: '📄 Service Info', description: 'Shows service number, name, customer, dates, status, payment status, and linked invoice.', position: 'right' } });
+          if (exists('.table-hover')) s.push({ element: '.table-hover', popover: { title: '📦 Product Lines', description: 'Parts or items used in the service. Unit price is auto-filled from the Item catalog selling price.', position: 'top' } });
+          return s;
+        }
+        if (path.indexOf('/create/') !== -1) {
+          s.push({ popover: { title: '➕ New Customer Service', description: 'Create a service job order. Fill in the service name, customer name (free text), date, and optionally add product/parts lines. Set the warehouse if parts will be deducted from inventory.', position: 'center' } });
+          return s;
+        }
+        s.push({ popover: { title: '🔧 Customer Services', description: 'Track all customer service jobs. When a service is <strong>Completed</strong>, parts are deducted from inventory and an invoice is auto-generated.', position: 'center' } });
+        if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Services List', description: 'Shows service number, name, customer, date, status, payment status, and total. Click to view details.', position: 'top' } });
         return s;
       }
     },

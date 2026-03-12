@@ -58,12 +58,69 @@ class UnitConversionForm(forms.ModelForm):
 
 
 class ItemForm(forms.ModelForm):
+    # Use 2 decimal places for prices on the form, even though the model stores 4
+    cost_price = forms.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        required=True,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 150.00'
+        }),
+    )
+    selling_price = forms.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        required=True,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 250.00'
+        }),
+    )
+    minimum_stock = forms.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        required=True,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 10'
+        }),
+    )
+    maximum_stock = forms.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        required=True,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 100'
+        }),
+    )
+    reorder_point = forms.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        required=True,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 20'
+        }),
+    )
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # For NEW items, show empty fields instead of 0.00
         if not self.is_bound and (not getattr(self, 'instance', None) or not getattr(self.instance, 'pk', None)):
             for name in ['cost_price', 'selling_price', 'minimum_stock', 'maximum_stock', 'reorder_point']:
                 if name in self.fields:
                     self.fields[name].initial = None
+
+        # For EDIT forms, format prices with exactly 2 decimals
+        if not self.is_bound and getattr(self, 'instance', None) and getattr(self.instance, 'pk', None):
+            for name in ['cost_price', 'selling_price']:
+                if name in self.fields:
+                    value = getattr(self.instance, name, None)
+                    if value is not None:
+                        # Coerce to string with 2 decimal places for display
+                        self.initial[name] = f"{value:.2f}"
+            for name in ['minimum_stock', 'maximum_stock', 'reorder_point']:
+                if name in self.fields:
+                    value = getattr(self.instance, name, None)
+                    if value is not None:
+                        self.initial[name] = f"{value:.2f}"
 
     class Meta:
         model = Item

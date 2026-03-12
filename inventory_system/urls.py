@@ -17,7 +17,7 @@ from inventory.views import (
     StockTransferViewSet, StockAdjustmentViewSet, DamagedReportViewSet,
 )
 from procurement.views import PurchaseOrderViewSet, GoodsReceiptViewSet
-from sales.views import SalesOrderViewSet, DeliveryNoteViewSet
+from sales.views import SalesOrderViewSet, DeliveryNoteViewSet, SalesPickupViewSet
 from qr.views import QRCodeTagViewSet, generate_qr, qr_lookup, qr_scan
 from reports.views import (
     stock_on_hand_report, stock_movement_report,
@@ -54,6 +54,7 @@ router.register(r'purchase-orders', PurchaseOrderViewSet)
 router.register(r'goods-receipts', GoodsReceiptViewSet)
 router.register(r'sales-orders', SalesOrderViewSet)
 router.register(r'deliveries', DeliveryNoteViewSet)
+router.register(r'pickups', SalesPickupViewSet)
 router.register(r'qr-tags', QRCodeTagViewSet)
 router.register(r'price-lists', PriceListViewSet)
 router.register(r'price-list-items', PriceListItemViewSet)
@@ -112,6 +113,7 @@ urlpatterns = [
     path('pricing/', include('pricing.urls')),
     path('pos/', include('pos.urls')),
     path('core/', include('core.urls')),
+    path('services/', include('services.urls')),
 ]
 
 if settings.DEBUG:

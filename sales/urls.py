@@ -18,6 +18,15 @@ urlpatterns = [
     path('deliveries/<int:pk>/post/', views.delivery_post_view, name='delivery_post'),
     path('deliveries/<int:pk>/cancel/', views.delivery_cancel_view, name='delivery_cancel'),
     path('deliveries/<int:pk>/print/', views.delivery_print_view, name='delivery_print'),
+    # Pickups
+    path('pickups/', views.pickup_list_view, name='pickup_list'),
+    path('pickups/create/', views.pickup_create_view, name='pickup_create'),
+    path('pickups/<int:pk>/', views.pickup_detail_view, name='pickup_detail'),
+    path('pickups/<int:pk>/edit/', views.pickup_edit_view, name='pickup_edit'),
+    path('pickups/<int:pk>/delete/', views.pickup_delete_view, name='pickup_delete'),
+    path('pickups/<int:pk>/post/', views.pickup_post_view, name='pickup_post'),
+    path('pickups/<int:pk>/cancel/', views.pickup_cancel_view, name='pickup_cancel'),
+    path('pickups/<int:pk>/print/', views.pickup_print_view, name='pickup_print'),
     # Sales Returns
     path('returns/', views.sales_return_list_view, name='sales_return_list'),
     path('returns/create/', views.sales_return_create_view, name='sales_return_create'),
