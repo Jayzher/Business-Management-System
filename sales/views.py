@@ -39,10 +39,8 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
         so.approved_by = request.user
         so.approved_at = timezone.now()
         so.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
-        from inventory.automation import auto_create_delivery_from_so, auto_create_invoice_from_so, auto_create_pickup_from_so
+        from inventory.automation import auto_create_delivery_from_so, auto_create_pickup_from_so
         result = {'status': 'approved'}
-        dn = None
-        pickup = None
         if so.fulfillment_type == 'DELIVER':
             dn = auto_create_delivery_from_so(so, request.user)
             if dn:
@@ -51,9 +49,6 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
             pickup = auto_create_pickup_from_so(so, request.user)
             if pickup:
                 result['pickup_document_number'] = pickup.document_number
-        inv = auto_create_invoice_from_so(so, request.user)
-        if inv:
-            result['invoice_number'] = inv.invoice_number
         return Response(result)
 
     @action(detail=True, methods=['post'])
@@ -144,7 +139,12 @@ class DeliveryNoteViewSet(viewsets.ModelViewSet):
         delivery = self.get_object()
         try:
             post_delivery(delivery, request.user)
-            return Response({'status': 'posted', 'document_number': delivery.document_number})
+            from inventory.automation import auto_create_invoice_from_delivery
+            inv = auto_create_invoice_from_delivery(delivery, request.user)
+            data = {'status': 'posted', 'document_number': delivery.document_number}
+            if inv:
+                data['invoice_number'] = inv.invoice_number
+            return Response(data)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -187,9 +187,7 @@ def sales_order_approve_view(request, pk):
             so.approved_at = timezone.now()
             so.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
             messages.success(request, f'Sales Order {so.document_number} approved.')
-            from inventory.automation import auto_create_delivery_from_so, auto_create_invoice_from_so, auto_create_pickup_from_so
-            dn = None
-            pickup = None
+            from inventory.automation import auto_create_delivery_from_so, auto_create_pickup_from_so
             if so.fulfillment_type == 'DELIVER':
                 dn = auto_create_delivery_from_so(so, request.user)
                 if dn:
@@ -198,9 +196,6 @@ def sales_order_approve_view(request, pk):
                 pickup = auto_create_pickup_from_so(so, request.user)
                 if pickup:
                     messages.info(request, f'Pickup {pickup.document_number} auto-created.')
-            inv = auto_create_invoice_from_so(so, request.user)
-            if inv:
-                messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
     return redirect('sales_order_detail', pk=pk)
 
 
@@ -225,7 +220,6 @@ def delivery_post_view(request, pk):
         try:
             post_delivery(dn, request.user)
             messages.success(request, f'Delivery Note {dn.document_number} posted. Stock updated.')
-            # Auto-create Invoice from delivery
             from inventory.automation import auto_create_invoice_from_delivery
             inv = auto_create_invoice_from_delivery(dn, request.user)
             if inv:
@@ -240,9 +234,28 @@ def delivery_post_view(request, pk):
 def delivery_cancel_view(request, pk):
     dn = get_object_or_404(DeliveryNote, pk=pk)
     if request.method == 'POST':
+        was_posted = dn.status == DocumentStatus.POSTED
         try:
             cancel_document(dn, request.user)
             messages.success(request, f'Delivery Note {dn.document_number} cancelled.')
+            if was_posted:
+                # Reverse qty_delivered on SO lines
+                if dn.sales_order:
+                    for line in dn.lines.select_related('item').all():
+                        so_lines = dn.sales_order.lines.filter(item=line.item)
+                        for so_line in so_lines:
+                            so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
+                            so_line.save(update_fields=['qty_delivered'])
+                # Void the linked invoice
+                from core.models import Invoice
+                inv = Invoice.objects.filter(
+                    sales_order=dn.sales_order, is_void=False
+                ).first() if dn.sales_order else None
+                if inv:
+                    inv.is_void = True
+                    inv.void_reason = f'Delivery Note {dn.document_number} cancelled'
+                    inv.save(update_fields=['is_void', 'void_reason', 'updated_at'])
+                    messages.warning(request, f'Invoice {inv.invoice_number} voided (delivery cancelled).')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('delivery_detail', pk=pk)
@@ -389,6 +402,16 @@ def delivery_create_view(request):
         form = DeliveryNoteForm(request.POST)
         formset = DeliveryLineFormSet(request.POST)
         if form.is_valid():
+            so = form.cleaned_data.get('sales_order')
+            if so and so.fulfillment_type == 'PICKUP':
+                messages.error(
+                    request,
+                    f'Sales Order {so.document_number} uses PICKUP fulfillment. '
+                    f'Create a Pickup instead of a Delivery Note.'
+                )
+                return render(request, 'sales/delivery_form.html', {
+                    'form': form, 'formset': formset, 'title': 'Create Delivery Note',
+                })
             dn = form.save(commit=False)
             dn.created_by = request.user
             dn.save()
@@ -415,11 +438,19 @@ def delivery_edit_view(request, pk):
     if request.method == 'POST':
         form = DeliveryNoteForm(request.POST, instance=dn)
         formset = DeliveryLineFormSet(request.POST, instance=dn)
-        if form.is_valid() and formset.is_valid():
-            form.save()
-            formset.save()
-            messages.success(request, f'Delivery Note {dn.document_number} updated.')
-            return redirect('delivery_detail', pk=dn.pk)
+        if form.is_valid():
+            so = form.cleaned_data.get('sales_order')
+            if so and so.fulfillment_type == 'PICKUP':
+                messages.error(
+                    request,
+                    f'Sales Order {so.document_number} uses PICKUP fulfillment. '
+                    f'Cannot link a Delivery Note to a PICKUP sales order.'
+                )
+            elif formset.is_valid():
+                form.save()
+                formset.save()
+                messages.success(request, f'Delivery Note {dn.document_number} updated.')
+                return redirect('delivery_detail', pk=dn.pk)
     else:
         form = DeliveryNoteForm(instance=dn)
         formset = DeliveryLineFormSet(instance=dn)
@@ -465,6 +496,16 @@ def pickup_create_view(request):
         form = SalesPickupForm(request.POST)
         formset = SalesPickupLineFormSet(request.POST)
         if form.is_valid():
+            so = form.cleaned_data.get('sales_order')
+            if so and so.fulfillment_type == 'DELIVER':
+                messages.error(
+                    request,
+                    f'Sales Order {so.document_number} uses DELIVERY fulfillment. '
+                    f'Create a Delivery Note instead of a Pickup.'
+                )
+                return render(request, 'sales/pickup_form.html', {
+                    'form': form, 'formset': formset, 'title': 'Create Pickup',
+                })
             pickup = form.save(commit=False)
             pickup.created_by = request.user
             pickup.save()
@@ -491,11 +532,19 @@ def pickup_edit_view(request, pk):
     if request.method == 'POST':
         form = SalesPickupForm(request.POST, instance=pickup)
         formset = SalesPickupLineFormSet(request.POST, instance=pickup)
-        if form.is_valid() and formset.is_valid():
-            form.save()
-            formset.save()
-            messages.success(request, f'Pickup {pickup.document_number} updated.')
-            return redirect('pickup_detail', pk=pickup.pk)
+        if form.is_valid():
+            so = form.cleaned_data.get('sales_order')
+            if so and so.fulfillment_type == 'DELIVER':
+                messages.error(
+                    request,
+                    f'Sales Order {so.document_number} uses DELIVERY fulfillment. '
+                    f'Cannot link a Pickup to a DELIVERY sales order.'
+                )
+            elif formset.is_valid():
+                form.save()
+                formset.save()
+                messages.success(request, f'Pickup {pickup.document_number} updated.')
+                return redirect('pickup_detail', pk=pickup.pk)
     else:
         form = SalesPickupForm(instance=pickup)
         formset = SalesPickupLineFormSet(instance=pickup)
@@ -537,9 +586,28 @@ def pickup_post_view(request, pk):
 def pickup_cancel_view(request, pk):
     pickup = get_object_or_404(SalesPickup, pk=pk)
     if request.method == 'POST':
+        was_posted = pickup.status == DocumentStatus.POSTED
         try:
             cancel_document(pickup, request.user)
             messages.success(request, f'Pickup {pickup.document_number} cancelled.')
+            if was_posted:
+                # Reverse qty_delivered on SO lines
+                if pickup.sales_order:
+                    for line in pickup.lines.select_related('item').all():
+                        so_lines = pickup.sales_order.lines.filter(item=line.item)
+                        for so_line in so_lines:
+                            so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
+                            so_line.save(update_fields=['qty_delivered'])
+                # Void the linked invoice
+                from core.models import Invoice
+                inv = Invoice.objects.filter(
+                    sales_order=pickup.sales_order, is_void=False
+                ).first() if pickup.sales_order else None
+                if inv:
+                    inv.is_void = True
+                    inv.void_reason = f'Pickup {pickup.document_number} cancelled'
+                    inv.save(update_fields=['is_void', 'void_reason', 'updated_at'])
+                    messages.warning(request, f'Invoice {inv.invoice_number} voided (pickup cancelled).')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('pickup_detail', pk=pk)

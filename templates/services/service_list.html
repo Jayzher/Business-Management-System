@@ -6,28 +6,27 @@
 {% endblock %}
 
 {% block content %}
-<div class="card card-outline card-primary">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <h3 class="card-title"><i class="fas fa-tools me-2"></i>Customer Services</h3>
-    <a href="{% url 'service_create' %}" class="btn btn-primary btn-sm">
-      <i class="fas fa-plus me-1"></i>New Service
-    </a>
-  </div>
-  <div class="card-body">
-    <!-- Filters -->
-    <form method="get" class="row g-2 mb-3">
-      <div class="col-auto">
-        <select name="status" class="form-control form-control-sm" onchange="this.form.submit()">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-tools mr-2"></i>Customer Services</h3>
+    <div class="card-tools d-flex align-items-center">
+      <form method="get" class="mr-2">
+        <select name="status" class="form-control form-control-sm" onchange="this.form.submit()" style="min-width:130px;">
           <option value="">All Statuses</option>
           {% for val, label in statuses %}
           <option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
-      </div>
-    </form>
-
-    <table class="table table-hover table-sm wis-table">
-      <thead class="table-light">
+      </form>
+      <a href="#" data-modal-url="{% url 'service_create' %}" data-modal-size="modal-xl"
+         class="btn btn-sm btn-primary">
+        <i class="fas fa-plus mr-1"></i>New Service
+      </a>
+    </div>
+  </div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover text-nowrap wis-table">
+      <thead>
         <tr>
           <th>Service #</th>
           <th>Service Name</th>
@@ -35,41 +34,43 @@
           <th>Date</th>
           <th>Status</th>
           <th>Payment</th>
-          <th>Total</th>
+          <th class="text-right">Total</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for svc in services %}
         <tr>
-          <td><a href="{% url 'service_detail' svc.pk %}">{{ svc.service_number }}</a></td>
+          <td><a href="{% url 'service_detail' svc.pk %}" class="font-weight-bold">{{ svc.service_number }}</a></td>
           <td>{{ svc.service_name }}</td>
           <td>{{ svc.customer_name }}</td>
-          <td>{{ svc.service_date }}</td>
+          <td>{{ svc.service_date|date:"M d, Y" }}</td>
           <td>
-            {% if svc.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
-            {% elif svc.status == 'IN_PROGRESS' %}<span class="badge bg-warning text-dark">In Progress</span>
-            {% elif svc.status == 'COMPLETED' %}<span class="badge bg-success">Completed</span>
-            {% else %}<span class="badge bg-danger">Cancelled</span>
+            {% if svc.status == 'DRAFT' %}<span class="badge badge-secondary">Draft</span>
+            {% elif svc.status == 'IN_PROGRESS' %}<span class="badge badge-warning">In Progress</span>
+            {% elif svc.status == 'COMPLETED' %}<span class="badge badge-success">Completed</span>
+            {% else %}<span class="badge badge-danger">Cancelled</span>
             {% endif %}
           </td>
           <td>
-            {% if svc.payment_status == 'PAID' %}<span class="badge bg-success">Paid</span>
-            {% elif svc.payment_status == 'PARTIAL' %}<span class="badge bg-warning text-dark">Partial</span>
-            {% else %}<span class="badge bg-secondary">Unpaid</span>
+            {% if svc.payment_status == 'PAID' %}<span class="badge badge-success">Paid</span>
+            {% elif svc.payment_status == 'PARTIAL' %}<span class="badge badge-warning">Partial</span>
+            {% else %}<span class="badge badge-secondary">Unpaid</span>
             {% endif %}
           </td>
-          <td>{{ svc.grand_total|floatformat:2 }}</td>
+          <td class="text-right">{{ svc.grand_total|floatformat:2 }}</td>
           <td>
             <a href="{% url 'service_detail' svc.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
-            {% if svc.status not in 'COMPLETED,CANCELLED' %}
-            <a href="{% url 'service_edit' svc.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
-            <a href="{% url 'service_delete' svc.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+            {% if svc.status == 'DRAFT' or svc.status == 'IN_PROGRESS' %}
+            <a href="#" data-modal-url="{% url 'service_edit' svc.pk %}" data-modal-size="modal-xl"
+               class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'service_delete' svc.pk %}"
+               class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
             {% endif %}
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="8" class="text-center text-muted py-4">No services found.</td></tr>
+        <tr><td colspan="8" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No services found.</td></tr>
         {% endfor %}
       </tbody>
     </table>

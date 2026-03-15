@@ -836,6 +836,26 @@ WIS.openModal = function(url, size) {
   }, 800);
 };
 
+/* ── Customer Service: auto-fill unit_price from item catalog ────── */
+$(document).on('change select2:select', '.svc-line-item', function() {
+  var $sel = $(this);
+  var row = $sel.closest('.formset-row');
+  if (!row.length) return;
+  var itemId = $sel.val();
+  if (!itemId) return;
+  var prefix = ($sel.attr('name') || '').replace(/-item$/, '');
+  $.getJSON('/api/items/' + itemId + '/', function(data) {
+    var $price = row.find('.svc-line-price');
+    if ($price.length && data.selling_price !== undefined) {
+      $price.val(parseFloat(data.selling_price).toFixed(2));
+    }
+    var $unit = $('select[name="' + prefix + '-unit"]', row);
+    if ($unit.length && data.unit) {
+      $unit.val(data.unit).trigger('change');
+    }
+  });
+});
+
 /* ── Sales Order: auto unit/price + discount totals (works in modal) ── */
 function wisSoGetPriceApi($context) {
   var $form = ($context && $context.length) ? $context.closest('form[data-so-form="1"]') : $('form[data-so-form="1"]').first();

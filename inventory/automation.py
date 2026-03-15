@@ -2,18 +2,40 @@
 Document automation service — auto-creates downstream documents when upstream
 documents are approved or posted.
 
-Flow:
-  PO Approved  →  auto-create GRN (DRAFT)
-  SO Approved  →  auto-create Delivery Note (DRAFT) + auto-create Invoice
-  DN Posted    →  auto-create Invoice (if SO linked and no invoice yet)
-  POS Posted   →  auto-create Invoice (if not already exists)
+Correct flow:
+  PO Approved   →  auto-create GRN (DRAFT)
+  SO Approved
+    DELIVER      →  auto-create Delivery Note (DRAFT)   [no invoice yet]
+    PICKUP       →  auto-create Sales Pickup (DRAFT)    [no invoice yet]
+  DN Posted      →  auto-create Invoice (if SO linked and no non-void invoice)
+  Pickup Posted  →  auto-create Invoice (if SO linked and no non-void invoice)
+  DN Cancelled (POSTED) →  void linked Invoice + reverse qty_delivered
+  Pickup Cancelled      →  void linked Invoice + reverse qty_delivered
+  POS Sale Posted       →  auto-create Invoice
+
+NOTE: Invoice is intentionally NOT created at SO approval — it is only
+created when goods are physically fulfilled (DN or Pickup posted).
 """
 from datetime import date
 from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
+from django.db.models import Max
 from inventory.services import generate_document_number
+
+
+def _generate_invoice_number():
+    """
+    Generate the next invoice number as a zero-padded 6-digit string.
+    Uses MAX(id) across ALL invoice rows (including any soft-deleted) so the
+    number is always strictly increasing and never collides.
+    Must be called inside a transaction.atomic() block.
+    """
+    from core.models import Invoice
+    result = Invoice.objects.aggregate(max_id=Max('id'))
+    next_num = (result['max_id'] or 0) + 1
+    return f"{next_num:06d}"
 
 
 @transaction.atomic
@@ -206,19 +228,18 @@ def auto_create_pickup_from_so(so, user):
 @transaction.atomic
 def auto_create_invoice_from_so(so, user):
     """
-    Auto-create an Invoice from a Sales Order when it is approved.
-    Returns the created Invoice or existing one.
+    Auto-create an Invoice directly from a Sales Order (standalone / on-demand).
+    NOT called at SO approval — invoice is normally created when the
+    fulfillment document (DN or Pickup) is posted.
+    Returns the created Invoice or the existing non-void one.
     """
     from core.models import Invoice, InvoiceLine
 
-    existing = Invoice.objects.filter(sales_order=so).first()
+    existing = Invoice.objects.filter(sales_order=so, is_void=False).first()
     if existing:
         return existing
 
-    # Generate invoice number
-    last = Invoice.objects.order_by('-id').first()
-    num = (last.id + 1) if last else 1
-    inv_number = f"{num:06d}"
+    inv_number = _generate_invoice_number()
 
     subtotal = sum(l.line_total for l in so.lines.all())
     for bundle in so.price_list_lines.all():
@@ -232,7 +253,7 @@ def auto_create_invoice_from_so(so, user):
         customer_address=getattr(so.customer, 'address', '') if so.customer else '',
         subtotal=subtotal,
         grand_total=subtotal,
-        notes=f'Auto-created from {so.document_number}',
+        notes=f'Auto-created from SO {so.document_number}',
         created_by=user,
     )
 
@@ -269,19 +290,19 @@ def auto_create_invoice_from_so(so, user):
 def auto_create_invoice_from_pickup(pickup, user):
     """
     Auto-create an Invoice when a Sales Pickup is posted.
-    Mirrors auto_create_invoice_from_delivery behavior.
+    Uses a select_for_update lock on the SO to prevent concurrent duplicate invoices.
     """
     from core.models import Invoice, InvoiceLine
 
-    # If SO linked, check if invoice already exists for that SO
     if pickup.sales_order:
-        existing = Invoice.objects.filter(sales_order=pickup.sales_order).first()
+        # Lock the SO row so concurrent posts for the same SO wait for this transaction
+        from sales.models import SalesOrder
+        SalesOrder.objects.select_for_update().filter(pk=pickup.sales_order_id).first()
+        existing = Invoice.objects.filter(sales_order=pickup.sales_order, is_void=False).first()
         if existing:
             return existing
 
-    last = Invoice.objects.order_by('-id').first()
-    num = (last.id + 1) if last else 1
-    inv_number = f"{num:06d}"
+    inv_number = _generate_invoice_number()
 
     if pickup.sales_order:
         so = pickup.sales_order
@@ -354,20 +375,20 @@ def auto_create_invoice_from_pickup(pickup, user):
 def auto_create_invoice_from_delivery(delivery, user):
     """
     Auto-create an Invoice when a Delivery Note is posted.
-    Links to the SO if available.
-    Returns the created Invoice or existing one.
+    Uses a select_for_update lock on the SO to prevent concurrent duplicate invoices.
+    Returns the created Invoice or the existing non-void one.
     """
     from core.models import Invoice, InvoiceLine
 
-    # If SO linked, check if invoice already exists for that SO
     if delivery.sales_order:
-        existing = Invoice.objects.filter(sales_order=delivery.sales_order).first()
+        # Lock the SO row so concurrent posts for the same SO wait for this transaction
+        from sales.models import SalesOrder
+        SalesOrder.objects.select_for_update().filter(pk=delivery.sales_order_id).first()
+        existing = Invoice.objects.filter(sales_order=delivery.sales_order, is_void=False).first()
         if existing:
             return existing
 
-    last = Invoice.objects.order_by('-id').first()
-    num = (last.id + 1) if last else 1
-    inv_number = f"{num:06d}"
+    inv_number = _generate_invoice_number()
 
     # Calculate totals from SO lines if available, else from delivery lines
     if delivery.sales_order:
@@ -449,9 +470,7 @@ def auto_create_invoice_from_pos_sale(sale, user):
     if existing:
         return existing
 
-    last = Invoice.objects.order_by('-id').first()
-    num = (last.id + 1) if last else 1
-    inv_number = f"{num:06d}"
+    inv_number = _generate_invoice_number()
 
     inv = Invoice.objects.create(
         invoice_number=inv_number,
