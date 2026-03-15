@@ -21,9 +21,6 @@
 
 {% block content %}
 <div class="card wis-form-card {% block form_card_class %}{% endblock %}">
-  <div class="card-header">
-    <h3 class="card-title"><i class="{% block form_icon %}fas fa-edit{% endblock %} mr-2"></i>{% block form_title %}Form{% endblock %}</h3>
-  </div>
   <form method="post" enctype="multipart/form-data" novalidate>
     {% csrf_token %}
     <div class="card-body py-4 px-4">

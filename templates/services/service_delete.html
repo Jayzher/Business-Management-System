@@ -1,23 +1,10 @@
-{% extends "theme/base.html" %}
+{% extends "theme/partials/delete_confirm.html" %}
+
 {% block title %}Delete Service{% endblock %}
 {% block page_title %}Delete Service{% endblock %}
 {% block breadcrumb %}
 <li class="breadcrumb-item"><a href="{% url 'service_list' %}">Services</a></li>
-<li class="breadcrumb-item"><a href="{% url 'service_detail' service.pk %}">{{ service.service_number }}</a></li>
 <li class="breadcrumb-item active">Delete</li>
 {% endblock %}
-
-{% block content %}
-<div class="card card-outline card-danger" style="max-width:500px;">
-  <div class="card-header"><h3 class="card-title"><i class="fas fa-exclamation-triangle me-2 text-danger"></i>Confirm Delete</h3></div>
-  <div class="card-body">
-    <p>Are you sure you want to delete service <strong>{{ service.service_number }} — {{ service.service_name }}</strong>?</p>
-    <p class="text-muted small">This action cannot be undone.</p>
-    <form method="post">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-danger me-2"><i class="fas fa-trash me-1"></i>Yes, Delete</button>
-      <a href="{% url 'service_detail' service.pk %}" class="btn btn-secondary">Cancel</a>
-    </form>
-  </div>
-</div>
-{% endblock %}
+{% block object_name %}{{ service.service_number }} — {{ service.service_name }}{% endblock %}
+{% block cancel_url %}{% url 'service_list' %}{% endblock %}

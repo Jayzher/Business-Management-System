@@ -8,151 +8,205 @@
 
 {% block content %}
 <div class="row">
-  <div class="col-md-8">
-    <!-- Header info -->
-    <div class="card card-outline card-primary mb-3">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <h3 class="card-title"><i class="fas fa-tools me-2"></i>{{ service.service_number }}</h3>
-        <div>
-          {% if service.status == 'DRAFT' %}<span class="badge bg-secondary fs-6">Draft</span>
-          {% elif service.status == 'IN_PROGRESS' %}<span class="badge bg-warning text-dark fs-6">In Progress</span>
-          {% elif service.status == 'COMPLETED' %}<span class="badge bg-success fs-6">Completed</span>
-          {% else %}<span class="badge bg-danger fs-6">Cancelled</span>
+  <!-- Left: Info + Lines -->
+  <div class="col-lg-8">
+
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-tools mr-2 text-primary"></i>Service Details</h3>
+        <div class="card-tools">
+          {% if service.status == 'DRAFT' %}<span class="badge badge-secondary">Draft</span>
+          {% elif service.status == 'IN_PROGRESS' %}<span class="badge badge-warning">In Progress</span>
+          {% elif service.status == 'COMPLETED' %}<span class="badge badge-success">Completed</span>
+          {% else %}<span class="badge badge-danger">Cancelled</span>
           {% endif %}
         </div>
       </div>
-      <div class="card-body">
-        <table class="table table-bordered table-sm">
-          <tr><th width="200">Service Number</th><td>{{ service.service_number }}</td></tr>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr><th>Service #</th><td><strong>{{ service.service_number }}</strong></td></tr>
           <tr><th>Service Name</th><td>{{ service.service_name }}</td></tr>
           <tr><th>Customer</th><td>{{ service.customer_name }}</td></tr>
-          <tr><th>Service Date</th><td>{{ service.service_date }}</td></tr>
+          <tr><th>Service Date</th><td>{{ service.service_date|date:"M d, Y" }}</td></tr>
           {% if service.completion_date %}
-          <tr><th>Completion Date</th><td>{{ service.completion_date }}</td></tr>
+          <tr><th>Completion Date</th><td>{{ service.completion_date|date:"M d, Y" }}</td></tr>
           {% endif %}
-          <tr><th>Address</th><td>{{ service.address|default:"—" }}</td></tr>
-          <tr><th>Payment Status</th><td>
-            {% if service.payment_status == 'PAID' %}<span class="badge bg-success">Paid</span>
-            {% elif service.payment_status == 'PARTIAL' %}<span class="badge bg-warning text-dark">Partial</span>
-            {% else %}<span class="badge bg-secondary">Unpaid</span>{% endif %}
-          </td></tr>
+          {% if service.address %}
+          <tr><th>Address</th><td>{{ service.address }}</td></tr>
+          {% endif %}
           {% if service.warehouse %}
           <tr><th>Warehouse</th><td>{{ service.warehouse }}</td></tr>
           {% endif %}
-          {% if service.invoice %}
-          <tr><th>Invoice</th><td><a href="{% url 'invoice_detail' service.invoice.pk %}">INV-{{ service.invoice.invoice_number }}</a></td></tr>
+          {% if service.notes %}
+          <tr><th>Notes</th><td>{{ service.notes }}</td></tr>
           {% endif %}
-          <tr><th>Notes</th><td>{{ service.notes|default:"—" }}</td></tr>
-          <tr><th>Created By</th><td>{{ service.created_by }}</td></tr>
+          <tr><th>Payment</th><td>
+            {% if service.payment_status == 'PAID' %}<span class="badge badge-success">Paid</span>
+            {% elif service.payment_status == 'PARTIAL' %}<span class="badge badge-warning">Partial</span>
+            {% else %}<span class="badge badge-secondary">Unpaid</span>{% endif %}
+          </td></tr>
+          <tr><th>Created By</th><td>{{ service.created_by.get_full_name|default:service.created_by.username }}</td></tr>
           {% if service.posted_by %}
-          <tr><th>Completed By</th><td>{{ service.posted_by }} on {{ service.posted_at }}</td></tr>
+          <tr><th>Completed By</th><td>{{ service.posted_by.get_full_name|default:service.posted_by.username }} &mdash; {{ service.posted_at|date:"M d, Y H:i" }}</td></tr>
+          {% endif %}
+          {% if service.invoice %}
+          <tr><th>Invoice</th><td><a href="{% url 'invoice_detail' service.invoice.pk %}"><i class="fas fa-file-invoice-dollar mr-1"></i>{{ service.invoice.invoice_number }}</a></td></tr>
           {% endif %}
         </table>
       </div>
     </div>
 
     <!-- Product Lines -->
-    <div class="card card-outline card-secondary mb-3">
+    <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-list me-2"></i>Product / Parts Lines</h3>
+        <h3 class="card-title"><i class="fas fa-list mr-2 text-secondary"></i>Product / Parts Used</h3>
       </div>
-      <div class="card-body p-0">
-        <table class="table table-hover table-sm mb-0">
-          <thead class="table-light">
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover detail-lines-table mb-0">
+          <thead>
             <tr>
               <th>Item</th>
               <th>Location</th>
-              <th>Qty</th>
+              <th class="text-right">Qty</th>
               <th>Unit</th>
-              <th>Unit Price</th>
-              <th>Line Total</th>
+              <th class="text-right">Unit Price</th>
+              <th class="text-right">Line Total</th>
               <th>Notes</th>
             </tr>
           </thead>
           <tbody>
             {% for line in service.lines.all %}
             <tr>
-              <td>[{{ line.item.code }}] {{ line.item.name }}</td>
+              <td><span class="text-muted small">{{ line.item.code }}</span> {{ line.item.name }}</td>
               <td>{{ line.location|default:"—" }}</td>
-              <td>{{ line.qty }}</td>
+              <td class="text-right">{{ line.qty|floatformat:2 }}</td>
               <td>{{ line.unit.abbreviation }}</td>
-              <td>{{ line.unit_price|floatformat:2 }}</td>
-              <td>{{ line.line_total|floatformat:2 }}</td>
+              <td class="text-right">{{ line.unit_price|floatformat:2 }}</td>
+              <td class="text-right font-weight-bold">{{ line.line_total|floatformat:2 }}</td>
               <td>{{ line.notes|default:"" }}</td>
             </tr>
             {% empty %}
-            <tr><td colspan="7" class="text-center text-muted">No product lines.</td></tr>
+            <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No product lines.</td></tr>
             {% endfor %}
           </tbody>
           <tfoot>
-            <tr class="table-light fw-bold">
-              <td colspan="5" class="text-end">Product Lines Total:</td>
-              <td>{{ service.line_total|floatformat:2 }}</td>
+            <tr>
+              <td colspan="5" class="text-right font-weight-bold">Product Lines Total:</td>
+              <td class="text-right font-weight-bold">{{ service.line_total|floatformat:2 }}</td>
               <td></td>
             </tr>
             {% if service.amount is not None %}
-            <tr class="table-warning fw-bold">
-              <td colspan="5" class="text-end">Manual Service Amount:</td>
-              <td>{{ service.amount|floatformat:2 }}</td>
+            <tr>
+              <td colspan="5" class="text-right font-weight-bold text-warning">Manual Service Amount:</td>
+              <td class="text-right font-weight-bold text-warning">{{ service.amount|floatformat:2 }}</td>
               <td></td>
             </tr>
             {% endif %}
-            <tr class="table-success fw-bold">
-              <td colspan="5" class="text-end">Grand Total:</td>
-              <td>{{ service.grand_total|floatformat:2 }}</td>
+            <tr class="table-success">
+              <td colspan="5" class="text-right font-weight-bold">Grand Total:</td>
+              <td class="text-right font-weight-bold">{{ service.grand_total|floatformat:2 }}</td>
               <td></td>
             </tr>
           </tfoot>
         </table>
       </div>
     </div>
+
   </div>
 
-  <div class="col-md-4">
+  <!-- Right: Actions + Summary -->
+  <div class="col-lg-4">
+
     <!-- Actions -->
-    <div class="card card-outline card-info mb-3">
-      <div class="card-header"><h3 class="card-title">Actions</h3></div>
-      <div class="card-body d-grid gap-2">
+    <div class="card card-primary card-outline">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-cogs mr-2"></i>Actions</h3>
+      </div>
+      <div class="card-body">
+
         {% if service.status == 'DRAFT' %}
-        <form method="post" action="{% url 'service_start' service.pk %}">
+        <form method="post" action="{% url 'service_start' service.pk %}" class="mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-warning w-100">
-            <i class="fas fa-play me-1"></i>Mark In Progress
+          <button type="submit" class="btn btn-warning btn-block">
+            <i class="fas fa-play mr-1"></i>Mark In Progress
           </button>
         </form>
         {% endif %}
 
-        {% if service.status in 'DRAFT,IN_PROGRESS' %}
-        <form method="post" action="{% url 'service_complete' service.pk %}">
+        {% if service.status == 'DRAFT' or service.status == 'IN_PROGRESS' %}
+        <form method="post" action="{% url 'service_complete' service.pk %}" class="mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-success w-100"
+          <button type="submit" class="btn btn-success btn-block"
             onclick="return confirm('Complete this service? This will deduct inventory and generate an invoice.')">
-            <i class="fas fa-check-circle me-1"></i>Complete Service
+            <i class="fas fa-check-circle mr-1"></i>Complete Service
           </button>
         </form>
-        <a href="{% url 'service_edit' service.pk %}" class="btn btn-warning w-100">
-          <i class="fas fa-edit me-1"></i>Edit
+        <a href="#" data-modal-url="{% url 'service_edit' service.pk %}" data-modal-size="modal-xl"
+           class="btn btn-warning btn-block mb-2">
+          <i class="fas fa-edit mr-1"></i>Edit
         </a>
-        <form method="post" action="{% url 'service_cancel' service.pk %}">
+        <form method="post" action="{% url 'service_cancel' service.pk %}" class="mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-danger w-100"
-            onclick="return confirm('Cancel this service?')">
-            <i class="fas fa-ban me-1"></i>Cancel
+          <button type="submit" class="btn btn-outline-danger btn-block"
+            onclick="return confirm('Cancel this service? This cannot be undone.')">
+            <i class="fas fa-ban mr-1"></i>Cancel Service
           </button>
         </form>
+        <a href="#" data-modal-url="{% url 'service_delete' service.pk %}"
+           class="btn btn-danger btn-block mb-2">
+          <i class="fas fa-trash mr-1"></i>Delete
+        </a>
         {% endif %}
 
         {% if service.status == 'COMPLETED' and service.invoice %}
-        <a href="{% url 'invoice_detail' service.invoice.pk %}" class="btn btn-info w-100">
-          <i class="fas fa-file-invoice-dollar me-1"></i>View Invoice
+        <a href="{% url 'invoice_detail' service.invoice.pk %}" class="btn btn-info btn-block mb-2">
+          <i class="fas fa-file-invoice-dollar mr-1"></i>View Invoice
         </a>
         {% endif %}
 
-        <a href="{% url 'service_list' %}" class="btn btn-secondary w-100">
-          <i class="fas fa-arrow-left me-1"></i>Back to List
+        <a href="{% url 'service_list' %}" class="btn btn-secondary btn-block">
+          <i class="fas fa-arrow-left mr-1"></i>Back to List
         </a>
       </div>
     </div>
+
+    <!-- Summary -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-calculator mr-2 text-primary"></i>Summary</h3>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0 doc-detail-table">
+          <tr>
+            <th>Status</th>
+            <td>
+              {% if service.status == 'DRAFT' %}<span class="badge badge-secondary">Draft</span>
+              {% elif service.status == 'IN_PROGRESS' %}<span class="badge badge-warning">In Progress</span>
+              {% elif service.status == 'COMPLETED' %}<span class="badge badge-success">Completed</span>
+              {% else %}<span class="badge badge-danger">Cancelled</span>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th>Payment</th>
+            <td>
+              {% if service.payment_status == 'PAID' %}<span class="badge badge-success">Paid</span>
+              {% elif service.payment_status == 'PARTIAL' %}<span class="badge badge-warning">Partial</span>
+              {% else %}<span class="badge badge-secondary">Unpaid</span>{% endif %}
+            </td>
+          </tr>
+          <tr><th>Lines Total</th><td class="text-right font-weight-bold">{{ service.line_total|floatformat:2 }}</td></tr>
+          {% if service.amount is not None %}
+          <tr><th>Service Fee</th><td class="text-right font-weight-bold text-warning">{{ service.amount|floatformat:2 }}</td></tr>
+          {% endif %}
+          <tr class="table-success">
+            <th>Grand Total</th>
+            <td class="text-right font-weight-bold">{{ service.grand_total|floatformat:2 }}</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
   </div>
 </div>
 {% endblock %}

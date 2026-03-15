@@ -214,6 +214,11 @@ class Invoice(TimeStampedModel):
     notes = models.TextField(blank=True, default='')
     is_paid = models.BooleanField(default=False)
     paid_at = models.DateTimeField(null=True, blank=True)
+    is_void = models.BooleanField(
+        default=False,
+        help_text='Set True when the linked delivery/pickup is cancelled after posting.',
+    )
+    void_reason = models.CharField(max_length=255, blank=True, default='')
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
         related_name='invoices_created',

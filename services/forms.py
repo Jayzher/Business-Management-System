@@ -112,8 +112,7 @@ class ServiceLineForm(forms.ModelForm):
             'unit_price': forms.NumberInput(attrs={
                 'class': 'form-control form-control-sm svc-line-price',
                 'step': '0.01', 'min': '0',
-                'placeholder': 'Auto-filled from catalog',
-                'readonly': 'readonly',
+                'placeholder': 'Auto-filled or enter manually',
             }),
             'notes': forms.TextInput(attrs={
                 'class': 'form-control form-control-sm',
