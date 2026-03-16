@@ -125,7 +125,7 @@ class ItemForm(forms.ModelForm):
     class Meta:
         model = Item
         fields = [
-            'code', 'name', 'item_type', 'category', 'default_unit',
+            'code', 'name', 'item_type', 'category', 'default_unit', 'selling_unit',
             'description', 'barcode', 'cost_price', 'selling_price',
             'minimum_stock', 'maximum_stock', 'reorder_point', 'image',
         ]
@@ -135,6 +135,7 @@ class ItemForm(forms.ModelForm):
             'item_type': forms.Select(attrs={'class': 'form-control'}),
             'category': forms.Select(attrs={'class': 'form-control'}),
             'default_unit': forms.Select(attrs={'class': 'form-control'}),
+            'selling_unit': forms.Select(attrs={'class': 'form-control'}),
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'barcode': forms.TextInput(attrs={'class': 'form-control'}),
             'cost_price': forms.NumberInput(attrs={
@@ -160,6 +161,7 @@ class ItemForm(forms.ModelForm):
             'item_type': 'Raw Material = used in production. Finished Product = sold to customers.',
             'category': 'Group items for filtering, reporting, and price list assignment.',
             'default_unit': 'Primary unit of measure for this item.',
+            'selling_unit': 'Unit shown when selling (e.g., box, pack). Leave blank to use the base unit.',
             'barcode': 'Optional barcode or SKU for POS scanning.',
             'cost_price': 'Weighted average cost. Updated when posting GRNs.',
             'selling_price': 'Default selling price. Overridden by Price Lists when assigned.',

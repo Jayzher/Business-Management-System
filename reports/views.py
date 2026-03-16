@@ -189,107 +189,13 @@ def low_stock_view(request):
     return render(request, 'reports/low_stock.html', {'rows': rows})
 
 
-@login_required
-def profit_margin_view(request):
-    """HTML rendered profit margin report from POS sales."""
-    from pos.models import POSSale, POSSaleLine, SaleStatus
-
-    today = date.today()
-    first_of_month = today.replace(day=1)
-    date_from = request.GET.get('date_from', first_of_month.isoformat())
-    date_to = request.GET.get('date_to', today.isoformat())
-
-    qs = POSSaleLine.objects.filter(
-        sale__status__in=[SaleStatus.POSTED, SaleStatus.PAID],
-    ).select_related('item', 'item__default_unit', 'unit', 'sale')
-
-    if date_from:
-        qs = qs.filter(sale__created_at__date__gte=date_from)
-    if date_to:
-        qs = qs.filter(sale__created_at__date__lte=date_to)
-
-    # Group by item
-    item_stats = qs.values(
-        'item__code', 'item__name', 'item__cost_price',
-    ).annotate(
-        total_qty=Sum('qty'),
-        total_revenue=Sum('line_total'),
-    ).order_by('-total_revenue')
-
-    rows = []
-    grand_revenue = Decimal('0')
-    grand_cogs = Decimal('0')
-    for row in item_stats:
-        cost = row['item__cost_price'] or Decimal('0')
-        cogs = cost * row['total_qty']
-        profit = row['total_revenue'] - cogs
-        margin = (profit / row['total_revenue'] * 100) if row['total_revenue'] > 0 else Decimal('0')
-        rows.append({
-            'item_code': row['item__code'],
-            'item_name': row['item__name'],
-            'qty_sold': row['total_qty'],
-            'revenue': row['total_revenue'],
-            'cogs': cogs,
-            'profit': profit,
-            'margin': margin,
-        })
-        grand_revenue += row['total_revenue']
-        grand_cogs += cogs
-
-    grand_profit = grand_revenue - grand_cogs
-    grand_margin = (grand_profit / grand_revenue * 100) if grand_revenue > 0 else Decimal('0')
-
-    return render(request, 'reports/profit_margin.html', {
-        'rows': rows,
-        'grand_revenue': grand_revenue,
-        'grand_cogs': grand_cogs,
-        'grand_profit': grand_profit,
-        'grand_margin': grand_margin,
-        'filters': {'date_from': date_from or '', 'date_to': date_to or ''},
-    })
-
-
-@login_required
-def inventory_valuation_view(request):
-    """HTML rendered inventory valuation report."""
-    warehouse_id = request.GET.get('warehouse')
-    warehouses = Warehouse.objects.filter(is_active=True)
-
-    qs = StockBalance.objects.filter(qty_on_hand__gt=0).select_related(
-        'item', 'item__default_unit', 'location', 'location__warehouse'
-    )
-    if warehouse_id:
-        qs = qs.filter(location__warehouse_id=warehouse_id)
-
-    rows = []
-    grand_total = Decimal('0')
-    for bal in qs.order_by('location__warehouse__code', 'item__code'):
-        val = bal.qty_on_hand * (bal.item.cost_price or Decimal('0'))
-        rows.append({
-            'warehouse': bal.location.warehouse.code,
-            'location': bal.location.code,
-            'item': bal.item,
-            'qty': bal.qty_on_hand,
-            'cost_price': bal.item.cost_price,
-            'value': val,
-        })
-        grand_total += val
-
-    return render(request, 'reports/inventory_valuation.html', {
-        'rows': rows,
-        'grand_total': grand_total,
-        'warehouses': warehouses,
-        'selected_warehouse': warehouse_id,
-    })
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # SALES REPORT  (daily/monthly by channel/product)
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def sales_report_view(request):
     from pos.models import POSSale, POSSaleLine, SaleStatus
-    from sales.models import SalesOrder, SalesOrderLine
+    from sales.models import SalesOrder, SalesOrderLine, SalesOrderPriceListLine
     from core.models import SalesChannel, DocumentStatus
 
     today = date.today()
@@ -308,8 +214,8 @@ def sales_report_view(request):
     if channel_id:
         pos_qs = pos_qs.filter(channel_id=channel_id)
 
-    # Sales Orders (use POSTED as completed sales)
-    so_qs = SalesOrder.objects.filter(status=DocumentStatus.POSTED)
+    # Sales Orders — APPROVED (confirmed) and POSTED (invoice paid / fulfilled)
+    so_qs = SalesOrder.objects.filter(status__in=[DocumentStatus.APPROVED, DocumentStatus.POSTED])
     if date_from:
         so_qs = so_qs.filter(order_date__gte=date_from)
     if date_to:
@@ -323,15 +229,22 @@ def sales_report_view(request):
         sale_count=Count('id'),
     )
 
-    so_lines_qs = SalesOrderLine.objects.filter(sales_order__in=so_qs).select_related('sales_order', 'item')
-    # SQLite can be finicky with expression aggregates; compute SO revenue in Python
-    so_revenue = sum((line.qty_ordered * line.unit_price) for line in so_lines_qs)
+    so_lines_qs = list(SalesOrderLine.objects.filter(
+        sales_order__in=so_qs
+    ).select_related('sales_order', 'item'))
+    so_bundles_qs = list(SalesOrderPriceListLine.objects.filter(
+        sales_order__in=so_qs
+    ).select_related('sales_order', 'price_list').prefetch_related('price_list__items__item'))
+    # Revenue: line totals (includes per-line discounts) + bundle totals
+    so_line_rev = sum(line.line_total for line in so_lines_qs)
+    so_bundle_rev = sum(bundle.bundle_total for bundle in so_bundles_qs)
+    so_revenue = so_line_rev + so_bundle_rev
     so_count = so_qs.count()
 
     summary = {
         'total_revenue': pos_summary['total_revenue'] + so_revenue,
-        'total_discount': pos_summary['total_discount'],  # SOs currently have no discount fields
-        'total_tax': pos_summary['total_tax'],            # SOs currently have no tax fields
+        'total_discount': pos_summary['total_discount'],
+        'total_tax': pos_summary['total_tax'],
         'sale_count': pos_summary['sale_count'] + so_count,
     }
 
@@ -343,8 +256,16 @@ def sales_report_view(request):
             Decimal('0'), output_field=DecimalField(),
         )
     )['total']
-    # Compute SO COGS in Python to avoid SQLite UDF errors
-    cogs_so = sum((line.item.cost_price * line.qty_ordered) for line in so_lines_qs)
+    # SO COGS: line item costs + bundle item costs
+    cogs_so_lines = sum(
+        (line.item.cost_price or Decimal('0')) * line.qty_ordered
+        for line in so_lines_qs
+    )
+    cogs_so_bundles = Decimal('0')
+    for _b in so_bundles_qs:
+        for _p in _b.price_list.items.all():
+            cogs_so_bundles += ((_p.item.cost_price or Decimal('0')) * _p.min_qty * _b.qty_multiplier)
+    cogs_so = cogs_so_lines + cogs_so_bundles
     cogs = cogs_pos + cogs_so
     gross_profit = summary['total_revenue'] - cogs
     margin = (gross_profit / summary['total_revenue'] * 100) if summary['total_revenue'] > 0 else Decimal('0')
@@ -363,17 +284,26 @@ def sales_report_view(request):
             'count': row['count'],
         }
 
-    # Sales Orders by period via lines (compute in Python to avoid DB UDF issues)
+    # Sales Order lines by period
     for line in so_lines_qs:
         period = line.sales_order.order_date
         if group_by == 'monthly':
             period = period.replace(day=1)
-        revenue = line.qty_ordered * line.unit_price
+        revenue = line.line_total
         if period in date_bucket:
             date_bucket[period]['revenue'] += revenue
             date_bucket[period]['count'] += 1
         else:
             date_bucket[period] = {'revenue': revenue, 'count': 1}
+    # Bundle lines by period (each bundle contributes its bundle_total)
+    for bundle in so_bundles_qs:
+        period = bundle.sales_order.order_date
+        if group_by == 'monthly':
+            period = period.replace(day=1)
+        if period in date_bucket:
+            date_bucket[period]['revenue'] += bundle.bundle_total
+        else:
+            date_bucket[period] = {'revenue': bundle.bundle_total, 'count': 0}
 
     date_rows = [
         {'period': k, 'revenue': v['revenue'], 'count': v['count']}
@@ -410,7 +340,7 @@ def sales_report_view(request):
 
     for line in so_lines_qs:
         key = line.item.code
-        revenue = line.qty_ordered * line.unit_price
+        revenue = line.line_total
         if key in item_bucket:
             item_bucket[key]['total_qty'] += line.qty_ordered
             item_bucket[key]['total_revenue'] += revenue
@@ -421,6 +351,22 @@ def sales_report_view(request):
                 'total_qty': line.qty_ordered,
                 'total_revenue': revenue,
             }
+    # Bundle items (each PriceListItem as individual sold item)
+    for _b in so_bundles_qs:
+        for _p in _b.price_list.items.all():
+            key = _p.item.code
+            qty = _p.min_qty * _b.qty_multiplier
+            revenue = _p.price * qty
+            if key in item_bucket:
+                item_bucket[key]['total_qty'] += qty
+                item_bucket[key]['total_revenue'] += revenue
+            else:
+                item_bucket[key] = {
+                    'item__code': _p.item.code,
+                    'item__name': _p.item.name,
+                    'total_qty': qty,
+                    'total_revenue': revenue,
+                }
 
     top_items = sorted(item_bucket.values(), key=lambda r: r['total_revenue'], reverse=True)[:15]
 
@@ -480,91 +426,129 @@ def sales_report_view(request):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# EXPENSE REPORT  (daily/monthly by category)
+# PROFIT MARGIN REPORT  (daily/monthly by item)
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
-def expense_report_view(request):
-    from core.models import Expense, ExpenseCategory
+def profit_margin_view(request):
+    """HTML rendered profit margin report from POS sales and Sales Orders."""
+    from pos.models import POSSale, POSSaleLine, SaleStatus
+    from core.models import DocumentStatus
+    from sales.models import SalesOrder, SalesOrderLine, SalesOrderPriceListLine
 
     today = date.today()
     first_of_month = today.replace(day=1)
     date_from = request.GET.get('date_from', first_of_month.isoformat())
     date_to = request.GET.get('date_to', today.isoformat())
-    cat_id = request.GET.get('category', '')
-    group_by = request.GET.get('group', 'daily')
 
-    qs = Expense.objects.select_related('category')
+    # ── POS lines ─────────────────────────────────────────────────────
+    pos_qs = POSSaleLine.objects.filter(
+        sale__status__in=[SaleStatus.POSTED, SaleStatus.PAID],
+    ).select_related('item', 'item__default_unit', 'unit', 'sale')
     if date_from:
-        qs = qs.filter(date__gte=date_from)
+        pos_qs = pos_qs.filter(sale__created_at__date__gte=date_from)
     if date_to:
-        qs = qs.filter(date__lte=date_to)
-    if cat_id:
-        qs = qs.filter(category_id=cat_id)
+        pos_qs = pos_qs.filter(sale__created_at__date__lte=date_to)
 
-    total_expenses = qs.aggregate(
-        total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()),
-        count=Count('id'),
+    # POS grouped by item
+    item_stats = pos_qs.values(
+        'item__code', 'item__name', 'item__cost_price',
+    ).annotate(
+        total_qty=Sum('qty'),
+        total_revenue=Sum('line_total'),
     )
 
-    # By date — Expense.date is a DateField, so avoid TruncDate (SQLite-unsafe).
-    if group_by == 'daily':
-        date_rows = list(
-            qs.values('date').annotate(
-                total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()),
-                count=Count('id'),
-            ).order_by('date')
-        )
-        for r in date_rows:
-            r['period'] = r['date']
-    else:
-        date_rows = list(
-            qs.annotate(yr=ExtractYear('date'), mo=ExtractMonth('date'))
-            .values('yr', 'mo').annotate(
-                total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()),
-                count=Count('id'),
-            ).order_by('yr', 'mo')
-        )
-        import calendar
-        for r in date_rows:
-            r['period'] = date(r['yr'], r['mo'], 1)
+    item_bucket = {}
+    for row in item_stats:
+        key = row['item__code']
+        item_bucket[key] = {
+            'item_code': row['item__code'],
+            'item_name': row['item__name'],
+            'cost_price': row['item__cost_price'] or Decimal('0'),
+            'total_qty': row['total_qty'],
+            'total_revenue': row['total_revenue'],
+        }
 
-    # By category
-    cat_rows = list(
-        qs.values('category__name', 'category__is_cogs').annotate(
-            total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()),
-            count=Count('id'),
-        ).order_by('-total')
-    )
+    # ── SO lines (APPROVED + POSTED) ──────────────────────────────────
+    so_qs_pm = SalesOrder.objects.filter(status__in=[DocumentStatus.APPROVED, DocumentStatus.POSTED])
+    if date_from:
+        so_qs_pm = so_qs_pm.filter(order_date__gte=date_from)
+    if date_to:
+        so_qs_pm = so_qs_pm.filter(order_date__lte=date_to)
+    so_lines_pm = list(SalesOrderLine.objects.filter(
+        sales_order__in=so_qs_pm
+    ).select_related('item'))
+    so_bundles_pm = list(SalesOrderPriceListLine.objects.filter(
+        sales_order__in=so_qs_pm
+    ).select_related('price_list').prefetch_related('price_list__items__item'))
+    # Revenue: line totals (includes per-line discounts) + bundle totals
+    so_line_rev = sum(line.line_total for line in so_lines_pm)
+    so_bundle_rev = sum(bundle.bundle_total for bundle in so_bundles_pm)
+    so_revenue = so_line_rev + so_bundle_rev
 
-    categories = ExpenseCategory.objects.all()
-
-    chart_labels = []
-    chart_data = []
-    for r in date_rows:
-        p = r['period']
-        if group_by == 'daily':
-            lbl = p.strftime('%b %d') if hasattr(p, 'strftime') else str(p)
+    # Add SO lines to item bucket
+    for line in so_lines_pm:
+        key = line.item.code
+        revenue = line.line_total
+        if key in item_bucket:
+            item_bucket[key]['total_qty'] += line.qty_ordered
+            item_bucket[key]['total_revenue'] += revenue
         else:
-            lbl = p.strftime('%b %Y') if hasattr(p, 'strftime') else str(p)
-        chart_labels.append(lbl)
-        chart_data.append(float(r['total']))
-    cat_labels = [r['category__name'] for r in cat_rows]
-    cat_data = [float(r['total']) for r in cat_rows]
+            item_bucket[key] = {
+                'item_code': line.item.code,
+                'item_name': line.item.name,
+                'cost_price': line.item.cost_price or Decimal('0'),
+                'total_qty': line.qty_ordered,
+                'total_revenue': revenue,
+            }
+    # Bundle items in profit margin
+    for _b in so_bundles_pm:
+        for _p in _b.price_list.items.all():
+            key = _p.item.code
+            qty = _p.min_qty * _b.qty_multiplier
+            revenue = _p.price * qty
+            cost = _p.item.cost_price or Decimal('0')
+            if key in item_bucket:
+                item_bucket[key]['total_qty'] += qty
+                item_bucket[key]['total_revenue'] += revenue
+            else:
+                item_bucket[key] = {
+                    'item_code': _p.item.code,
+                    'item_name': _p.item.name,
+                    'cost_price': cost,
+                    'total_qty': qty,
+                    'total_revenue': revenue,
+                }
 
-    return render(request, 'reports/expense_report.html', {
-        'total_expenses': total_expenses,
-        'date_rows': date_rows,
-        'cat_rows': cat_rows,
-        'categories': categories,
-        'group_by': group_by,
-        'chart_labels': chart_labels,
-        'chart_data': chart_data,
-        'cat_labels': cat_labels,
-        'cat_data': cat_data,
-        'filters': {
-            'date_from': date_from, 'date_to': date_to,
-            'category': cat_id, 'group': group_by,
-        },
+    # ── Build output rows ─────────────────────────────────────────────
+    rows = []
+    grand_revenue = Decimal('0')
+    grand_cogs = Decimal('0')
+    for data in sorted(item_bucket.values(), key=lambda x: x['total_revenue'], reverse=True):
+        cogs = data['cost_price'] * data['total_qty']
+        profit = data['total_revenue'] - cogs
+        margin = (profit / data['total_revenue'] * 100) if data['total_revenue'] > 0 else Decimal('0')
+        rows.append({
+            'item_code': data['item_code'],
+            'item_name': data['item_name'],
+            'qty_sold': data['total_qty'],
+            'revenue': data['total_revenue'],
+            'cogs': cogs,
+            'profit': profit,
+            'margin': margin,
+        })
+        grand_revenue += data['total_revenue']
+        grand_cogs += cogs
+
+    grand_profit = grand_revenue - grand_cogs
+    grand_margin = (grand_profit / grand_revenue * 100) if grand_revenue > 0 else Decimal('0')
+
+    return render(request, 'reports/profit_margin.html', {
+        'rows': rows,
+        'grand_revenue': grand_revenue,
+        'grand_cogs': grand_cogs,
+        'grand_profit': grand_profit,
+        'grand_margin': grand_margin,
+        'filters': {'date_from': date_from or '', 'date_to': date_to or ''},
     })
 
 
@@ -574,36 +558,64 @@ def expense_report_view(request):
 @login_required
 def financial_statement_view(request):
     from pos.models import POSSale, POSSaleLine, SaleStatus
-    from core.models import Expense, ExpenseCategory
+    from core.models import Expense, ExpenseCategory, DocumentStatus
+    from sales.models import SalesOrder, SalesOrderLine, SalesOrderPriceListLine
 
     today = date.today()
     first_of_month = today.replace(day=1)
     date_from = request.GET.get('date_from', first_of_month.isoformat())
     date_to = request.GET.get('date_to', today.isoformat())
 
-    # ── REVENUE ────────────────────────────────────────────────────────
+    # ── POS REVENUE ────────────────────────────────────────────────────
     sale_qs = POSSale.objects.filter(status__in=[SaleStatus.POSTED, SaleStatus.PAID])
     if date_from:
         sale_qs = sale_qs.filter(created_at__date__gte=date_from)
     if date_to:
         sale_qs = sale_qs.filter(created_at__date__lte=date_to)
 
-    revenue = sale_qs.aggregate(
+    pos_revenue = sale_qs.aggregate(
         total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
     )['total']
     discount = sale_qs.aggregate(
         total=Coalesce(Sum('discount_total'), Decimal('0'), output_field=DecimalField())
     )['total']
+
+    # ── SO REVENUE (APPROVED + POSTED, lines + bundles) ─────────────────
+    so_qs_fs = SalesOrder.objects.filter(status__in=[DocumentStatus.APPROVED, DocumentStatus.POSTED])
+    if date_from:
+        so_qs_fs = so_qs_fs.filter(order_date__gte=date_from)
+    if date_to:
+        so_qs_fs = so_qs_fs.filter(order_date__lte=date_to)
+    so_lines_fs = list(SalesOrderLine.objects.filter(
+        sales_order__in=so_qs_fs
+    ).select_related('item', 'sales_order'))
+    so_bundles_fs = list(SalesOrderPriceListLine.objects.filter(
+        sales_order__in=so_qs_fs
+    ).select_related('sales_order', 'price_list').prefetch_related('price_list__items__item'))
+    # line_total and bundle_total are @properties — must compute in Python
+    so_revenue_fs = sum(line.line_total for line in so_lines_fs) + sum(b.bundle_total for b in so_bundles_fs)
+
+    revenue = pos_revenue + so_revenue_fs
     net_revenue = revenue
 
-    # ── COGS (from inventory cost) ─────────────────────────────────────
+    # ── COGS (POS inventory cost + SO inventory cost) ──────────────────
     line_qs = POSSaleLine.objects.filter(sale__in=sale_qs)
-    cogs_inventory = line_qs.aggregate(
+    cogs_inventory_pos = line_qs.aggregate(
         total=Coalesce(
             Sum(F('item__cost_price') * F('qty'), output_field=DecimalField()),
             Decimal('0'), output_field=DecimalField(),
         )
     )['total']
+    cogs_so_lines_fs = sum(
+        (line.item.cost_price or Decimal('0')) * line.qty_ordered
+        for line in so_lines_fs
+    )
+    cogs_so_bundles_fs = Decimal('0')
+    for _b in so_bundles_fs:
+        for _p in _b.price_list.items.all():
+            cogs_so_bundles_fs += ((_p.item.cost_price or Decimal('0')) * _p.min_qty * _b.qty_multiplier)
+    cogs_inventory_so = cogs_so_lines_fs + cogs_so_bundles_fs
+    cogs_inventory = cogs_inventory_pos + cogs_inventory_so
 
     # COGS from expense categories marked as COGS
     exp_qs = Expense.objects.all()
@@ -631,7 +643,7 @@ def financial_statement_view(request):
     net_margin = (net_profit / net_revenue * 100) if net_revenue > 0 else Decimal('0')
 
     # ── Monthly P&L trend ──────────────────────────────────────────────
-    # Revenue: created_at is DateTimeField — TruncMonth is safe
+    # POS Revenue: created_at is DateTimeField — TruncMonth is safe
     monthly_rev = list(
         sale_qs.annotate(month=TruncMonth('created_at')).values('month').annotate(
             total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
@@ -645,7 +657,7 @@ def financial_statement_view(request):
         ).order_by('yr', 'mo')
     )
 
-    # Merge months
+    # Merge months (POS revenue first)
     month_map = {}
     for r in monthly_rev:
         try:
@@ -653,7 +665,18 @@ def financial_statement_view(request):
         except Exception:
             key = str(r['month'])
         month_map.setdefault(key, {'revenue': Decimal('0'), 'expenses': Decimal('0')})
-        month_map[key]['revenue'] = r['total']
+        month_map[key]['revenue'] += r['total']
+
+    # Add SO revenue to monthly trend: lines + bundles
+    for line in so_lines_fs:
+        key = line.sales_order.order_date.replace(day=1).strftime('%b %Y')
+        month_map.setdefault(key, {'revenue': Decimal('0'), 'expenses': Decimal('0')})
+        month_map[key]['revenue'] += line.line_total
+    for bundle in so_bundles_fs:
+        key = bundle.sales_order.order_date.replace(day=1).strftime('%b %Y')
+        month_map.setdefault(key, {'revenue': Decimal('0'), 'expenses': Decimal('0')})
+        month_map[key]['revenue'] += bundle.bundle_total
+
     for r in monthly_exp_raw:
         key = date(r['yr'], r['mo'], 1).strftime('%b %Y')
         month_map.setdefault(key, {'revenue': Decimal('0'), 'expenses': Decimal('0')})
@@ -666,9 +689,13 @@ def financial_statement_view(request):
 
     return render(request, 'reports/financial_statement.html', {
         'revenue': revenue,
+        'pos_revenue': pos_revenue,
+        'so_revenue': so_revenue_fs,
         'discount': discount,
         'net_revenue': net_revenue,
         'cogs_inventory': cogs_inventory,
+        'cogs_inventory_pos': cogs_inventory_pos,
+        'cogs_inventory_so': cogs_inventory_so,
         'cogs_expenses': cogs_expenses,
         'total_cogs': total_cogs,
         'gross_profit': gross_profit,
@@ -759,6 +786,130 @@ def stock_aging_view(request):
     return render(request, 'reports/stock_aging.html', {
         'aging_data': aging_data,
         'bucket_summary': bucket_summary,
+        'warehouses': warehouses,
+        'selected_warehouse': warehouse_id,
+    })
+
+
+# ── Expense Report ───────────────────────────────────────────────────────────
+
+@login_required
+def expense_report_view(request):
+    """HTML rendered expense report with date/category filters."""
+    from core.models import Expense, ExpenseCategory
+
+    today = date.today()
+    first_of_month = today.replace(day=1)
+    date_from = request.GET.get('date_from', first_of_month.isoformat())
+    date_to = request.GET.get('date_to', today.isoformat())
+    category_id = request.GET.get('category', '')
+    group_by = request.GET.get('group', 'daily')
+
+    qs = Expense.objects.all()
+    if date_from:
+        qs = qs.filter(date__gte=date_from)
+    if date_to:
+        qs = qs.filter(date__lte=date_to)
+    if category_id:
+        qs = qs.filter(category_id=category_id)
+
+    total_expenses = qs.aggregate(
+        total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()),
+        count=Count('id'),
+    )
+
+    # Date breakdown — use .values('date') directly (DateField, not DateTimeField)
+    # to avoid SQLite UDF errors from TruncDate with USE_TZ=True
+    raw_rows = list(
+        qs.values('date')
+        .annotate(total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()), count=Count('id'))
+        .order_by('date')
+    )
+    if group_by == 'monthly':
+        month_bucket = {}
+        for row in raw_rows:
+            key = row['date'].replace(day=1)
+            if key in month_bucket:
+                month_bucket[key]['total'] += row['total']
+                month_bucket[key]['count'] += row['count']
+            else:
+                month_bucket[key] = {'period': key, 'total': row['total'], 'count': row['count']}
+        date_rows = sorted(month_bucket.values(), key=lambda r: r['period'])
+    else:
+        date_rows = [{'period': r['date'], 'total': r['total'], 'count': r['count']} for r in raw_rows]
+
+    chart_labels = []
+    chart_data = []
+    for row in date_rows:
+        try:
+            lbl = row['period'].strftime('%b %d' if group_by == 'daily' else '%b %Y')
+        except Exception:
+            lbl = str(row['period'])
+        chart_labels.append(lbl)
+        chart_data.append(float(row['total']))
+
+    # Category breakdown
+    cat_rows = list(
+        qs.values('category__name', 'category__is_cogs')
+        .annotate(total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()), count=Count('id'))
+        .order_by('-total')
+    )
+    cat_labels = [r['category__name'] for r in cat_rows]
+    cat_data = [float(r['total']) for r in cat_rows]
+
+    categories = ExpenseCategory.objects.all().order_by('name')
+
+    return render(request, 'reports/expense_report.html', {
+        'total_expenses': total_expenses,
+        'date_rows': date_rows,
+        'cat_rows': cat_rows,
+        'chart_labels': chart_labels,
+        'chart_data': chart_data,
+        'cat_labels': cat_labels,
+        'cat_data': cat_data,
+        'categories': categories,
+        'group_by': group_by,
+        'filters': {
+            'date_from': date_from or '',
+            'date_to': date_to or '',
+            'category': category_id or '',
+            'group': group_by,
+        },
+    })
+
+
+# ── Inventory Valuation Report ──────────────────────────────────────────────
+
+@login_required
+def inventory_valuation_view(request):
+    """HTML rendered inventory valuation report."""
+    warehouse_id = request.GET.get('warehouse')
+    warehouses = Warehouse.objects.filter(is_active=True)
+
+    qs = StockBalance.objects.filter(qty_on_hand__gt=0).select_related(
+        'item', 'item__default_unit', 'location', 'location__warehouse'
+    )
+    if warehouse_id:
+        qs = qs.filter(location__warehouse_id=warehouse_id)
+
+    rows = []
+    grand_total = Decimal('0')
+    for bal in qs.order_by('location__warehouse__code', 'item__code'):
+        cost = bal.item.cost_price or Decimal('0')
+        value = bal.qty_on_hand * cost
+        grand_total += value
+        rows.append({
+            'item': bal.item,
+            'warehouse': bal.location.warehouse.name,
+            'location': bal.location.code,
+            'qty': bal.qty_on_hand,
+            'cost_price': cost,
+            'value': value,
+        })
+
+    return render(request, 'reports/inventory_valuation.html', {
+        'rows': rows,
+        'grand_total': grand_total,
         'warehouses': warehouses,
         'selected_warehouse': warehouse_id,
     })
