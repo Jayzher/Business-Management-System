@@ -44,13 +44,15 @@
           <tbody>
             <!-- REVENUE -->
             <tr class="pnl-section"><td colspan="2">REVENUE</td></tr>
-            <tr><td class="ps-4">Sales Revenue</td><td class="text-right">&#8369; {{ revenue|floatformat:2|intcomma }}</td></tr>
+            {% if pos_revenue %}<tr><td class="ps-4">POS Sales Revenue</td><td class="text-right">&#8369; {{ pos_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
+            {% if so_revenue %}<tr><td class="ps-4">Sales Orders Revenue</td><td class="text-right">&#8369; {{ so_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
             {% if discount %}<tr><td class="ps-4">Less: Discounts</td><td class="text-right negative">(&#8369; {{ discount|floatformat:2|intcomma }})</td></tr>{% endif %}
             <tr class="pnl-total"><td>Net Revenue</td><td class="text-right">&#8369; {{ net_revenue|floatformat:2|intcomma }}</td></tr>
 
             <!-- COGS -->
             <tr class="pnl-section"><td colspan="2">COST OF GOODS SOLD</td></tr>
-            <tr><td class="ps-4">Inventory COGS (cost price x qty sold)</td><td class="text-right">&#8369; {{ cogs_inventory|floatformat:2|intcomma }}</td></tr>
+            {% if cogs_inventory_pos %}<tr><td class="ps-4">POS COGS (cost price &times; qty sold)</td><td class="text-right">&#8369; {{ cogs_inventory_pos|floatformat:2|intcomma }}</td></tr>{% endif %}
+            {% if cogs_inventory_so %}<tr><td class="ps-4">SO COGS (cost price &times; qty ordered)</td><td class="text-right">&#8369; {{ cogs_inventory_so|floatformat:2|intcomma }}</td></tr>{% endif %}
             {% if cogs_expenses %}<tr><td class="ps-4">Direct Cost Expenses (COGS categories)</td><td class="text-right">&#8369; {{ cogs_expenses|floatformat:2|intcomma }}</td></tr>{% endif %}
             <tr class="pnl-total"><td>Total COGS</td><td class="text-right">&#8369; {{ total_cogs|floatformat:2|intcomma }}</td></tr>
 

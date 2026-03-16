@@ -12,23 +12,34 @@ def dashboard_view(request):
     from catalog.models import Item
     from inventory.models import StockBalance, StockMove
     from procurement.models import GoodsReceipt
-    from sales.models import DeliveryNote
+    from sales.models import DeliveryNote, SalesOrder, SalesOrderLine, SalesOrderPriceListLine
     from pos.models import POSSale, POSSaleLine, POSShift, SaleStatus, ShiftStatus
-    from core.models import Expense, ExpenseCategory, TargetGoal, SalesChannel
+    from core.models import Expense, ExpenseCategory, TargetGoal, SalesChannel, Invoice, DocumentStatus
 
     now = timezone.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     # ── Period toggle (today / week / month / year) ────────────────────
+    # Week = Monday to Sunday of current week; Month = 1st to last day of current month
     period = request.GET.get('period', 'today')
     if period == 'week':
+        # Monday of current week
         period_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        # Sunday end of current week (Monday + 6 days, end of day)
+        period_end = (period_start + timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == 'month':
         period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        # First day of next month
+        if now.month == 12:
+            period_end = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        else:
+            period_end = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
     elif period == 'year':
         period_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        period_end = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
     else:
         period_start = today_start
+        period_end = today_start + timedelta(days=1)  # End of today
         period = 'today'
 
     total_items = Item.objects.filter(is_active=True).count()
@@ -54,16 +65,16 @@ def dashboard_view(request):
         status='POSTED'
     ).select_related('item', 'created_by')[:10]
 
-    # ── Sales for selected period ──────────────────────────────────────
+    # ── POS Sales for selected period ─────────────────────────────────────
     period_sales = POSSale.objects.filter(
         status__in=[SaleStatus.POSTED, SaleStatus.PAID],
         created_at__gte=period_start,
+        created_at__lt=period_end,
     )
     pos_count = period_sales.count()
     pos_revenue = period_sales.aggregate(
         total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
     )['total']
-
     pos_cogs = POSSaleLine.objects.filter(sale__in=period_sales).aggregate(
         total=Coalesce(
             Sum(F('item__cost_price') * F('qty'), output_field=DecimalField()),
@@ -72,21 +83,51 @@ def dashboard_view(request):
     )['total']
     pos_profit = pos_revenue - pos_cogs
 
-    # Paid invoices (non-POS) to reflect in dashboard revenue/count
-    from core.models import Invoice
-    paid_invoices = Invoice.objects.filter(is_paid=True, paid_at__isnull=False, paid_at__gte=period_start)
-    invoice_paid_total = paid_invoices.aggregate(
-        total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
-    )['total']
-    invoice_paid_count = paid_invoices.count()
+    # ── Sales Orders for selected period (APPROVED + POSTED) ──────────
+    period_so = SalesOrder.objects.filter(
+        status__in=[DocumentStatus.APPROVED, DocumentStatus.POSTED],
+        order_date__gte=period_start.date(),
+        order_date__lt=period_end.date(),
+    )
+    so_count = period_so.count()
+    period_so_lines = list(SalesOrderLine.objects.filter(
+        sales_order__in=period_so
+    ).select_related('item'))
+    period_so_bundles = list(SalesOrderPriceListLine.objects.filter(
+        sales_order__in=period_so
+    ).select_related('price_list').prefetch_related('price_list__items__item'))
+    # line_total is a @property (not DB field); bundle_total also a @property
+    so_line_rev = sum(line.line_total for line in period_so_lines)
+    so_bundle_rev = sum(bundle.bundle_total for bundle in period_so_bundles)
+    so_revenue = so_line_rev + so_bundle_rev
+    so_line_cogs = sum(
+        (line.item.cost_price or Decimal('0')) * line.qty_ordered
+        for line in period_so_lines
+    )
+    so_bundle_cogs = Decimal('0')
+    for _bundle in period_so_bundles:
+        for _pli in _bundle.price_list.items.all():
+            so_bundle_cogs += ((_pli.item.cost_price or Decimal('0')) * _pli.min_qty * _bundle.qty_multiplier)
+    so_cogs = so_line_cogs + so_bundle_cogs
+    so_profit = so_revenue - so_cogs
 
-    combined_revenue = pos_revenue + invoice_paid_total
-    combined_count = pos_count + invoice_paid_count
-    combined_profit = pos_profit + invoice_paid_total  # conservative: treat invoice revenue with zero extra COGS
+    combined_revenue = pos_revenue + so_revenue
+    combined_count = pos_count + so_count
+    combined_profit = pos_profit + so_profit
     pos_margin = (combined_profit / combined_revenue * 100) if combined_revenue > 0 else Decimal('0')
 
+    # Paid invoices (SO-only, non-POS, non-void) — for the unpaid invoices widget only
+    invoice_paid_count = Invoice.objects.filter(
+        is_paid=True, paid_at__isnull=False,
+        paid_at__gte=period_start, paid_at__lt=period_end,
+        pos_sale__isnull=True, is_void=False,
+    ).count()
+
     # ── Expenses for selected period ───────────────────────────────────
-    period_expenses = Expense.objects.filter(date__gte=period_start.date())
+    period_expenses = Expense.objects.filter(
+        date__gte=period_start.date(),
+        date__lt=period_end.date(),
+    )
     total_expenses = period_expenses.aggregate(
         total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField())
     )['total']
@@ -126,19 +167,30 @@ def dashboard_view(request):
         )
     )['total']
 
-    # ── 7-day revenue trend ────────────────────────────────────────────
+    # ── 7-day revenue trend (POS + SO combined) ─────────────────────────
     revenue_trend = []
     for i in range(6, -1, -1):
         day = (now - timedelta(days=i)).date()
         day_start_dt = timezone.make_aware(timezone.datetime.combine(day, timezone.datetime.min.time()))
         day_end_dt = day_start_dt + timedelta(days=1)
-        rev = POSSale.objects.filter(
+        # POS revenue for this day
+        pos_day_rev = POSSale.objects.filter(
             status__in=[SaleStatus.POSTED, SaleStatus.PAID],
             created_at__gte=day_start_dt, created_at__lt=day_end_dt,
         ).aggregate(
             total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
         )['total']
-        revenue_trend.append({'date': day.strftime('%b %d'), 'revenue': float(rev)})
+        # SO revenue for this day (APPROVED + POSTED, by order_date)
+        day_so_qs = SalesOrder.objects.filter(
+            status__in=[DocumentStatus.APPROVED, DocumentStatus.POSTED],
+            order_date=day,
+        )
+        day_so_lines = SalesOrderLine.objects.filter(sales_order__in=day_so_qs).select_related('item')
+        day_so_bundles = SalesOrderPriceListLine.objects.filter(sales_order__in=day_so_qs).select_related('price_list').prefetch_related('price_list__items__item')
+        so_day_rev = sum(line.line_total for line in day_so_lines) + sum(b.bundle_total for b in day_so_bundles)
+        # Combined
+        day_total = float(pos_day_rev) + float(so_day_rev)
+        revenue_trend.append({'date': day.strftime('%b %d'), 'revenue': day_total})
 
     # ── Active goals ───────────────────────────────────────────────────
     active_goals = TargetGoal.objects.filter(
@@ -147,8 +199,6 @@ def dashboard_view(request):
 
     # ── Pending approvals widget ─────────────────────────────────────
     from procurement.models import PurchaseOrder
-    from sales.models import SalesOrder
-    from core.models import Invoice
     from inventory.models import StockTransfer, StockAdjustment
     pending_po = PurchaseOrder.objects.filter(status='DRAFT').count()
     pending_so = SalesOrder.objects.filter(status='DRAFT').count()
@@ -192,8 +242,10 @@ def dashboard_view(request):
         'pos_count': pos_count,
         'pos_cogs': pos_cogs,
         'pos_profit': pos_profit,
-        'invoice_paid_total': invoice_paid_total,
-        'invoice_paid_count': invoice_paid_count,
+        'so_revenue': so_revenue,
+        'so_count': so_count,
+        'so_cogs': so_cogs,
+        'so_profit': so_profit,
         'combined_revenue': combined_revenue,
         'combined_count': combined_count,
         'combined_profit': combined_profit,

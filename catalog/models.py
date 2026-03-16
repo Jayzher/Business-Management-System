@@ -63,6 +63,11 @@ class Item(SoftDeleteModel):
     )
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name='items')
     default_unit = models.ForeignKey(Unit, on_delete=models.PROTECT, related_name='items')
+    selling_unit = models.ForeignKey(
+        Unit, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='selling_items',
+        help_text='Default unit used when selling this item. Falls back to the base unit when not set.',
+    )
     description = models.TextField(blank=True, default='')
     barcode = models.CharField(max_length=100, blank=True, default='', db_index=True)
     minimum_stock = models.DecimalField(max_digits=15, decimal_places=4, default=0)
