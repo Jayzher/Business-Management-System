@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from inventory.models import StockMove, StockBalance, MoveType, MoveStatus
 from inventory.services import _update_balance, _create_audit
+from catalog.models import convert_to_base_unit
 from pos.models import (
     POSSale, POSSaleLine, POSPayment,
     POSRefund, POSRefundLine,
@@ -126,8 +127,9 @@ def post_pos_sale(sale_id, user):
     moves = []
     warehouse = sale.warehouse
 
-    for line in sale.lines.select_related('item', 'unit', 'location').all():
+    for line in sale.lines.select_related('item__default_unit', 'unit', 'location').all():
         loc = line.location or sale.location
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
 
         # Stock availability check (with row locking)
         balance, _ = StockBalance.objects.select_for_update().get_or_create(
@@ -135,17 +137,17 @@ def post_pos_sale(sale_id, user):
             defaults={'qty_on_hand': Decimal('0'), 'qty_reserved': Decimal('0')},
         )
         available = balance.qty_on_hand - balance.qty_reserved
-        if line.qty > available and not warehouse.allow_negative_stock:
+        if base_qty > available and not warehouse.allow_negative_stock:
             raise ValueError(
                 f"Insufficient stock for {line.item.code} at {loc}. "
-                f"Available: {available}, Requested: {line.qty}"
+                f"Available: {available}, Requested: {base_qty} {line.item.default_unit.abbreviation}"
             )
 
         move = StockMove(
             move_type=MoveType.POS_SALE,
             item=line.item,
-            qty=line.qty,
-            unit=line.unit,
+            qty=base_qty,
+            unit=line.item.default_unit,
             from_location=loc,
             to_location=None,
             reference_type='POSSale',
@@ -161,7 +163,7 @@ def post_pos_sale(sale_id, user):
         moves.append(move)
 
         # Update balance
-        balance.qty_on_hand -= line.qty
+        balance.qty_on_hand -= base_qty
         balance.save()
 
     StockMove.objects.bulk_create(moves)
@@ -211,17 +213,18 @@ def sync_pos_sale_stock_moves(sale_id, user):
     moves = []
     warehouse = sale.warehouse
 
-    for line in sale.lines.select_related('item', 'unit', 'location').all():
+    for line in sale.lines.select_related('item__default_unit', 'unit', 'location').all():
         loc = line.location or sale.location
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
 
         # Deduct using the core inventory helper (enforces negative-stock rule)
-        _update_balance(line.item, loc, -line.qty)
+        _update_balance(line.item, loc, -base_qty)
 
         moves.append(StockMove(
             move_type=MoveType.POS_SALE,
             item=line.item,
-            qty=line.qty,
-            unit=line.unit,
+            qty=base_qty,
+            unit=line.item.default_unit,
             from_location=loc,
             to_location=None,
             reference_type='POSSale',
@@ -261,12 +264,13 @@ def post_pos_refund(refund_id, user):
     now = timezone.now()
     moves = []
 
-    for line in refund.lines.select_related('item', 'unit', 'location').all():
+    for line in refund.lines.select_related('item__default_unit', 'unit', 'location').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
         move = StockMove(
             move_type=MoveType.RETURN_IN,
             item=line.item,
-            qty=line.qty,
-            unit=line.unit,
+            qty=base_qty,
+            unit=line.item.default_unit,
             from_location=None,
             to_location=line.location,
             reference_type='POSRefund',
@@ -278,7 +282,7 @@ def post_pos_refund(refund_id, user):
             posted_at=now,
         )
         moves.append(move)
-        _update_balance(line.item, line.location, line.qty)
+        _update_balance(line.item, line.location, base_qty)
 
     StockMove.objects.bulk_create(moves)
 
