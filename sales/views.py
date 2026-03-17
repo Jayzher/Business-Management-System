@@ -299,6 +299,7 @@ def sales_order_list_view(request):
 @login_required
 @sales_access
 def sales_order_detail_view(request, pk):
+    from decimal import Decimal
     order = get_object_or_404(
         SalesOrder.objects.select_related('customer', 'warehouse', 'created_by', 'approved_by', 'posted_by')
         .prefetch_related(
@@ -307,7 +308,35 @@ def sales_order_detail_view(request, pk):
             'price_list_lines__price_list__items__unit',
         ), pk=pk
     )
-    return render(request, 'sales/sales_order_detail.html', {'order': order})
+
+    # ── Per-line COGS (item.cost_price × qty_ordered) ─────────────────
+    line_cogs_map = {}   # line.pk → cogs decimal
+    so_line_cogs_total = Decimal('0')
+    for line in order.lines.all():
+        cogs = (line.item.cost_price or Decimal('0')) * line.qty_ordered
+        line_cogs_map[line.pk] = cogs
+        so_line_cogs_total += cogs
+
+    # ── Bundle COGS (pli.item.cost_price × pli.min_qty × qty_multiplier) ─
+    bundle_cogs_map = {}   # bundle.pk → cogs decimal
+    so_bundle_cogs_total = Decimal('0')
+    for bundle in order.price_list_lines.all():
+        bcogs = Decimal('0')
+        for pli in bundle.price_list.items.all():
+            bcogs += (pli.item.cost_price or Decimal('0')) * pli.min_qty * bundle.qty_multiplier
+        bundle_cogs_map[bundle.pk] = bcogs
+        so_bundle_cogs_total += bcogs
+
+    grand_total_cogs = so_line_cogs_total + so_bundle_cogs_total
+
+    return render(request, 'sales/sales_order_detail.html', {
+        'order': order,
+        'line_cogs_map': line_cogs_map,
+        'bundle_cogs_map': bundle_cogs_map,
+        'so_line_cogs_total': so_line_cogs_total,
+        'so_bundle_cogs_total': so_bundle_cogs_total,
+        'grand_total_cogs': grand_total_cogs,
+    })
 
 
 @login_required

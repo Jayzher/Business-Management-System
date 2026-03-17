@@ -1,5 +1,5 @@
 from django import forms
-from catalog.models import Category, Unit, UnitConversion, Item
+from catalog.models import Category, Unit, UnitCategory, UnitConversion, Item
 
 
 class CategoryForm(forms.ModelForm):
@@ -23,14 +23,16 @@ class CategoryForm(forms.ModelForm):
 class UnitForm(forms.ModelForm):
     class Meta:
         model = Unit
-        fields = ['name', 'abbreviation']
+        fields = ['name', 'abbreviation', 'category']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
             'abbreviation': forms.TextInput(attrs={'class': 'form-control'}),
+            'category': forms.Select(attrs={'class': 'form-control'}),
         }
         help_texts = {
             'name': 'Full unit name (e.g. Piece, Kilogram, Meter).',
             'abbreviation': 'Short label used in tables and receipts (e.g. pcs, kg, m).',
+            'category': 'Measurement category. Conversions are only allowed within the same category.',
         }
 
 

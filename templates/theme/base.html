@@ -1093,17 +1093,64 @@ function wisSoFetchPrice($row) {
   });
 }
 
+/* ── Unit filter cache: category → [{id, name, abbreviation}] ── */
+var _wisUnitCache = {};
+
+function wisFilterUnitsByCat(category, $unitSel, preferredId) {
+  /* Rebuild the unit <select> options filtered to the given category. */
+  if (_wisUnitCache[category]) {
+    _wisApplyUnitOptions($unitSel, _wisUnitCache[category], preferredId);
+  } else {
+    $.getJSON('/api/units/', { category: category, page_size: 200 }, function(resp) {
+      var units = resp.results || resp;
+      _wisUnitCache[category] = units;
+      _wisApplyUnitOptions($unitSel, units, preferredId);
+    });
+  }
+}
+
+function _wisApplyUnitOptions($unitSel, units, preferredId) {
+  var currentVal = $unitSel.val();
+  var placeholder = $unitSel.find('option[value=""]').text() || '---------';
+  $unitSel.empty();
+  $unitSel.append('<option value="">' + placeholder + '</option>');
+  $.each(units, function(i, u) {
+    var label = u.name + ' (' + u.abbreviation + ')';
+    var opt = $('<option>', { value: u.id, text: label });
+    if (u.is_active === false) { opt.prop('disabled', true); }
+    $unitSel.append(opt);
+  });
+  /* Restore previous selection if still valid, else use preferred (default_unit) */
+  var found = units.some(function(u) { return String(u.id) === String(currentVal); });
+  if (found && currentVal) {
+    $unitSel.val(currentVal);
+  } else if (preferredId) {
+    $unitSel.val(String(preferredId));
+  }
+  if ($unitSel.hasClass('select2-hidden-accessible')) {
+    $unitSel.trigger('change.select2');
+  }
+}
+
 function wisSoSetUnitThenPrice($row) {
   var itemId = $row.find('.so-line-item').val();
   if (!itemId) { wisSoUpdateLineAndGrand($row); return; }
 
   $.getJSON('/api/items/' + itemId + '/', function(item) {
     var $unitSel = $row.find('.so-line-unit');
-    var cur = $unitSel.val();
-    if ((!cur || cur === '') && item && item.default_unit) {
-      $unitSel.val(String(item.default_unit)).trigger('change');
+    var cat = item.default_unit_category;
+    if (cat) {
+      wisFilterUnitsByCat(cat, $unitSel, item.default_unit);
+      /* Price fetch happens after units are rebuilt */
+      setTimeout(function() { wisSoFetchPrice($row); }, 250);
+    } else {
+      /* Fallback: no category info, just set default unit */
+      var cur = $unitSel.val();
+      if ((!cur || cur === '') && item.default_unit) {
+        $unitSel.val(String(item.default_unit)).trigger('change');
+      }
+      wisSoFetchPrice($row);
     }
-    wisSoFetchPrice($row);
   }).fail(function() {
     wisSoFetchPrice($row);
   });

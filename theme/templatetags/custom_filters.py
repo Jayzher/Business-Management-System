@@ -24,3 +24,20 @@ def currency(value):
         return f"{float(value):,.2f}"
     except (ValueError, TypeError):
         return value
+
+
+@register.filter(name='get_item')
+def get_item(dictionary, key):
+    """Look up a key in a dict: {{ my_dict|get_item:key }}."""
+    if not isinstance(dictionary, dict):
+        return None
+    return dictionary.get(key)
+
+
+@register.filter(name='subtract')
+def subtract(value, arg):
+    """Subtract arg from value: {{ a|subtract:b }}."""
+    try:
+        return Decimal(str(value)) - Decimal(str(arg))
+    except Exception:
+        return value

@@ -1,0 +1,387 @@
+﻿python : Creating test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+At line:1 char:1
++ python manage.py test tests.test_unit_conversion --verbosity=2 2>&1 | ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Creating test d...che=shared')...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Found 23 test(s).
+Operations to perform:
+  Synchronize unmigrated apps: corsheaders, django_filters, humanize, messages, mptt, rest_framework, rest_framework_simplejwt, staticfiles
+  Apply all migrations: accounts, admin, audit, auth, catalog, contenttypes, core, inventory, partners, pos, pricing, procurement, qr, sales, services, sessions, warehouses
+Synchronizing apps without migrations:
+  Creating tables...
+    Running deferred SQL...
+Running migrations:
+  Applying contenttypes.0001_initial... OK
+  Applying contenttypes.0002_remove_content_type_name... OK
+  Applying auth.0001_initial... OK
+  Applying auth.0002_alter_permission_name_max_length... OK
+  Applying auth.0003_alter_user_email_max_length... OK
+  Applying auth.0004_alter_user_username_opts... OK
+  Applying auth.0005_alter_user_last_login_null... OK
+  Applying auth.0006_require_contenttypes_0002... OK
+  Applying auth.0007_alter_validators_add_error_messages... OK
+  Applying auth.0008_alter_user_username_max_length... OK
+  Applying auth.0009_alter_user_last_name_max_length... OK
+  Applying auth.0010_alter_group_name_max_length... OK
+  Applying auth.0011_update_proxy_permissions... OK
+  Applying auth.0012_alter_user_first_name_max_length... OK
+  Applying accounts.0001_initial... OK
+  Applying warehouses.0001_initial... OK
+  Applying accounts.0002_initial... OK
+  Applying admin.0001_initial... OK
+  Applying admin.0002_logentry_remove_auto_add... OK
+  Applying admin.0003_logentry_add_action_flag_choices... OK
+  Applying audit.0001_initial... OK
+  Applying catalog.0001_initial... OK
+  Applying catalog.0002_item_cost_price_item_selling_price... OK
+  Applying catalog.0003_alter_item_item_type... OK
+  Applying catalog.0004_alter_item_item_type... OK
+  Applying catalog.0005_item_selling_unit... OK
+  Applying catalog.0006_unit_category... OK
+  Applying partners.0001_initial... OK
+  Applying sales.0001_initial... OK
+  Applying pricing.0001_initial... OK
+  Applying pos.0001_initial... OK
+  Applying pos.0002_initial... OK
+  Applying core.0001_initial... OK
+  Applying core.0002_invoice_paid_at_invoicepayment... OK
+  Applying core.0003_expense_business_address_expense_item_description_and_more... OK
+  Applying core.0004_supplymovement_batch_number_supplymovement_reference... OK
+  Applying core.0005_invoice_is_void... OK
+  Applying core.0006_invoice_grand_total_cogs... OK
+  Applying inventory.0001_initial... OK
+  Applying inventory.0002_alter_stockmove_move_type_and_more... OK
+  Applying inventory.0003_damagedreportline_batch_number_and_more... OK
+  Applying inventory.0004_make_supply_item_optional... OK
+  Applying pos.0003_possale_channel... OK
+  Applying pos.0004_possale_stock_deducted... OK
+  Applying pricing.0002_add_customer_price_catalog... OK
+  Applying pricing.0003_customerpricecatalog_effective_dates... OK
+  Applying procurement.0001_initial... OK
+  Applying procurement.0002_purchaseorder_currency_purchaseorder_exchange_rate_and_more... OK
+  Applying procurement.0003_goodsreceiptattachment... OK
+  Applying qr.0001_initial... OK
+  Applying sales.0002_salesorder_currency_salesorder_exchange_rate_and_more... OK
+  Applying sales.0003_salesorder_payment_status_salesorder_receipt_no_and_more... OK
+  Applying sales.0004_remove_salesorderline_discount_pct_and_more... OK
+  Applying sales.0005_add_salesorder_pricelistline... OK
+  Applying sales.0006_deliveryline_batch_number_deliveryline_serial_number_and_more... OK
+  Applying sales.0007_salespickup_salespickupline... OK
+  Applying services.0001_initial... OK
+test_cross_category_raises_value_error (tests.test_unit_conversion.ConvertToBaseUnitTest.test_cross_category_raises_value_error) ... ok
+test_direct_conversion (tests.test_unit_conversion.ConvertToBaseUnitTest.test_direct_conversion) ... ok
+test_fractional_reverse_conversion (tests.test_unit_conversion.ConvertToBaseUnitTest.test_fractional_reverse_conversion) ... ok
+test_missing_conversion_raises_value_error (tests.test_unit_conversion.ConvertToBaseUnitTest.test_missing_conversion_raises_value_error) ... ok
+test_reverse_conversion (tests.test_unit_conversion.ConvertToBaseUnitTest.test_reverse_conversion) ... ok
+test_same_unit_returns_unchanged (tests.test_unit_conversion.ConvertToBaseUnitTest.test_same_unit_returns_unchanged) ... ok
+test_delivery_box_deducts_correct_pcs (tests.test_unit_conversion.PostDeliveryUnitConversionTest.test_delivery_box_deducts_correct_pcs)
+Deliver 3 boxes (╫20 = 60 pcs) from 100 pcs stock \u2192 40 pcs remaining. ... ok
+test_delivery_same_unit_deducts_exact (tests.test_unit_conversion.PostDeliveryUnitConversionTest.test_delivery_same_unit_deducts_exact)
+Deliver 10 pcs from 100 pcs \u2192 90 pcs. ... ok
+test_grn_box_adds_correct_pcs (tests.test_unit_conversion.PostGRNUnitConversionTest.test_grn_box_adds_correct_pcs)
+Receive 5 boxes (╫12 = 60 pcs) into zero stock \u2192 60 pcs. ... ERROR
+test_cross_category_unit_fails (tests.test_unit_conversion.SalesOrderLineFormCategoryValidationTest.test_cross_category_unit_fails) ... ERROR
+test_valid_same_category_unit_passes (tests.test_unit_conversion.SalesOrderLineFormCategoryValidationTest.test_valid_same_category_unit_passes) ... ERROR
+test_seed_creates_all_standard_units (tests.test_unit_conversion.SeedUnitsCommandTest.test_seed_creates_all_standard_units) ... ok
+test_seed_idempotent (tests.test_unit_conversion.SeedUnitsCommandTest.test_seed_idempotent)
+Running seed_units twice should not error or create duplicates. ... ok
+test_seed_sets_correct_categories (tests.test_unit_conversion.SeedUnitsCommandTest.test_seed_sets_correct_categories) ... ok
+test_update_existing_flag (tests.test_unit_conversion.SeedUnitsCommandTest.test_update_existing_flag)
+--update-existing should fix wrong categories. ... ok
+test_category_stored_correctly (tests.test_unit_conversion.UnitCategoryFieldTest.test_category_stored_correctly) ... ok
+test_default_category_is_quantity (tests.test_unit_conversion.UnitCategoryFieldTest.test_default_category_is_quantity) ... ok
+test_cross_category_conversion_raises (tests.test_unit_conversion.UnitConversionValidationTest.test_cross_category_conversion_raises) ... ok
+test_same_category_conversion_valid (tests.test_unit_conversion.UnitConversionValidationTest.test_same_category_conversion_valid) ... ok
+test_self_conversion_raises (tests.test_unit_conversion.UnitConversionValidationTest.test_self_conversion_raises) ... ok
+test_filter_by_category_mass (tests.test_unit_conversion.UnitViewSetCategoryFilterTest.test_filter_by_category_mass) ... ok
+test_filter_by_category_quantity (tests.test_unit_conversion.UnitViewSetCategoryFilterTest.test_filter_by_category_quantity) ... ok
+test_unit_serializer_includes_category (tests.test_unit_conversion.UnitViewSetCategoryFilterTest.test_unit_serializer_includes_category) ... ok
+
+======================================================================
+ERROR: test_grn_box_adds_correct_pcs (tests.test_unit_conversion.PostGRNUnitConversionTest.test_grn_box_adds_correct_pcs)
+Receive 5 boxes (╫12 = 60 pcs) into zero stock \u2192 60 pcs.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\sqlite3\base.py", line 360, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.IntegrityError: NOT NULL constraint failed: procurement_goodsreceipt.supplier_id
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\PsyChoNyMouz\Projects\InventorySystem\inventory_system\tests\test_unit_conversion.py", line 274, in test_grn_box_adds_correct_pcs
+    grn = GoodsReceipt.objects.create(
+        document_number='GRN-UC-001',
+    ...<3 lines>...
+        created_by=self.user,
+    )
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\query.py", line 663, in create
+    obj.save(force_insert=True, using=self.db)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 902, in save
+    self.save_base(
+    ~~~~~~~~~~~~~~^
+        using=using,
+        ^^^^^^^^^^^^
+    ...<2 lines>...
+        update_fields=update_fields,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 1008, in save_base
+    updated = self._save_table(
+        raw,
+    ...<4 lines>...
+        update_fields,
+    )
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 1169, in _save_table
+    results = self._do_insert(
+        cls._base_manager, using, fields, returning_fields, raw
+    )
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 1210, in _do_insert
+    return manager._insert(
+           ~~~~~~~~~~~~~~~^
+        [self],
+        ^^^^^^^
+    ...<3 lines>...
+        raw=raw,
+        ^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\query.py", line 1868, in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\sql\compiler.py", line 1882, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 79, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 92, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 100, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\sqlite3\base.py", line 360, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.IntegrityError: NOT NULL constraint failed: procurement_goodsreceipt.supplier_id
+
+======================================================================
+ERROR: test_cross_category_unit_fails (tests.test_unit_conversion.SalesOrderLineFormCategoryValidationTest.test_cross_category_unit_fails)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\sqlite3\base.py", line 360, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.IntegrityError: NOT NULL constraint failed: sales_salesorder.customer_id
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\PsyChoNyMouz\Projects\InventorySystem\inventory_system\tests\test_unit_conversion.py", line 331, in test_cross_category_unit_fails
+    so = self._make_so()
+  File "D:\PsyChoNyMouz\Projects\InventorySystem\inventory_system\tests\test_unit_conversion.py", line 308, in _make_so
+    return SalesOrder.objects.create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        document_number='SO-SLF-001',
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+        created_by=self.user,
+        ^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\query.py", line 663, in create
+    obj.save(force_insert=True, using=self.db)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 902, in save
+    self.save_base(
+    ~~~~~~~~~~~~~~^
+        using=using,
+        ^^^^^^^^^^^^
+    ...<2 lines>...
+        update_fields=update_fields,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 1008, in save_base
+    updated = self._save_table(
+        raw,
+    ...<4 lines>...
+        update_fields,
+    )
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 1169, in _save_table
+    results = self._do_insert(
+        cls._base_manager, using, fields, returning_fields, raw
+    )
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 1210, in _do_insert
+    return manager._insert(
+           ~~~~~~~~~~~~~~~^
+        [self],
+        ^^^^^^^
+    ...<3 lines>...
+        raw=raw,
+        ^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\query.py", line 1868, in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\sql\compiler.py", line 1882, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 79, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 92, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 100, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\sqlite3\base.py", line 360, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.IntegrityError: NOT NULL constraint failed: sales_salesorder.customer_id
+
+======================================================================
+ERROR: test_valid_same_category_unit_passes (tests.test_unit_conversion.SalesOrderLineFormCategoryValidationTest.test_valid_same_category_unit_passes)
+  Applying sessions.0001_initial... OK
+System check identified no issues (0 silenced).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\sqlite3\base.py", line 360, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.IntegrityError: NOT NULL constraint failed: sales_salesorder.customer_id
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\PsyChoNyMouz\Projects\InventorySystem\inventory_system\tests\test_unit_conversion.py", line 317, in test_valid_same_category_unit_passes
+    so = self._make_so()
+  File "D:\PsyChoNyMouz\Projects\InventorySystem\inventory_system\tests\test_unit_conversion.py", line 308, in _make_so
+    return SalesOrder.objects.create(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        document_number='SO-SLF-001',
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+        created_by=self.user,
+        ^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\query.py", line 663, in create
+    obj.save(force_insert=True, using=self.db)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 902, in save
+    self.save_base(
+    ~~~~~~~~~~~~~~^
+        using=using,
+        ^^^^^^^^^^^^
+    ...<2 lines>...
+        update_fields=update_fields,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 1008, in save_base
+    updated = self._save_table(
+        raw,
+    ...<4 lines>...
+        update_fields,
+    )
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 1169, in _save_table
+    results = self._do_insert(
+        cls._base_manager, using, fields, returning_fields, raw
+    )
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\base.py", line 1210, in _do_insert
+    return manager._insert(
+           ~~~~~~~~~~~~~~~^
+        [self],
+        ^^^^^^^
+    ...<3 lines>...
+        raw=raw,
+        ^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\query.py", line 1868, in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\models\sql\compiler.py", line 1882, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 79, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 92, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 100, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\Lib\site-packages\django\db\backends\sqlite3\base.py", line 360, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.IntegrityError: NOT NULL constraint failed: sales_salesorder.customer_id
+
+----------------------------------------------------------------------
+Ran 23 tests in 3.005s
+
+FAILED (errors=3)
+Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
+

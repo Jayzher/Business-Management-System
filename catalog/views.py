@@ -38,6 +38,7 @@ class UnitViewSet(viewsets.ModelViewSet):
     queryset = Unit.objects.all()
     serializer_class = UnitSerializer
     search_fields = ['name', 'abbreviation']
+    filterset_fields = ['category', 'is_active']
 
 
 class UnitConversionViewSet(viewsets.ModelViewSet):

@@ -1,6 +1,18 @@
+from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.db import models
 from mptt.models import MPTTModel, TreeForeignKey
 from core.models import SoftDeleteModel
+
+
+class UnitCategory(models.TextChoices):
+    QUANTITY = 'quantity', 'Quantity'
+    LENGTH = 'length', 'Length'
+    MASS = 'mass', 'Mass'
+    VOLUME = 'volume', 'Volume'
+    AREA = 'area', 'Area'
+    MATERIAL = 'material', 'Material'
+    LOGISTICS = 'logistics', 'Logistics'
 
 
 class Category(MPTTModel, SoftDeleteModel):
@@ -26,16 +38,24 @@ class Unit(SoftDeleteModel):
     """Unit of measure (pcs, m, kg, sheet, bar, box)."""
     name = models.CharField(max_length=50, unique=True)
     abbreviation = models.CharField(max_length=10, unique=True)
+    category = models.CharField(
+        max_length=20,
+        choices=UnitCategory.choices,
+        default=UnitCategory.QUANTITY,
+        db_index=True,
+        help_text='Measurement category — conversions are only allowed within the same category.',
+    )
 
     class Meta:
-        ordering = ['name']
+        ordering = ['category', 'name']
 
     def __str__(self):
         return f"{self.name} ({self.abbreviation})"
 
 
 class UnitConversion(SoftDeleteModel):
-    """Conversion factor between units (e.g., 1 box = 20 pcs)."""
+    """Conversion factor between units (e.g., 1 box = 20 pcs).
+    Both units must share the same category."""
     from_unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='conversions_from')
     to_unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='conversions_to')
     factor = models.DecimalField(max_digits=15, decimal_places=6)
@@ -43,8 +63,58 @@ class UnitConversion(SoftDeleteModel):
     class Meta:
         unique_together = ('from_unit', 'to_unit')
 
+    def clean(self):
+        if self.from_unit_id and self.to_unit_id:
+            if self.from_unit_id == self.to_unit_id:
+                raise ValidationError('A unit cannot be converted to itself.')
+            if self.from_unit.category != self.to_unit.category:
+                raise ValidationError(
+                    f'Cannot create a conversion between units of different categories: '
+                    f'{self.from_unit.get_category_display()} ≠ {self.to_unit.get_category_display()}.'
+                )
+
     def __str__(self):
         return f"1 {self.from_unit.abbreviation} = {self.factor} {self.to_unit.abbreviation}"
+
+
+def convert_to_base_unit(qty, sale_unit, base_unit):
+    """Convert *qty* expressed in *sale_unit* to *base_unit* for inventory.
+
+    Rules:
+    - If sale_unit == base_unit, return qty unchanged.
+    - Both units must be in the same category; raises ValueError otherwise.
+    - Looks up a UnitConversion (direct or reverse).  Raises ValueError when
+      no conversion exists — the calling code should handle this gracefully.
+    """
+    if sale_unit.pk == base_unit.pk:
+        return qty
+
+    if sale_unit.category != base_unit.category:
+        raise ValueError(
+            f'Cannot convert {sale_unit} → {base_unit}: '
+            f'different categories ({sale_unit.category} vs {base_unit.category}).'
+        )
+
+    # Try direct conversion: sale_unit → base_unit
+    conv = UnitConversion.objects.filter(
+        from_unit=sale_unit, to_unit=base_unit, is_active=True
+    ).first()
+    if conv:
+        return qty * conv.factor
+
+    # Try reverse: base_unit → sale_unit  ⟹ factor = 1/reverse_factor
+    conv_rev = UnitConversion.objects.filter(
+        from_unit=base_unit, to_unit=sale_unit, is_active=True
+    ).first()
+    if conv_rev:
+        if conv_rev.factor == 0:
+            raise ValueError(f'UnitConversion factor for {conv_rev} is zero.')
+        return qty / conv_rev.factor
+
+    raise ValueError(
+        f'No UnitConversion found between {sale_unit} and {base_unit}. '
+        f'Please add one under Catalog → Unit Conversions.'
+    )
 
 
 class ItemType(models.TextChoices):
