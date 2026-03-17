@@ -11,6 +11,7 @@ from inventory.models import (
     StockTransfer, StockAdjustment, DamagedReport,
 )
 from audit.models import AuditLog
+from catalog.models import convert_to_base_unit
 
 
 def _update_balance(item, location, qty_delta, reserved_delta=Decimal('0')):
@@ -64,12 +65,13 @@ def post_goods_receipt(grn, user):
     now = timezone.now()
     moves = []
 
-    for line in grn.lines.all():
+    for line in grn.lines.select_related('item__default_unit', 'unit').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
         move = StockMove(
             move_type=MoveType.RECEIVE,
             item=line.item,
-            qty=line.qty,
-            unit=line.unit,
+            qty=base_qty,
+            unit=line.item.default_unit,
             from_location=None,
             to_location=line.location,
             reference_type='GoodsReceipt',
@@ -83,7 +85,7 @@ def post_goods_receipt(grn, user):
             posted_at=now,
         )
         moves.append(move)
-        _update_balance(line.item, line.location, line.qty)
+        _update_balance(line.item, line.location, base_qty)
 
         # Update PO received qty if linked
         if grn.purchase_order:
@@ -140,12 +142,13 @@ def post_delivery(delivery, user):
     now = timezone.now()
     moves = []
 
-    for line in delivery.lines.all():
+    for line in delivery.lines.select_related('item__default_unit', 'unit').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
         move = StockMove(
             move_type=MoveType.DELIVER,
             item=line.item,
-            qty=line.qty,
-            unit=line.unit,
+            qty=base_qty,
+            unit=line.item.default_unit,
             from_location=line.location,
             to_location=None,
             reference_type='DeliveryNote',
@@ -159,9 +162,9 @@ def post_delivery(delivery, user):
             posted_at=now,
         )
         moves.append(move)
-        _update_balance(line.item, line.location, -line.qty)
+        _update_balance(line.item, line.location, -base_qty)
 
-        # Update SO delivered qty if linked
+        # Update SO delivered qty if linked (track in the SO line's own unit)
         if delivery.sales_order:
             so_lines = delivery.sales_order.lines.filter(item=line.item)
             for so_line in so_lines:
@@ -194,12 +197,13 @@ def post_sales_pickup(pickup, user):
     now = timezone.now()
     moves = []
 
-    for line in pickup.lines.all():
+    for line in pickup.lines.select_related('item__default_unit', 'unit').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
         move = StockMove(
             move_type=MoveType.DELIVER,
             item=line.item,
-            qty=line.qty,
-            unit=line.unit,
+            qty=base_qty,
+            unit=line.item.default_unit,
             from_location=line.location,
             to_location=None,
             reference_type='SalesPickup',
@@ -213,9 +217,9 @@ def post_sales_pickup(pickup, user):
             posted_at=now,
         )
         moves.append(move)
-        _update_balance(line.item, line.location, -line.qty)
+        _update_balance(line.item, line.location, -base_qty)
 
-        # Update SO delivered qty if linked
+        # Update SO delivered qty if linked (track in the SO line's own unit)
         if pickup.sales_order:
             so_lines = pickup.sales_order.lines.filter(item=line.item)
             for so_line in so_lines:

@@ -57,7 +57,17 @@
   <div class="card-body table-responsive p-0">
     <table class="table table-hover detail-lines-table mb-0">
       <thead>
-        <tr><th>Item</th><th class="text-end">Qty Ordered</th><th class="text-end">Qty Delivered</th><th class="text-end">Qty Reserved</th><th class="text-end">Remaining</th><th>Unit</th><th class="text-end">Unit Price</th><th class="text-end">Total</th></tr>
+        <tr>
+          <th>Item</th>
+          <th class="text-end">Qty Ordered</th>
+          <th class="text-end">Qty Delivered</th>
+          <th class="text-end">Qty Reserved</th>
+          <th class="text-end">Remaining</th>
+          <th>Unit</th>
+          <th class="text-end">Unit Price</th>
+          <th class="text-end">Line Total</th>
+          <th class="text-end text-danger">COGS</th>
+        </tr>
       </thead>
       <tbody>
         {% for line in order.lines.all %}
@@ -69,12 +79,22 @@
           <td class="text-end">{{ line.qty_remaining|decimal2 }}</td>
           <td>{{ line.unit.abbreviation }}</td>
           <td class="text-end">{{ line.unit_price|currency }}</td>
-          <td class="text-end">{{ line.line_total|currency }}</td>
+          <td class="text-end fw-semibold">{{ line.line_total|currency }}</td>
+          <td class="text-end text-danger">{{ line_cogs_map|get_item:line.pk|currency }}</td>
         </tr>
         {% empty %}
-        <tr><td colspan="8" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
         {% endfor %}
       </tbody>
+      {% if order.lines.exists %}
+      <tfoot class="table-light fw-bold">
+        <tr>
+          <td colspan="7" class="text-end">Lines Subtotal</td>
+          <td class="text-end">{{ order.line_amount_total|currency }}</td>
+          <td class="text-end text-danger">{{ so_line_cogs_total|currency }}</td>
+        </tr>
+      </tfoot>
+      {% endif %}
     </table>
   </div>
 </div>
@@ -94,7 +114,8 @@
       </div>
       <div class="text-end">
         <span class="text-muted small me-2">Subtotal: {{ bundle.bundle_subtotal|currency }}</span>
-        <strong class="text-success">Total: {{ bundle.bundle_total|currency }}</strong>
+        <strong class="text-success me-3">Total: {{ bundle.bundle_total|currency }}</strong>
+        <span class="text-danger small">COGS: {{ bundle_cogs_map|get_item:bundle.pk|currency }}</span>
       </div>
     </div>
     <div class="table-responsive">
@@ -102,23 +123,25 @@
         <thead class="table-light">
           <tr>
             <th>Item</th>
-            <th class="text-end">Qty</th>
+            <th class="text-end">Qty (× multiplier)</th>
             <th>Unit</th>
             <th class="text-end">Bundle Price</th>
             <th class="text-end">Line Total</th>
+            <th class="text-end text-danger">COGS</th>
           </tr>
         </thead>
         <tbody>
           {% for pli in bundle.price_list.items.all %}
           <tr>
             <td>{% include "theme/partials/item_cell.html" with item=pli.item %}</td>
-            <td class="text-end">{{ pli.min_qty|decimal2 }}</td>
+            <td class="text-end">{{ pli.min_qty|decimal2 }} × {{ bundle.qty_multiplier|decimal2 }}</td>
             <td>{{ pli.unit.abbreviation }}</td>
             <td class="text-end text-success fw-semibold">{{ pli.price|currency }}</td>
             <td class="text-end">{{ pli.price|currency }}</td>
+            <td class="text-end text-danger">{{ pli.item.cost_price|currency }}</td>
           </tr>
           {% empty %}
-          <tr><td colspan="5" class="text-center text-muted py-2">No items in this bundle.</td></tr>
+          <tr><td colspan="6" class="text-center text-muted py-2">No items in this bundle.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -127,4 +150,53 @@
   {% endfor %}
 </div>
 {% endif %}
+
+<!-- ═══ Grand Total Summary Card ═══ -->
+<div class="row justify-content-end mt-2">
+  <div class="col-lg-5">
+    <div class="card card-outline card-success">
+      <div class="card-header bg-transparent">
+        <h3 class="card-title"><i class="fas fa-calculator me-2 text-success"></i>Order Summary</h3>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr>
+              <td class="text-muted">Order Lines Subtotal</td>
+              <td class="text-end fw-semibold">{{ order.line_amount_total|currency }}</td>
+            </tr>
+            {% if order.price_list_lines.exists %}
+            <tr>
+              <td class="text-muted">Bundle / Package Total</td>
+              <td class="text-end fw-semibold">{{ order.bundle_amount_total|currency }}</td>
+            </tr>
+            {% endif %}
+            <tr class="table-success">
+              <td class="fw-bold fs-6">Grand Total (Revenue)</td>
+              <td class="text-end fw-bold fs-6 text-success">{{ order.grand_total|currency }}</td>
+            </tr>
+            <tr class="table-light">
+              <td class="text-muted">Lines COGS (cost × qty)</td>
+              <td class="text-end text-danger">{{ so_line_cogs_total|currency }}</td>
+            </tr>
+            {% if order.price_list_lines.exists %}
+            <tr class="table-light">
+              <td class="text-muted">Bundle COGS</td>
+              <td class="text-end text-danger">{{ so_bundle_cogs_total|currency }}</td>
+            </tr>
+            {% endif %}
+            <tr style="border-top:2px solid #dc3545;">
+              <td class="fw-bold">Grand Total COGS</td>
+              <td class="text-end fw-bold text-danger">{{ grand_total_cogs|currency }}</td>
+            </tr>
+            <tr class="table-warning">
+              <td class="fw-bold">Gross Profit</td>
+              <td class="text-end fw-bold">{{ order.grand_total|subtract:grand_total_cogs|currency }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

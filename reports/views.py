@@ -687,6 +687,97 @@ def financial_statement_view(request):
     trend_expenses = [float(month_map[k]['expenses']) for k in trend_labels]
     trend_profit = [float(month_map[k]['revenue'] - month_map[k]['expenses']) for k in trend_labels]
 
+    # ── Invoice / Computation Breakdown ────────────────────────────────
+    from core.models import Invoice
+    from services.models import CustomerService
+
+    breakdown_rows = []
+
+    # 1. POS Sales (with or without linked Invoice)
+    for sale in sale_qs.select_related('customer').prefetch_related('lines__item'):
+        pos_cogs = sum(
+            (line.item.cost_price or Decimal('0')) * line.qty
+            for line in sale.lines.all()
+        )
+        inv_no = ''
+        inv_qs = sale.invoices.filter(is_void=False).first()
+        if inv_qs:
+            inv_no = inv_qs.invoice_number
+        breakdown_rows.append({
+            'type': 'POS',
+            'ref': sale.sale_no,
+            'invoice_no': inv_no,
+            'date': sale.created_at.date() if sale.created_at else None,
+            'customer': sale.customer.name if sale.customer_id else '—',
+            'revenue': sale.grand_total,
+            'cogs': pos_cogs.quantize(Decimal('0.01')),
+            'gross_profit': (sale.grand_total - pos_cogs).quantize(Decimal('0.01')),
+        })
+
+    # 2. Sales Orders (lines + bundles)
+    for so in so_qs_fs.select_related('customer').prefetch_related(
+        'lines__item',
+        'price_list_lines__price_list__items__item',
+        'invoices',
+    ):
+        so_rev = sum(line.line_total for line in so.lines.all()) + \
+                 sum(b.bundle_total for b in so.price_list_lines.all())
+        so_cogs_val = sum(
+            (l.item.cost_price or Decimal('0')) * l.qty_ordered
+            for l in so.lines.all()
+        )
+        for bundle in so.price_list_lines.all():
+            for pli in bundle.price_list.items.all():
+                so_cogs_val += (pli.item.cost_price or Decimal('0')) * pli.min_qty * bundle.qty_multiplier
+        inv_no = ''
+        inv_obj = so.invoices.filter(is_void=False).first()
+        if inv_obj:
+            inv_no = inv_obj.invoice_number
+        breakdown_rows.append({
+            'type': 'SO',
+            'ref': so.document_number,
+            'invoice_no': inv_no,
+            'date': so.order_date,
+            'customer': so.customer.name if so.customer_id else '—',
+            'revenue': so_rev,
+            'cogs': so_cogs_val.quantize(Decimal('0.01')),
+            'gross_profit': (so_rev - so_cogs_val).quantize(Decimal('0.01')),
+        })
+
+    # 3. Completed Services linked to an Invoice in the period
+    svc_qs = CustomerService.objects.filter(
+        status='COMPLETED',
+        invoice__isnull=False,
+    )
+    if date_from:
+        svc_qs = svc_qs.filter(completion_date__gte=date_from)
+    if date_to:
+        svc_qs = svc_qs.filter(completion_date__lte=date_to)
+    for svc in svc_qs.select_related('invoice').prefetch_related('lines__item'):
+        svc_rev = svc.grand_total
+        svc_cogs = sum(
+            (line.item.cost_price or Decimal('0')) * line.qty
+            for line in svc.lines.all()
+        )
+        breakdown_rows.append({
+            'type': 'SVC',
+            'ref': svc.service_number,
+            'invoice_no': svc.invoice.invoice_number if svc.invoice_id else '',
+            'date': svc.completion_date,
+            'customer': svc.customer_name or '—',
+            'revenue': svc_rev,
+            'cogs': svc_cogs.quantize(Decimal('0.01')),
+            'gross_profit': (svc_rev - svc_cogs).quantize(Decimal('0.01')),
+        })
+
+    # Sort breakdown by date
+    breakdown_rows.sort(key=lambda r: r['date'] or date.min)
+
+    # Totals for the breakdown
+    breakdown_total_revenue = sum(r['revenue'] for r in breakdown_rows)
+    breakdown_total_cogs = sum(r['cogs'] for r in breakdown_rows)
+    breakdown_total_gp = sum(r['gross_profit'] for r in breakdown_rows)
+
     return render(request, 'reports/financial_statement.html', {
         'revenue': revenue,
         'pos_revenue': pos_revenue,
@@ -709,6 +800,10 @@ def financial_statement_view(request):
         'trend_expenses': trend_expenses,
         'trend_profit': trend_profit,
         'filters': {'date_from': date_from, 'date_to': date_to},
+        'breakdown_rows': breakdown_rows,
+        'breakdown_total_revenue': breakdown_total_revenue,
+        'breakdown_total_cogs': breakdown_total_cogs,
+        'breakdown_total_gp': breakdown_total_gp,
     })
 
 

@@ -12,6 +12,9 @@
   .pnl-grand { font-size: 1.1rem; font-weight: 700; border-top: 3px double #333; }
   .positive { color: #28a745; }
   .negative { color: #dc3545; }
+  .bdg-pos { background:#28a745; color:#fff; font-size:.72rem; padding:.2rem .45rem; border-radius:.25rem; }
+  .bdg-so  { background:#007bff; color:#fff; font-size:.72rem; padding:.2rem .45rem; border-radius:.25rem; }
+  .bdg-svc { background:#6f42c1; color:#fff; font-size:.72rem; padding:.2rem .45rem; border-radius:.25rem; }
 </style>
 {% endblock %}
 
@@ -22,12 +25,15 @@
     <form method="get" class="row g-2 align-items-end">
       <div class="col-md-2"><label class="small">From</label><input type="date" name="date_from" class="form-control form-control-sm" value="{{ filters.date_from }}"></div>
       <div class="col-md-2"><label class="small">To</label><input type="date" name="date_to" class="form-control form-control-sm" value="{{ filters.date_to }}"></div>
-      <div class="col-md-4">
+      <div class="col-md-5">
         <label class="small">&nbsp;</label>
         <div class="d-flex flex-wrap">
           <button type="submit" class="btn btn-dark btn-sm mr-1 mb-1"><i class="fas fa-filter mr-1"></i> Generate</button>
           <button type="button" class="btn btn-sm btn-success mr-1 mb-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
-          <button type="button" class="btn btn-sm btn-outline-danger mb-1 wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+          <button type="button" class="btn btn-sm btn-outline-danger mr-1 mb-1 wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+          <button type="button" class="btn btn-sm btn-outline-info mb-1" data-bs-toggle="modal" data-bs-target="#breakdownModal">
+            <i class="fas fa-table mr-1"></i> Computation Breakdown
+          </button>
         </div>
       </div>
     </form>
@@ -125,6 +131,75 @@
     <div class="card">
       <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-bar mr-1"></i> Monthly Trend</h3></div>
       <div class="card-body"><canvas id="trendChart" height="250"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Computation Breakdown Modal ═══ -->
+<div class="modal fade" id="breakdownModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-xl" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title"><i class="fas fa-table mr-2"></i>Computation Breakdown — {{ filters.date_from }} to {{ filters.date_to }}</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover table-bordered mb-0" id="breakdownTable">
+            <thead class="thead-dark">
+              <tr>
+                <th>Type</th>
+                <th>Reference</th>
+                <th>Invoice #</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th class="text-right">Revenue</th>
+                <th class="text-right text-danger">COGS</th>
+                <th class="text-right text-success">Gross Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in breakdown_rows %}
+              <tr>
+                <td>
+                  {% if row.type == 'POS' %}<span class="bdg-pos">POS</span>
+                  {% elif row.type == 'SO' %}<span class="bdg-so">SO</span>
+                  {% else %}<span class="bdg-svc">SVC</span>{% endif %}
+                </td>
+                <td class="font-monospace small">{{ row.ref }}</td>
+                <td class="font-monospace small text-muted">{{ row.invoice_no|default:"—" }}</td>
+                <td class="small">{{ row.date|date:"M d, Y"|default:"—" }}</td>
+                <td class="small">{{ row.customer }}</td>
+                <td class="text-right">&#8369; {{ row.revenue|floatformat:2|intcomma }}</td>
+                <td class="text-right text-danger">&#8369; {{ row.cogs|floatformat:2|intcomma }}</td>
+                <td class="text-right {% if row.gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+                  &#8369; {{ row.gross_profit|floatformat:2|intcomma }}
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="8" class="text-center text-muted py-4">
+                <i class="fas fa-inbox mr-1"></i>No transactions found for the selected period.
+              </td></tr>
+              {% endfor %}
+            </tbody>
+            {% if breakdown_rows %}
+            <tfoot class="table-dark font-weight-bold">
+              <tr>
+                <td colspan="5" class="text-right">TOTALS</td>
+                <td class="text-right">&#8369; {{ breakdown_total_revenue|floatformat:2|intcomma }}</td>
+                <td class="text-right text-danger">&#8369; {{ breakdown_total_cogs|floatformat:2|intcomma }}</td>
+                <td class="text-right {% if breakdown_total_gp >= 0 %}text-success{% else %}text-danger{% endif %}">
+                  &#8369; {{ breakdown_total_gp|floatformat:2|intcomma }}
+                </td>
+              </tr>
+            </tfoot>
+            {% endif %}
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Close</button>
+      </div>
     </div>
   </div>
 </div>

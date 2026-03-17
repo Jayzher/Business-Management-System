@@ -211,6 +211,10 @@ class Invoice(TimeStampedModel):
     discount_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     tax_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     grand_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    grand_total_cogs = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Computed COGS for this invoice (synced via sync_invoice_cogs command).',
+    )
     notes = models.TextField(blank=True, default='')
     is_paid = models.BooleanField(default=False)
     paid_at = models.DateTimeField(null=True, blank=True)
