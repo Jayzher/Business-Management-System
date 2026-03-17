@@ -156,6 +156,17 @@ class Item(SoftDeleteModel):
     class Meta:
         ordering = ['code']
 
+    @property
+    def stock_unit(self):
+        """The canonical unit for all inventory storage (StockBalance/StockMove).
+
+        Returns selling_unit when explicitly set, otherwise falls back to
+        default_unit.  All posting services must convert to this unit before
+        writing to StockBalance so that every quantity is normalised to the
+        selling/inventory unit regardless of the procurement unit used.
+        """
+        return self.selling_unit if self.selling_unit_id else self.default_unit
+
     def __str__(self):
         return f"[{self.code}] {self.name}"
 

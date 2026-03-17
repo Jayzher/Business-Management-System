@@ -24,8 +24,13 @@ def stock_on_hand_report(request):
     qs = StockBalance.objects.select_related('item', 'location', 'location__warehouse')
     if warehouse_id:
         qs = qs.filter(location__warehouse_id=warehouse_id)
-    qs = qs.filter(qty_on_hand__gt=0).values(
-        'item__code', 'item__name', 'item__default_unit__abbreviation',
+    qs = qs.filter(qty_on_hand__gt=0).annotate(
+        unit_abbrev=Coalesce(
+            F('item__selling_unit__abbreviation'),
+            F('item__default_unit__abbreviation'),
+        )
+    ).values(
+        'item__code', 'item__name', 'unit_abbrev',
         'location__warehouse__code', 'location__warehouse__name',
     ).annotate(
         total_on_hand=Sum('qty_on_hand'),
@@ -108,7 +113,7 @@ def stock_on_hand_view(request):
     warehouse_id = request.GET.get('warehouse')
     warehouses = Warehouse.objects.filter(is_active=True)
     qs = StockBalance.objects.select_related(
-        'item', 'item__default_unit', 'location', 'location__warehouse'
+        'item', 'item__default_unit', 'item__selling_unit', 'location', 'location__warehouse'
     ).filter(qty_on_hand__gt=0).annotate(
         line_value=F('qty_on_hand') * Coalesce(F('item__cost_price'), Decimal('0'), output_field=DecimalField()),
     )
@@ -443,7 +448,7 @@ def profit_margin_view(request):
     # ── POS lines ─────────────────────────────────────────────────────
     pos_qs = POSSaleLine.objects.filter(
         sale__status__in=[SaleStatus.POSTED, SaleStatus.PAID],
-    ).select_related('item', 'item__default_unit', 'unit', 'sale')
+    ).select_related('item', 'item__default_unit', 'item__selling_unit', 'unit', 'sale')
     if date_from:
         pos_qs = pos_qs.filter(sale__created_at__date__gte=date_from)
     if date_to:
@@ -982,7 +987,7 @@ def inventory_valuation_view(request):
     warehouses = Warehouse.objects.filter(is_active=True)
 
     qs = StockBalance.objects.filter(qty_on_hand__gt=0).select_related(
-        'item', 'item__default_unit', 'location', 'location__warehouse'
+        'item', 'item__default_unit', 'item__selling_unit', 'location', 'location__warehouse'
     )
     if warehouse_id:
         qs = qs.filter(location__warehouse_id=warehouse_id)

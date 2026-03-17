@@ -467,8 +467,8 @@ def terminal_add_line(request, sale_id):
     discount = Decimal(request.POST.get('discount_amount', '0'))
     tax_rate = Decimal(request.POST.get('tax_rate', '0'))
 
-    item = get_object_or_404(Item, pk=item_id)
-    unit = item.default_unit
+    item = get_object_or_404(Item.objects.select_related('default_unit', 'selling_unit'), pk=item_id)
+    unit = item.stock_unit
 
     unit_price = Decimal(request.POST.get('unit_price', '0'))
     if unit_price <= 0:
