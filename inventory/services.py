@@ -66,7 +66,7 @@ def post_goods_receipt(grn, user):
     moves = []
 
     for line in grn.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
         move = StockMove(
             move_type=MoveType.RECEIVE,
             item=line.item,
@@ -143,7 +143,7 @@ def post_delivery(delivery, user):
     moves = []
 
     for line in delivery.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
         move = StockMove(
             move_type=MoveType.DELIVER,
             item=line.item,
@@ -198,7 +198,7 @@ def post_sales_pickup(pickup, user):
     moves = []
 
     for line in pickup.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
         move = StockMove(
             move_type=MoveType.DELIVER,
             item=line.item,
@@ -262,7 +262,7 @@ def post_transfer(transfer, user):
                 f"To-location {line.to_location} does not belong to "
                 f"warehouse {transfer.to_warehouse}."
             )
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
         move = StockMove(
             move_type=MoveType.TRANSFER,
             item=line.item,
@@ -312,7 +312,7 @@ def post_adjustment(adjustment, user):
         raw_diff = line.qty_counted - line.qty_system
         if raw_diff == 0:
             continue
-        base_diff = convert_to_base_unit(abs(raw_diff), line.unit, line.item.stock_unit)
+        base_diff = convert_to_base_unit(abs(raw_diff), line.unit, line.item.stock_unit, item=line.item)
         if raw_diff < 0:
             base_diff = -base_diff
 
@@ -360,7 +360,7 @@ def post_damaged_report(report, user):
     moves = []
 
     for line in report.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
         move = StockMove(
             move_type=MoveType.DAMAGE,
             item=line.item,
@@ -491,7 +491,7 @@ def post_purchase_return(pr, user):
     moves = []
 
     for line in pr.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
         move = StockMove(
             move_type=MoveType.RETURN_OUT,
             item=line.item,
@@ -535,7 +535,7 @@ def post_sales_return(sr, user):
     moves = []
 
     for line in sr.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
         move = StockMove(
             move_type=MoveType.RETURN_IN,
             item=line.item,
@@ -588,7 +588,7 @@ def post_inventory_to_supply(ist, user):
     supply_movements = []
 
     for line in ist.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
         # Deduct inventory stock
         _update_balance(line.item, line.location, -base_qty)
 

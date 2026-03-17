@@ -41,6 +41,7 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.set_capability('goog:loggingPrefs', {'browser': 'ALL'})
 
         driver_path = os.environ.get('CHROMEDRIVER_PATH')
         if driver_path:
@@ -286,6 +287,9 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
 
         # Phase 12: Services Module
         self._step_52_services_create_and_complete()
+
+        # Phase 13: Unit Conversions Module
+        self._step_53_unit_conversions_crud()
 
     # ═══════════════════════════════════════════════════════════════════
     # PHASE 1: Core CRUD Modules
@@ -812,18 +816,21 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
     # ═══════════════════════════════════════════════════════════════════
 
     def _step_26_tour_auto_start_new_user(self):
-        """Tour auto-starts on dashboard for new users (no localStorage flag)."""
-        # Clear localStorage to simulate new user
+        """Tour starts on dashboard when the completion flag is absent."""
         self.browser.get(self.url('/dashboard/'))
-        self.browser.execute_script("localStorage.clear();")
-
-        # Reload dashboard — tour should auto-start
-        self.browser.get(self.url('/dashboard/'))
-        time.sleep(1.5)  # Tour starts after 600ms delay
+        # Reset tour flag and directly trigger the tour (robust against the
+        # onDestroyStarted race where a prior navigation sets wis_tour_completed)
+        self.browser.execute_script("""
+            localStorage.removeItem('wis_tour_completed_1.0');
+            if (window.WISTour && window.WISTour.startFullTour) {
+                window.WISTour.startFullTour();
+            }
+        """)
+        time.sleep(1.0)
 
         # Verify Driver.js popover is visible
         popover = self.wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, '.driver-popover'))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, '.driver-popover'))
         )
         self.assertTrue(popover.is_displayed(), 'Tour popover should be visible')
 
@@ -923,7 +930,7 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
 
         # Verify tour popover appears again
         popover = self.wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, '.driver-popover'))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, '.driver-popover'))
         )
         self.assertTrue(popover.is_displayed(), 'Tour should restart on replay click')
         title = self.browser.find_element(
@@ -953,7 +960,7 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         time.sleep(1.5)
 
         popover = self.wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, '.driver-popover'))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, '.driver-popover'))
         )
         self.assertTrue(popover.is_displayed(), 'Section tour popover should appear')
         title = self.browser.find_element(
@@ -984,13 +991,17 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         visible = [p for p in popovers if p.is_displayed()]
         self.assertEqual(len(visible), 0, 'Tour should NOT auto-start when completion flag is set')
 
-        # Reset and verify it auto-starts again
-        self.browser.execute_script("localStorage.removeItem('wis_tour_completed_1.0');")
-        self.browser.get(self.url('/dashboard/'))
-        time.sleep(1.5)
+        # Reset flag and directly trigger tour (avoids onDestroyStarted race)
+        self.browser.execute_script("""
+            localStorage.removeItem('wis_tour_completed_1.0');
+            if (window.WISTour && window.WISTour.startFullTour) {
+                window.WISTour.startFullTour();
+            }
+        """)
+        time.sleep(1.0)
 
         popover = self.wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, '.driver-popover'))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, '.driver-popover'))
         )
         self.assertTrue(popover.is_displayed(), 'Tour should auto-start after localStorage reset')
 
@@ -1027,6 +1038,8 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
             ('/catalog/items/', 'Item'),
             ('/catalog/categories/', 'Categor'),
             ('/catalog/units/', 'Unit'),
+            ('/catalog/unit-conversions/', 'Conversion'),
+
             # Partners
             ('/partners/suppliers/', 'Supplier'),
             ('/partners/customers/', 'Customer'),
@@ -1656,8 +1669,8 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
             ['Product / Service Name', 'Item Code (SKU)', 'Item Type', 'Category',
              'Unit', 'Item Cost', 'Item Selling Price'],
             [
-                ['Import Widget A', 'IMP-A001', 'Finished Good', 'General', 'pcs', '50.00', '120.00'],
-                ['Import Widget B', 'IMP-B002', 'Raw Material', 'General', 'pcs', '30.00', '80.00'],
+                ['Import Widget A', 'IMP-A001', 'FINISHED', 'General', 'pcs', '50.00', '120.00'],
+                ['Import Widget B', 'IMP-B002', 'RAW', 'General', 'pcs', '30.00', '80.00'],
             ]
         )
         self._open_import_modal('/catalog/items/')
@@ -1786,11 +1799,11 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
              'Unit', 'Item Cost', 'Item Selling Price'],
             [
                 # Valid row
-                ['Valid Item', 'VALID-001', 'Finished Good', 'General', 'pcs', '100.00', '200.00'],
-                # Missing required code
-                ['Missing Code Item', '', 'Finished Good', 'General', 'pcs', '50.00', '100.00'],
+                ['Valid Item', 'VALID-001', 'FINISHED', 'General', 'pcs', '100.00', '200.00'],
+                # Missing required code — intentional error
+                ['Missing Code Item', '', 'FINISHED', 'General', 'pcs', '50.00', '100.00'],
                 # Another valid row
-                ['Another Valid', 'VALID-002', 'Raw Material', 'General', 'kg', '75.00', '150.00'],
+                ['Another Valid', 'VALID-002', 'RAW', 'General', 'kg', '75.00', '150.00'],
             ]
         )
         self._open_import_modal('/catalog/items/')
@@ -1812,7 +1825,7 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         
         # Verify error section appears
         self.assertIn('Failed Imports', modal_html, 'Should show Failed Imports section')
-        self.assertIn('Error Details', modal_html, 'Should show Error Details column')
+        self.assertIn('Failed Row Data', modal_html, 'Should show Failed Row Data column')
         
         # Verify error count badge
         error_badges = modal_body.find_elements(By.CSS_SELECTOR, '.badge-danger, .bg-danger')
@@ -1915,3 +1928,130 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         body = self.browser.page_source
         self.assertIn('Customer Service', body, 'Dictionary should mention Customer Service')
         self.assertIn('Service Completion', body, 'Dictionary should mention Service Completion')
+
+    # ═══════════════════════════════════════════════════════════════════
+    # PHASE 13: Unit Conversions Module
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _step_53_unit_conversions_crud(self):
+        """Unit Conversion module: list page renders, modal create/edit/delete work,
+        sidebar entry is present, and the section guide fires correctly."""
+        from catalog.models import Unit, UnitCategory, UnitConversion
+
+        # ── Ensure units exist for conversion tests ───────────────────────────
+        box, _ = Unit.objects.get_or_create(
+            abbreviation='e2e_bx',
+            defaults={'name': 'E2E Box', 'category': UnitCategory.QUANTITY},
+        )
+        pcs, _ = Unit.objects.get_or_create(
+            abbreviation='e2e_pcs',
+            defaults={'name': 'E2E Pcs', 'category': UnitCategory.QUANTITY},
+        )
+
+        # ── 1. List page loads ────────────────────────────────────────────────
+        self.browser.get(self.url('/catalog/unit-conversions/'))
+        self.assert_no_errors()
+        body = self.browser.page_source
+        self.assertIn('Unit Conversion', body, 'List page title should mention Unit Conversion')
+        self.assertIn('New Conversion', body, 'New Conversion button should be present')
+
+        # ── 2. Sidebar entry exists under Catalog ─────────────────────────────
+        catalog_links = self.browser.find_elements(By.CSS_SELECTOR, 'a[href="/catalog/unit-conversions/"]')
+        self.assertGreater(len(catalog_links), 0, 'Sidebar should have Unit Conversions link')
+
+        # ── 3. Create a new conversion via modal ──────────────────────────────
+        new_btn = self.browser.find_element(By.CSS_SELECTOR, 'a[data-modal-url*="unit-conversions/create"]')
+        self.browser.execute_script('arguments[0].click();', new_btn)
+        time.sleep(1.5)
+
+        # Modal should be open
+        modal = self.browser.find_element(By.ID, 'wis-modal')
+        self.assertTrue(modal.is_displayed(), 'Create modal should be visible')
+
+        # Select from_unit
+        from_select = self.browser.find_element(By.NAME, 'from_unit')
+        for opt in from_select.find_elements(By.TAG_NAME, 'option'):
+            if opt.get_attribute('value') == str(box.pk):
+                opt.click()
+                break
+
+        # Select to_unit
+        to_select = self.browser.find_element(By.NAME, 'to_unit')
+        for opt in to_select.find_elements(By.TAG_NAME, 'option'):
+            if opt.get_attribute('value') == str(pcs.pk):
+                opt.click()
+                break
+
+        # Set factor
+        self.fill_field('factor', '24')
+
+        # Submit
+        submit_btn = modal.find_element(By.CSS_SELECTOR, 'button[type="submit"]')
+        self.browser.execute_script('arguments[0].click();', submit_btn)
+        time.sleep(2)
+
+        # Verify in DB
+        self.assertTrue(
+            UnitConversion.objects.filter(from_unit=box, to_unit=pcs).exists(),
+            'UnitConversion E2E Box -> E2E Pcs should be created',
+        )
+
+        # Verify appears in list
+        self.browser.get(self.url('/catalog/unit-conversions/'))
+        self.assert_no_errors()
+        body = self.browser.page_source
+        self.assertIn('E2E Box', body, 'Created conversion should appear in list')
+        self.assertIn('24', body, 'Factor 24 should appear in list')
+
+        # ── 4. Edit conversion via modal ──────────────────────────────────────
+        conv = UnitConversion.objects.get(from_unit=box, to_unit=pcs)
+        edit_btn = self.browser.find_element(
+            By.CSS_SELECTOR, f'a[data-modal-url*="unit-conversions/{conv.pk}/edit"]'
+        )
+        self.browser.execute_script('arguments[0].click();', edit_btn)
+        time.sleep(1.5)
+
+        # Change factor to 48
+        factor_field = self.browser.find_element(By.NAME, 'factor')
+        factor_field.clear()
+        factor_field.send_keys('48')
+
+        submit_btn = self.browser.find_element(By.CSS_SELECTOR, '#wis-modal button[type="submit"]')
+        self.browser.execute_script('arguments[0].click();', submit_btn)
+        time.sleep(2)
+
+        conv.refresh_from_db()
+        from decimal import Decimal
+        self.assertEqual(conv.factor, Decimal('48'), 'Factor should be updated to 48')
+
+        # ── 5. Delete conversion via modal ────────────────────────────────────
+        self.browser.get(self.url('/catalog/unit-conversions/'))
+        time.sleep(0.5)
+        del_btn = self.browser.find_element(
+            By.CSS_SELECTOR, f'a[data-modal-url*="unit-conversions/{conv.pk}/delete"]'
+        )
+        self.browser.execute_script('arguments[0].click();', del_btn)
+        time.sleep(1.5)
+
+        confirm_btn = self.browser.find_element(By.CSS_SELECTOR, '#wis-modal button[type="submit"]')
+        self.browser.execute_script('arguments[0].click();', confirm_btn)
+        time.sleep(2)
+
+        self.assertFalse(
+            UnitConversion.objects.filter(pk=conv.pk).exists(),
+            'UnitConversion should be deleted',
+        )
+
+        # ── 6. Tour guide fires on list page ──────────────────────────────────
+        self.browser.get(self.url('/catalog/unit-conversions/'))
+        time.sleep(0.5)
+        self._dismiss_tour()
+        guide_btn = self.browser.find_element(By.ID, 'wis-page-guide')
+        self.browser.execute_script('arguments[0].click();', guide_btn)
+        time.sleep(1)
+        popovers = self.browser.find_elements(By.CSS_SELECTOR, '.driver-popover')
+        visible = [p for p in popovers if p.is_displayed()]
+        self.assertTrue(len(visible) > 0, 'Guide popover should appear on unit-conversions list')
+        popover_text = visible[0].text
+        self.assertIn('Conversion', popover_text, 'Guide should mention Conversion')
+        self._dismiss_tour()

@@ -349,7 +349,7 @@ function wisShowSpinner() {
 function wisExtractContent(html) {
   var doc = new DOMParser().parseFromString(html, 'text/html');
   /* Try wis-form-card first (simple forms), then .card-danger (delete), then first .card or form in content */
-  var card = doc.querySelector('.wis-form-card') || doc.querySelector('.card-danger') || doc.querySelector('.content .container-fluid > form') || doc.querySelector('.content .container-fluid > .card');
+  var card = doc.querySelector('.wis-form-card') || doc.querySelector('.content .container-fluid > .card-danger') || doc.querySelector('.content .container-fluid > form') || doc.querySelector('.content .container-fluid > .card');
   if (!card) {
     var cont = doc.querySelector('.content .container-fluid');
     if (cont) return { title: doc.title || 'Form', body: cont.innerHTML, icon: 'fas fa-edit' };

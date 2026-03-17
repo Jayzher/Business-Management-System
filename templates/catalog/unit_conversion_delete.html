@@ -1,0 +1,10 @@
+{% extends "theme/partials/delete_confirm.html" %}
+
+{% block title %}Delete Unit Conversion{% endblock %}
+{% block page_title %}Delete Unit Conversion{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'unit_conversion_list' %}">Unit Conversions</a></li>
+<li class="breadcrumb-item active">Delete</li>
+{% endblock %}
+{% block object_name %}{{ object }}{% endblock %}
+{% block cancel_url %}{% url 'unit_conversion_list' %}{% endblock %}

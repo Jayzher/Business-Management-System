@@ -1,0 +1,92 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Unit Conversions{% endblock %}
+{% block page_title %}Unit Conversions{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'unit_conversion_list' %}">Unit Conversions</a></li>
+<li class="breadcrumb-item active">List</li>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-exchange-alt mr-2"></i>Unit Conversion Rules</h3>
+    <div class="card-tools">
+      <a href="#" data-modal-url="{% url 'unit_conversion_create' %}" class="btn btn-sm btn-primary">
+        <i class="fas fa-plus mr-1"></i> New Conversion
+      </a>
+    </div>
+  </div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover text-nowrap wis-table" id="unit-conv-table">
+      <thead>
+        <tr>
+          <th>From Unit</th>
+          <th>To Unit</th>
+          <th>Factor</th>
+          <th>Item (specific)</th>
+          <th>Category</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in conversions %}
+        <tr>
+          <td>
+            <strong>{{ c.from_unit.name }}</strong>
+            <small class="text-muted">({{ c.from_unit.abbreviation }})</small>
+          </td>
+          <td>
+            <strong>{{ c.to_unit.name }}</strong>
+            <small class="text-muted">({{ c.to_unit.abbreviation }})</small>
+          </td>
+          <td>
+            <code>1 {{ c.from_unit.abbreviation }} = {{ c.factor }} {{ c.to_unit.abbreviation }}</code>
+          </td>
+          <td>
+            {% if c.item %}
+              <span class="badge badge-info">{{ c.item.code }}</span>
+              <small class="text-muted">{{ c.item.name|truncatechars:25 }}</small>
+            {% else %}
+              <span class="badge badge-secondary">Global</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge badge-light">{{ c.from_unit.get_category_display }}</span>
+          </td>
+          <td>
+            {% if c.is_active %}
+              <span class="badge badge-success">Active</span>
+            {% else %}
+              <span class="badge badge-danger">Inactive</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="#" data-modal-url="{% url 'unit_conversion_edit' c.pk %}" class="btn btn-xs btn-warning" title="Edit">
+              <i class="fas fa-edit"></i>
+            </a>
+            <a href="#" data-modal-url="{% url 'unit_conversion_delete' c.pk %}" class="btn btn-xs btn-danger" title="Delete">
+              <i class="fas fa-trash"></i>
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="text-center text-muted py-4">
+            <i class="fas fa-exchange-alt fa-2x mb-2 d-block"></i>
+            No unit conversions defined.
+            <a href="#" data-modal-url="{% url 'unit_conversion_create' %}">Add the first one.</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer text-muted small">
+    <i class="fas fa-info-circle mr-1"></i>
+    <strong>Global</strong> conversions apply to all items. <strong>Item-specific</strong> conversions override the global factor for a single product.
+    Both directions are supported &mdash; if you define <code>1 roll = 50 m</code>, the system can also compute how many rolls are in a given number of meters.
+  </div>
+</div>
+{% endblock %}

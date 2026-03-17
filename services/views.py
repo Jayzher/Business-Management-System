@@ -141,21 +141,27 @@ def service_complete(request, pk):
         return redirect('service_detail', pk=pk)
 
     now = timezone.now()
-    lines = list(svc.lines.select_related('item', 'unit', 'location').all())
+    lines = list(svc.lines.select_related(
+        'item__default_unit', 'item__selling_unit', 'unit', 'location__warehouse'
+    ).all())
 
     # ── Inventory deduction ────────────────────────────────────────────────
     if lines:
         try:
             from inventory.models import StockMove, StockBalance, MoveType, MoveStatus
+            from catalog.models import convert_to_base_unit
             moves = []
             for line in lines:
                 if line.location is None:
                     continue
+                base_qty = convert_to_base_unit(
+                    line.qty, line.unit, line.item.stock_unit, item=line.item
+                )
                 move = StockMove(
                     move_type=MoveType.DELIVER,
                     item=line.item,
-                    qty=line.qty,
-                    unit=line.unit,
+                    qty=base_qty,
+                    unit=line.item.stock_unit,
                     from_location=line.location,
                     to_location=None,
                     reference_type='CustomerService',
@@ -170,18 +176,18 @@ def service_complete(request, pk):
                 )
                 moves.append(move)
 
-                # Deduct stock balance
+                # Deduct stock balance (in stock_unit)
                 balance, _ = StockBalance.objects.select_for_update().get_or_create(
                     item=line.item,
                     location=line.location,
                     defaults={'qty_on_hand': Decimal('0'), 'qty_reserved': Decimal('0')},
                 )
-                balance.qty_on_hand -= line.qty
+                balance.qty_on_hand -= base_qty
                 wh = line.location.warehouse
                 if not wh.allow_negative_stock and balance.qty_on_hand < 0:
                     raise ValueError(
                         f"Insufficient stock for {line.item.code} at {line.location}. "
-                        f"Available: {balance.qty_on_hand + line.qty}, Requested: {line.qty}"
+                        f"Available: {balance.qty_on_hand + base_qty}, Requested: {base_qty}"
                     )
                 balance.save()
 

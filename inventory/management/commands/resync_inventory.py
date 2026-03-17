@@ -45,13 +45,68 @@ from inventory.models import StockBalance, StockMove, MoveStatus
 
 # ── helpers ─────────────────────────────────────────────────────────────────
 
-def _safe_convert(qty, from_unit, to_unit, label, warn_fn):
+def _safe_convert(qty, from_unit, to_unit, label, warn_fn, item=None):
     """convert_to_base_unit with graceful fallback: log warning and return raw qty."""
     try:
-        return convert_to_base_unit(qty, from_unit, to_unit)
+        return convert_to_base_unit(qty, from_unit, to_unit, item=item)
     except (ValueError, Exception) as exc:
-        warn_fn(f"    ⚠  {label}: {exc}  → using raw qty={qty}")
+        warn_fn(f"    [WARN] {label}: {exc}  -> using raw qty={qty}")
         return qty
+
+
+# ── Phase 0 helpers ─────────────────────────────────────────────────────────
+
+def _deduplicate_moves(dry_run, warn_fn):
+    """
+    Remove duplicate POSTED StockMoves whose (reference_type, reference_id,
+    item_id, from_location_id, to_location_id) tuple appears more than once.
+    For each group keep the move with qty closest to the converted source-doc
+    qty; when undecidable keep the oldest (lowest pk) and delete the rest.
+    Returns (removed_count, groups_count).
+    """
+    from django.db.models import Count
+
+    dupes = list(
+        StockMove.objects
+        .filter(status=MoveStatus.POSTED)
+        .exclude(reference_number__startswith='REV-')
+        .exclude(reference_number__startswith='VOID-')
+        .values('reference_type', 'reference_id', 'item_id',
+                'from_location_id', 'to_location_id')
+        .annotate(cnt=Count('id'))
+        .filter(cnt__gt=1)
+    )
+
+    removed = 0
+    for grp in dupes:
+        moves = list(
+            StockMove.objects.filter(
+                reference_type=grp['reference_type'],
+                reference_id=grp['reference_id'],
+                item_id=grp['item_id'],
+                from_location_id=grp['from_location_id'],
+                to_location_id=grp['to_location_id'],
+                status=MoveStatus.POSTED,
+            ).exclude(reference_number__startswith='REV-')
+             .exclude(reference_number__startswith='VOID-')
+             .order_by('id')
+             .select_related('item__default_unit', 'item__selling_unit', 'unit')
+        )
+        if len(moves) < 2:
+            continue
+        # Keep the first (oldest); delete the rest
+        to_delete = moves[1:]
+        for m in to_delete:
+            warn_fn(
+                f'    [DEDUP] Removing duplicate Move#{m.pk} '
+                f'ref={m.reference_type}#{m.reference_id} '
+                f'item={m.item.code} qty={m.qty}'
+            )
+            if not dry_run:
+                m.delete()
+            removed += 1
+
+    return removed, len(dupes)
 
 
 # ── Phase 1 helpers ──────────────────────────────────────────────────────────
@@ -80,12 +135,12 @@ def _fix_moves_for_doc(moves_qs, line_lookup_fn, warn_fn, dry_run, stats):
                 continue
             correct_qty = _safe_convert(
                 abs(raw_diff), line_unit, move.item.stock_unit,
-                f"Move#{move.pk} ADJUST", warn_fn,
+                f"Move#{move.pk} ADJUST", warn_fn, item=move.item,
             )
         else:
             correct_qty = _safe_convert(
                 line_qty, line_unit, move.item.stock_unit,
-                f"Move#{move.pk}", warn_fn,
+                f"Move#{move.pk}", warn_fn, item=move.item,
             )
 
         if correct_qty == move.qty and move.unit_id == move.item.stock_unit.pk:
@@ -244,6 +299,19 @@ def _make_sales_return_lookup():
     return lookup
 
 
+def _make_service_lookup():
+    from services.models import ServiceLine
+    cache = {}
+    def lookup(move):
+        key = (move.reference_id, move.item_id)
+        if key not in cache:
+            cache[key] = ServiceLine.objects.filter(
+                service_id=move.reference_id, item_id=move.item_id
+            ).select_related('unit').first()
+        return cache[key]
+    return lookup
+
+
 REFERENCE_TYPE_LOOKUPS = {
     'GoodsReceipt': _make_grn_lookup,
     'DeliveryNote': _make_dn_lookup,
@@ -256,6 +324,7 @@ REFERENCE_TYPE_LOOKUPS = {
     'InventoryToSupplyTransfer': _make_ist_lookup,
     'PurchaseReturn': _make_purchase_return_lookup,
     'SalesReturn': _make_sales_return_lookup,
+    'CustomerService': _make_service_lookup,
 }
 
 
@@ -283,7 +352,7 @@ def _build_balance_from_documents(warn_fn):
     ):
         for line in grn.lines.all():
             q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
-                              f"GRN#{grn.pk} item={line.item.code}", warn_fn)
+                              f"GRN#{grn.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, q)
 
     # ── DeliveryNote ────────────────────────────────────────────────────────
@@ -292,7 +361,7 @@ def _build_balance_from_documents(warn_fn):
     ):
         for line in dn.lines.all():
             q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
-                              f"DN#{dn.pk} item={line.item.code}", warn_fn)
+                              f"DN#{dn.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
     # ── SalesPickup ─────────────────────────────────────────────────────────
@@ -301,7 +370,7 @@ def _build_balance_from_documents(warn_fn):
     ):
         for line in sp.lines.all():
             q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
-                              f"Pickup#{sp.pk} item={line.item.code}", warn_fn)
+                              f"Pickup#{sp.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
     # ── StockTransfer ────────────────────────────────────────────────────────
@@ -311,7 +380,7 @@ def _build_balance_from_documents(warn_fn):
     ):
         for line in tr.lines.all():
             q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
-                              f"Transfer#{tr.pk} item={line.item.code}", warn_fn)
+                              f"Transfer#{tr.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.from_location_id, -q)
             _accumulate(bal, line.item_id, line.to_location_id, q)
 
@@ -324,7 +393,7 @@ def _build_balance_from_documents(warn_fn):
             if raw_diff == 0:
                 continue
             q = _safe_convert(abs(raw_diff), line.unit, line.item.stock_unit,
-                              f"Adj#{adj.pk} item={line.item.code}", warn_fn)
+                              f"Adj#{adj.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id,
                         q if raw_diff > 0 else -q)
 
@@ -334,7 +403,7 @@ def _build_balance_from_documents(warn_fn):
     ):
         for line in dr.lines.all():
             q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
-                              f"Damaged#{dr.pk} item={line.item.code}", warn_fn)
+                              f"Damaged#{dr.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
     # ── POSSale ──────────────────────────────────────────────────────────────
@@ -344,7 +413,7 @@ def _build_balance_from_documents(warn_fn):
         for line in sale.lines.all():
             loc_id = line.location_id or sale.location_id
             q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
-                              f"POSSale#{sale.pk} item={line.item.code}", warn_fn)
+                              f"POSSale#{sale.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, loc_id, -q)
 
     # ── POSRefund ────────────────────────────────────────────────────────────
@@ -353,7 +422,7 @@ def _build_balance_from_documents(warn_fn):
     ):
         for line in refund.lines.all():
             q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
-                              f"POSRefund#{refund.pk} item={line.item.code}", warn_fn)
+                              f"POSRefund#{refund.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, q)
 
     # ── InventoryToSupplyTransfer ────────────────────────────────────────────
@@ -362,7 +431,7 @@ def _build_balance_from_documents(warn_fn):
     ):
         for line in ist.lines.all():
             q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
-                              f"IST#{ist.pk} item={line.item.code}", warn_fn)
+                              f"IST#{ist.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
     # ── PurchaseReturn ───────────────────────────────────────────────────────
@@ -371,7 +440,7 @@ def _build_balance_from_documents(warn_fn):
     ):
         for line in pr.lines.all():
             q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
-                              f"PurchReturn#{pr.pk} item={line.item.code}", warn_fn)
+                              f"PurchReturn#{pr.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
     # ── SalesReturn ──────────────────────────────────────────────────────────
@@ -380,8 +449,20 @@ def _build_balance_from_documents(warn_fn):
     ):
         for line in sr.lines.all():
             q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
-                              f"SalesReturn#{sr.pk} item={line.item.code}", warn_fn)
+                              f"SalesReturn#{sr.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, q)
+
+    # ── CustomerService ──────────────────────────────────────────────────────
+    from services.models import CustomerService, ServiceStatus
+    for svc in CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related(
+        'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
+    ):
+        for line in svc.lines.all():
+            if line.location_id is None:
+                continue
+            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+                              f"Service#{svc.pk} item={line.item.code}", warn_fn, item=line.item)
+            _accumulate(bal, line.item_id, line.location_id, -q)
 
     return bal
 
@@ -403,9 +484,9 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             '--phase',
-            choices=['1', '2', 'all'],
+            choices=['0', '1', '2', '3', 'all'],
             default='all',
-            help='1=fix StockMove qtys, 2=recalculate StockBalance, all=both (default).',
+            help='0=dedup moves, 1=fix qtys, 2=recalc balances, 3=audit, all=all (default).',
         )
         parser.add_argument(
             '--quiet', '-q',
@@ -416,12 +497,23 @@ class Command(BaseCommand):
 
     # ── internal output helpers ──────────────────────────────────────────────
 
+    @staticmethod
+    def _safe_str(msg):
+        """Return msg with non-ASCII chars replaced so cp1252 consoles don't crash."""
+        return msg.encode('ascii', errors='replace').decode('ascii')
+
     def _info(self, msg):
         if not self._quiet:
-            self.stdout.write(msg)
+            try:
+                self.stdout.write(msg)
+            except UnicodeEncodeError:
+                self.stdout.write(self._safe_str(msg))
 
     def _warn(self, msg):
-        self.stdout.write(self.style.WARNING(msg))
+        try:
+            self.stdout.write(self.style.WARNING(msg))
+        except UnicodeEncodeError:
+            self.stdout.write(self.style.WARNING(self._safe_str(msg)))
 
     # ── entry point ──────────────────────────────────────────────────────────
 
@@ -440,12 +532,30 @@ class Command(BaseCommand):
                 '  No changes will be saved.  Re-run with --apply to commit.\n'
             ))
 
+        if phase in ('0', 'all'):
+            self._run_phase0(dry_run)
         if phase in ('1', 'all'):
             self._run_phase1(dry_run)
         if phase in ('2', 'all'):
             self._run_phase2(dry_run)
+        if phase in ('3', 'all'):
+            self._run_phase3()
 
         self.stdout.write(self.style.SUCCESS('\n=== Done ===\n'))
+
+    # ── Phase 0: deduplicate StockMoves ──────────────────────────────────────
+
+    def _run_phase0(self, dry_run):
+        self.stdout.write('\n--- Phase 0: Deduplicating StockMoves ---')
+        removed, groups = _deduplicate_moves(dry_run, self._warn)
+        mode = '(dry-run) would remove' if dry_run else 'Removed'
+        self.stdout.write(self.style.SUCCESS(
+            f'  {mode} {removed} duplicate move(s) across {groups} group(s).'
+        ))
+        if dry_run and removed:
+            self.stdout.write(self.style.WARNING(
+                '  Re-run with --apply to commit removals.'
+            ))
 
     # ── Phase 1: fix StockMove.qty ───────────────────────────────────────────
 
@@ -474,7 +584,7 @@ class Command(BaseCommand):
                     transaction.set_rollback(True)
 
             self._info(
-                f'    → updated={stats["updated"]}  '
+                f'    -> updated={stats["updated"]}  '
                 f'ok={stats["already_correct"]}  '
                 f'missing_line={stats["no_line"]}'
             )
@@ -554,7 +664,7 @@ class Command(BaseCommand):
                 if old_qty != new_qty:
                     report_lines.append(
                         f'    UPDATE item={item_id} loc={loc_id} '
-                        f'{old_qty} → {new_qty}'
+                        f'{old_qty} -> {new_qty}'
                     )
                     updates.append((bal_obj, new_qty))
                 else:
@@ -584,3 +694,124 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(
                 '  (dry-run) No changes written.  Re-run with --apply to commit.'
             ))
+
+    # ── Phase 3: Data integrity audit ────────────────────────────────────────
+
+    def _run_phase3(self):
+        self.stdout.write('\n--- Phase 3: Data Integrity Audit ---')
+        from django.db.models import Count, Q, F
+        from catalog.models import Item, UnitConversion, UnitCategory
+
+        issues = 0
+
+        # 3a: Negative StockBalance records
+        neg = list(StockBalance.objects.filter(qty_on_hand__lt=0).select_related(
+            'item', 'location__warehouse'))
+        if neg:
+            self.stdout.write(self.style.ERROR(
+                f'\n  [NEG BALANCE] {len(neg)} item/location(s) have negative stock:'))
+            for b in neg:
+                self.stdout.write(self.style.ERROR(
+                    f'    item={b.item.code}  loc={b.location}  '
+                    f'qty={b.qty_on_hand}'))
+            issues += len(neg)
+        else:
+            self.stdout.write(self.style.SUCCESS('  [NEG BALANCE]  none OK'))
+
+        # 3b: Duplicate StockMoves for same (reference_type, reference_id, item)
+        dupes = (
+            StockMove.objects
+            .filter(status=MoveStatus.POSTED)
+            .exclude(reference_number__startswith='REV-')
+            .exclude(reference_number__startswith='VOID-')
+            .values('reference_type', 'reference_id', 'item_id')
+            .annotate(cnt=Count('id'))
+            .filter(cnt__gt=1)
+        )
+        dupe_list = list(dupes)
+        if dupe_list:
+            self.stdout.write(self.style.WARNING(
+                f'\n  [DUPE MOVES]  {len(dupe_list)} duplicate move group(s):'))
+            for d in dupe_list[:20]:
+                self.stdout.write(self.style.WARNING(
+                    f'    ref={d["reference_type"]}#{d["reference_id"]}  '
+                    f'item={d["item_id"]}  count={d["cnt"]}'))
+            issues += len(dupe_list)
+        else:
+            self.stdout.write(self.style.SUCCESS('  [DUPE MOVES]   none OK'))
+
+        # 3c: StockMoves with unrecognised reference_type
+        known_types = set(REFERENCE_TYPE_LOOKUPS.keys())
+        unknown_qs = (
+            StockMove.objects
+            .filter(status=MoveStatus.POSTED)
+            .exclude(reference_type__in=known_types)
+            .values('reference_type')
+            .annotate(cnt=Count('id'))
+        )
+        unknown_list = list(unknown_qs)
+        if unknown_list:
+            self.stdout.write(self.style.WARNING(
+                f'\n  [UNKNOWN REF] {len(unknown_list)} unrecognised reference_type(s):'))
+            for u in unknown_list:
+                self.stdout.write(self.style.WARNING(
+                    f'    {u["reference_type"]}  ({u["cnt"]} moves)'))
+        else:
+            self.stdout.write(self.style.SUCCESS('  [UNKNOWN REF]  none OK'))
+
+        # 3d: Items whose stock_unit category conflicts with any StockMove unit
+        cross_cat_items = set()
+        for move in (StockMove.objects
+                     .filter(status=MoveStatus.POSTED)
+                     .select_related('item__default_unit', 'item__selling_unit', 'unit')
+                     .only('item__id', 'unit__category',
+                           'item__default_unit__category', 'item__selling_unit__category')):
+            stock_cat = move.item.stock_unit.category
+            if move.unit.category != stock_cat:
+                cross_cat_items.add(move.item.code)
+
+        if cross_cat_items:
+            self.stdout.write(self.style.WARNING(
+                f'\n  [CAT MISMATCH] {len(cross_cat_items)} item(s) have moves in wrong unit category:'))
+            for code in sorted(cross_cat_items)[:30]:
+                self.stdout.write(self.style.WARNING(f'    {code}'))
+            issues += len(cross_cat_items)
+        else:
+            self.stdout.write(self.style.SUCCESS('  [CAT MISMATCH] none OK'))
+
+        # 3e: Items with selling_unit set but no UnitConversion between default and selling
+        conv_missing = []
+        for item in Item.objects.filter(
+            selling_unit__isnull=False
+        ).select_related('default_unit', 'selling_unit').exclude(
+            selling_unit=F('default_unit')
+        ):
+            su = item.selling_unit
+            du = item.default_unit
+            if su.pk == du.pk:
+                continue
+            has_conv = UnitConversion.objects.filter(
+                Q(from_unit=du, to_unit=su) | Q(from_unit=su, to_unit=du),
+                Q(item=item) | Q(item__isnull=True),
+                is_active=True,
+            ).exists()
+            if not has_conv:
+                conv_missing.append(f'{item.code}  ({du.abbreviation} <-> {su.abbreviation})')
+
+        if conv_missing:
+            self.stdout.write(self.style.WARNING(
+                f'\n  [MISSING CONV] {len(conv_missing)} item(s) have selling_unit but no conversion:'))
+            for m in conv_missing[:30]:
+                self.stdout.write(self.style.WARNING(f'    {m}'))
+            issues += len(conv_missing)
+        else:
+            self.stdout.write(self.style.SUCCESS(
+                f'\n  [MISSING CONV] none OK'))
+
+        # Summary
+        if issues:
+            self.stdout.write(self.style.ERROR(
+                f'\n  Phase 3 total: {issues} issue(s) found - see above for details.'))
+        else:
+            self.stdout.write(self.style.SUCCESS(
+                f'\n  Phase 3: all integrity checks passed OK'))

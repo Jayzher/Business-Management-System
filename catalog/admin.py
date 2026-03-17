@@ -19,7 +19,10 @@ class UnitAdmin(admin.ModelAdmin):
 
 @admin.register(UnitConversion)
 class UnitConversionAdmin(admin.ModelAdmin):
-    list_display = ['from_unit', 'to_unit', 'factor']
+    list_display = ['from_unit', 'to_unit', 'factor', 'item', 'is_active']
+    list_filter = ['is_active', 'from_unit__category']
+    search_fields = ['from_unit__name', 'to_unit__name', 'item__code', 'item__name']
+    autocomplete_fields = ['item']
 
 
 class MaterialSpecInline(admin.StackedInline):
