@@ -68,6 +68,30 @@ UNITS = [
     ('Tray',      'tray',  UnitCategory.LOGISTICS),
 ]
 
+COMMON_CONVERSIONS = [
+    # quantity conversions that are easy multipliers
+    ('doz', 'pcs', '12'),
+    ('GRS', 'pcs', '144'),
+    ('pks', 'pcs', '10'),
+    ('bx', 'pcs', '20'),
+    # length chain (simple multiples)
+    ('km', 'm', '1000'),
+    ('m', 'cm', '100'),
+    ('cm', 'mm', '10'),
+    ('ft', 'in', '12'),
+    # mass conversions
+    ('kg', 'g', '1000'),
+    ('g', 'mg', '1000'),
+    ('lb', 'oz', '16'),
+    # volume conversions
+    ('L', 'mL', '1000'),
+    ('kL', 'L', '1000'),
+    ('gal', 'qt', '4'),
+    # material conversions (common roll/meter)
+    ('roll', 'm', '50'),
+    ('sht', 'm2', '2'),
+]
+
 
 class Command(BaseCommand):
     help = 'Seed the standard units of measure with categories.'
@@ -118,3 +142,37 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f'\nDone. Created: {created}  Updated: {updated}  Skipped: {skipped}'))
+
+        # Seed straightforward conversions as well
+        from django.db import transaction
+        from catalog.models import UnitConversion
+        from decimal import Decimal
+
+        conv_created = conv_updated = 0
+        for from_abbr, to_abbr, factor_str in COMMON_CONVERSIONS:
+            from_u = Unit.all_objects.filter(abbreviation=from_abbr).first()
+            to_u = Unit.all_objects.filter(abbreviation=to_abbr).first()
+            if not from_u or not to_u:
+                self.stdout.write(self.style.WARNING(
+                    f'  Skipped conversion {from_abbr} → {to_abbr} because unit missing.'))
+                continue
+            factor = Decimal(factor_str)
+            qs = UnitConversion.objects.filter(from_unit=from_u, to_unit=to_u)
+            if qs.exists():
+                conv = qs.first()
+                if conv.factor != factor:
+                    conv.factor = factor
+                    conv.save(update_fields=['factor', 'updated_at'])
+                    conv_updated += 1
+                    self.stdout.write(self.style.WARNING(
+                        f'  Updated conversion {from_abbr} → {to_abbr} = {factor}'))
+            else:
+                UnitConversion.objects.create(
+                    from_unit=from_u, to_unit=to_u, factor=factor)
+                conv_created += 1
+                self.stdout.write(self.style.SUCCESS(
+                    f'  Created conversion {from_abbr} → {to_abbr} = {factor}'))
+
+        if conv_created or conv_updated:
+            self.stdout.write(self.style.SUCCESS(
+                f'Conversions: Created {conv_created}  Updated {conv_updated}'))

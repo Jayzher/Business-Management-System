@@ -432,7 +432,7 @@ def sales_order_import(request):
                         sales_order=so,
                         item=item,
                         qty_ordered=qty,
-                        unit=item.default_unit,
+                        unit=item.stock_unit,
                         unit_price=price,
                         discount_pct=discount_pct,
                         notes=line_norm.get('notes', ''),
@@ -699,7 +699,7 @@ def procurement_import(request):
                         unit = CatalogUnit.objects.filter(abbreviation__iexact=unit_val).first() or \
                                CatalogUnit.objects.filter(name__iexact=unit_val).first()
                     if not unit:
-                        unit = catalog_item.default_unit
+                        unit = catalog_item.stock_unit
 
                     # Resolve location
                     loc_val = norm.get('location', '').strip()
