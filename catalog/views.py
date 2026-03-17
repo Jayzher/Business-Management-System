@@ -297,3 +297,55 @@ def unit_delete_view(request, pk):
         messages.success(request, f'Unit {unit.name} deleted.')
         return redirect('unit_list')
     return render(request, 'catalog/unit_delete.html', {'object': unit})
+
+
+# ── Unit Conversion CRUD ─────────────────────────────────────────────
+
+@login_required
+def unit_conversion_list_view(request):
+    conversions = UnitConversion.objects.select_related(
+        'from_unit', 'to_unit', 'item'
+    ).all().order_by('from_unit__name', 'to_unit__name')
+    return render(request, 'catalog/unit_conversion_list.html', {'conversions': conversions})
+
+
+@login_required
+def unit_conversion_create_view(request):
+    if request.method == 'POST':
+        form = UnitConversionForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Unit conversion created successfully.')
+            return redirect('unit_conversion_list')
+    else:
+        form = UnitConversionForm()
+    return render(request, 'catalog/unit_conversion_form.html', {
+        'form': form, 'title': 'Create Unit Conversion'
+    })
+
+
+@login_required
+def unit_conversion_edit_view(request, pk):
+    conv = get_object_or_404(UnitConversion, pk=pk)
+    if request.method == 'POST':
+        form = UnitConversionForm(request.POST, instance=conv)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Unit conversion updated successfully.')
+            return redirect('unit_conversion_list')
+    else:
+        form = UnitConversionForm(instance=conv)
+    return render(request, 'catalog/unit_conversion_form.html', {
+        'form': form,
+        'title': f'Edit: 1 {conv.from_unit.abbreviation} = {conv.factor} {conv.to_unit.abbreviation}'
+    })
+
+
+@login_required
+def unit_conversion_delete_view(request, pk):
+    conv = get_object_or_404(UnitConversion, pk=pk)
+    if request.method == 'POST':
+        conv.delete()
+        messages.success(request, 'Unit conversion deleted.')
+        return redirect('unit_conversion_list')
+    return render(request, 'catalog/unit_conversion_delete.html', {'object': conv})

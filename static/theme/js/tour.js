@@ -427,6 +427,19 @@
       }
     },
 
+    /* ── Catalog: Unit Conversions ────────────────────────────────────── */
+    '/catalog/unit-conversions/create/': { title: 'Create Conversion Guide', steps: function () { return [{ popover: { title: '➕ New Unit Conversion', description: 'Define how many of the target unit equals 1 source unit. Example: 1 Box = 20 pcs — enter From Unit=Box, To Unit=pcs, Factor=20. Leave the Item blank for a global rule, or select a specific product to override the global factor for that item only.', position: 'center' } }]; } },
+    '/catalog/unit-conversions/': {
+      title: 'Unit Conversions Guide',
+      steps: function () {
+        var s = [];
+        s.push({ popover: { title: '🔄 Unit Conversion Rules', description: 'Conversion rules tell the system how to translate quantities between units — for example, how many meters are in a roll, or how many pieces are in a box. Both global rules and per-product overrides are supported.', position: 'center' } });
+        if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Conversion List', description: 'Each row shows the From Unit, To Unit, the conversion Factor, and whether it is a Global rule or scoped to a specific Item. Item-specific rules take priority over global ones.', position: 'top' } });
+        if (exists('.card-footer')) s.push({ element: '.card-footer', popover: { title: 'ℹ️ How Conversions Work', description: 'The system checks item-specific conversions first, then falls back to global ones. Reverse conversions (e.g., m → roll) are computed automatically from the stored factor.', position: 'top' } });
+        return s;
+      }
+    },
+
     /* ── Partners: Suppliers ──────────────────────────────────────────── */
     '/partners/suppliers/create/': { title: 'New Supplier Guide', steps: function () { return [{ popover: { title: '➕ Add Supplier', description: 'Add a new supplier (vendor) to your system. Fill in their company details, contact person, email, and phone. Suppliers are linked to your Purchase Orders.', position: 'center' } }]; } },
     '/partners/suppliers/': {

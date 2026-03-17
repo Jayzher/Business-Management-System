@@ -44,18 +44,20 @@ class UnitConversionForm(forms.ModelForm):
 
     class Meta:
         model = UnitConversion
-        fields = ['from_unit', 'to_unit', 'factor']
+        fields = ['from_unit', 'to_unit', 'factor', 'item']
         widgets = {
             'from_unit': forms.Select(attrs={'class': 'form-control'}),
             'to_unit': forms.Select(attrs={'class': 'form-control'}),
             'factor': forms.NumberInput(attrs={
-                'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': 'e.g., 20'
+                'class': 'form-control', 'step': '0.000001', 'min': '0', 'placeholder': 'e.g., 20'
             }),
+            'item': forms.Select(attrs={'class': 'form-control select2'}),
         }
         help_texts = {
             'from_unit': 'Source unit (e.g. Box).',
             'to_unit': 'Target unit (e.g. Piece).',
             'factor': 'How many target units equal 1 source unit (e.g. 1 Box = 20 pcs → factor = 20).',
+            'item': 'Leave blank for a global conversion. Select a product to override the factor for that specific item only.',
         }
 
 

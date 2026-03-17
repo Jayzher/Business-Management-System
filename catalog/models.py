@@ -55,13 +55,33 @@ class Unit(SoftDeleteModel):
 
 class UnitConversion(SoftDeleteModel):
     """Conversion factor between units (e.g., 1 box = 20 pcs).
-    Both units must share the same category."""
+    Both units must share the same category.
+    Optionally scoped to a specific Item — item-specific records take precedence
+    over global ones when item is provided to convert_to_base_unit()."""
     from_unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='conversions_from')
     to_unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='conversions_to')
     factor = models.DecimalField(max_digits=15, decimal_places=6)
+    item = models.ForeignKey(
+        'catalog.Item',
+        on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='unit_conversions',
+        help_text='Leave blank for a global conversion. Set to override the factor for a specific product.',
+    )
 
     class Meta:
-        unique_together = ('from_unit', 'to_unit')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['from_unit', 'to_unit'],
+                condition=models.Q(item__isnull=True),
+                name='unique_unit_conv_global',
+            ),
+            models.UniqueConstraint(
+                fields=['from_unit', 'to_unit', 'item'],
+                condition=models.Q(item__isnull=False),
+                name='unique_unit_conv_per_item',
+            ),
+        ]
 
     def clean(self):
         if self.from_unit_id and self.to_unit_id:
@@ -74,15 +94,18 @@ class UnitConversion(SoftDeleteModel):
                 )
 
     def __str__(self):
-        return f"1 {self.from_unit.abbreviation} = {self.factor} {self.to_unit.abbreviation}"
+        scope = f' [{self.item.code}]' if self.item_id else ''
+        return f"1 {self.from_unit.abbreviation} = {self.factor} {self.to_unit.abbreviation}{scope}"
 
 
-def convert_to_base_unit(qty, sale_unit, base_unit):
+def convert_to_base_unit(qty, sale_unit, base_unit, item=None):
     """Convert *qty* expressed in *sale_unit* to *base_unit* for inventory.
 
     Rules:
     - If sale_unit == base_unit, return qty unchanged.
     - Both units must be in the same category; raises ValueError otherwise.
+    - When *item* is supplied, item-specific UnitConversion records are
+      checked first before falling back to global (item=NULL) ones.
     - Looks up a UnitConversion (direct or reverse).  Raises ValueError when
       no conversion exists — the calling code should handle this gracefully.
     """
@@ -95,17 +118,26 @@ def convert_to_base_unit(qty, sale_unit, base_unit):
             f'different categories ({sale_unit.category} vs {base_unit.category}).'
         )
 
-    # Try direct conversion: sale_unit → base_unit
-    conv = UnitConversion.objects.filter(
-        from_unit=sale_unit, to_unit=base_unit, is_active=True
-    ).first()
+    def _lookup(from_u, to_u):
+        """Return (conv, is_reverse) or (None, False). Item-specific first."""
+        if item is not None:
+            c = UnitConversion.objects.filter(
+                from_unit=from_u, to_unit=to_u, item=item, is_active=True
+            ).first()
+            if c:
+                return c, False
+        c = UnitConversion.objects.filter(
+            from_unit=from_u, to_unit=to_u, item__isnull=True, is_active=True
+        ).first()
+        return c, False
+
+    # Try direct: sale_unit → base_unit
+    conv, _ = _lookup(sale_unit, base_unit)
     if conv:
         return qty * conv.factor
 
     # Try reverse: base_unit → sale_unit  ⟹ factor = 1/reverse_factor
-    conv_rev = UnitConversion.objects.filter(
-        from_unit=base_unit, to_unit=sale_unit, is_active=True
-    ).first()
+    conv_rev, _ = _lookup(base_unit, sale_unit)
     if conv_rev:
         if conv_rev.factor == 0:
             raise ValueError(f'UnitConversion factor for {conv_rev} is zero.')

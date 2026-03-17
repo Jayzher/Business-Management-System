@@ -15,4 +15,8 @@ urlpatterns = [
     path('units/create/', views.unit_create_view, name='unit_create'),
     path('units/<int:pk>/edit/', views.unit_edit_view, name='unit_edit'),
     path('units/<int:pk>/delete/', views.unit_delete_view, name='unit_delete'),
+    path('unit-conversions/', views.unit_conversion_list_view, name='unit_conversion_list'),
+    path('unit-conversions/create/', views.unit_conversion_create_view, name='unit_conversion_create'),
+    path('unit-conversions/<int:pk>/edit/', views.unit_conversion_edit_view, name='unit_conversion_edit'),
+    path('unit-conversions/<int:pk>/delete/', views.unit_conversion_delete_view, name='unit_conversion_delete'),
 ]

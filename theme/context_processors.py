@@ -16,6 +16,7 @@ def sidebar_menu(request):
                 {'label': 'Items', 'url': '/catalog/items/', 'active_prefix': '/catalog/items', 'icon': 'fas fa-box'},
                 {'label': 'Categories', 'url': '/catalog/categories/', 'active_prefix': '/catalog/categories', 'icon': 'fas fa-sitemap'},
                 {'label': 'Units', 'url': '/catalog/units/', 'active_prefix': '/catalog/units', 'icon': 'fas fa-ruler-combined'},
+                {'label': 'Unit Conversions', 'url': '/catalog/unit-conversions/', 'active_prefix': '/catalog/unit-conversions', 'icon': 'fas fa-exchange-alt'},
             ],
         },
         {

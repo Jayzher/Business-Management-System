@@ -129,7 +129,7 @@ def post_pos_sale(sale_id, user):
 
     for line in sale.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all():
         loc = line.location or sale.location
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
 
         # Stock availability check (with row locking)
         balance, _ = StockBalance.objects.select_for_update().get_or_create(
@@ -215,7 +215,7 @@ def sync_pos_sale_stock_moves(sale_id, user):
 
     for line in sale.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all():
         loc = line.location or sale.location
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
 
         # Deduct using the core inventory helper (enforces negative-stock rule)
         _update_balance(line.item, loc, -base_qty)
@@ -265,7 +265,7 @@ def post_pos_refund(refund_id, user):
     moves = []
 
     for line in refund.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
         move = StockMove(
             move_type=MoveType.RETURN_IN,
             item=line.item,
