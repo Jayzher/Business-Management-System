@@ -65,13 +65,13 @@ def post_goods_receipt(grn, user):
     now = timezone.now()
     moves = []
 
-    for line in grn.lines.select_related('item__default_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
+    for line in grn.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
         move = StockMove(
             move_type=MoveType.RECEIVE,
             item=line.item,
             qty=base_qty,
-            unit=line.item.default_unit,
+            unit=line.item.stock_unit,
             from_location=None,
             to_location=line.location,
             reference_type='GoodsReceipt',
@@ -142,13 +142,13 @@ def post_delivery(delivery, user):
     now = timezone.now()
     moves = []
 
-    for line in delivery.lines.select_related('item__default_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
+    for line in delivery.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
         move = StockMove(
             move_type=MoveType.DELIVER,
             item=line.item,
             qty=base_qty,
-            unit=line.item.default_unit,
+            unit=line.item.stock_unit,
             from_location=line.location,
             to_location=None,
             reference_type='DeliveryNote',
@@ -197,13 +197,13 @@ def post_sales_pickup(pickup, user):
     now = timezone.now()
     moves = []
 
-    for line in pickup.lines.select_related('item__default_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
+    for line in pickup.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
         move = StockMove(
             move_type=MoveType.DELIVER,
             item=line.item,
             qty=base_qty,
-            unit=line.item.default_unit,
+            unit=line.item.stock_unit,
             from_location=line.location,
             to_location=None,
             reference_type='SalesPickup',
@@ -250,7 +250,7 @@ def post_transfer(transfer, user):
     now = timezone.now()
     moves = []
 
-    for line in transfer.lines.select_related('item__default_unit', 'unit').all():
+    for line in transfer.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
         # Validate locations belong to correct warehouses
         if line.from_location.warehouse_id != transfer.from_warehouse_id:
             raise ValueError(
@@ -262,12 +262,12 @@ def post_transfer(transfer, user):
                 f"To-location {line.to_location} does not belong to "
                 f"warehouse {transfer.to_warehouse}."
             )
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
         move = StockMove(
             move_type=MoveType.TRANSFER,
             item=line.item,
             qty=base_qty,
-            unit=line.item.default_unit,
+            unit=line.item.stock_unit,
             from_location=line.from_location,
             to_location=line.to_location,
             reference_type='StockTransfer',
@@ -308,11 +308,11 @@ def post_adjustment(adjustment, user):
     now = timezone.now()
     moves = []
 
-    for line in adjustment.lines.select_related('item__default_unit', 'unit').all():
+    for line in adjustment.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
         raw_diff = line.qty_counted - line.qty_system
         if raw_diff == 0:
             continue
-        base_diff = convert_to_base_unit(abs(raw_diff), line.unit, line.item.default_unit)
+        base_diff = convert_to_base_unit(abs(raw_diff), line.unit, line.item.stock_unit)
         if raw_diff < 0:
             base_diff = -base_diff
 
@@ -320,7 +320,7 @@ def post_adjustment(adjustment, user):
             move_type=MoveType.ADJUST,
             item=line.item,
             qty=abs(base_diff),
-            unit=line.item.default_unit,
+            unit=line.item.stock_unit,
             from_location=line.location if base_diff < 0 else None,
             to_location=line.location if base_diff > 0 else None,
             reference_type='StockAdjustment',
@@ -359,13 +359,13 @@ def post_damaged_report(report, user):
     now = timezone.now()
     moves = []
 
-    for line in report.lines.select_related('item__default_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
+    for line in report.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
         move = StockMove(
             move_type=MoveType.DAMAGE,
             item=line.item,
             qty=base_qty,
-            unit=line.item.default_unit,
+            unit=line.item.stock_unit,
             from_location=line.location,
             to_location=None,
             reference_type='DamagedReport',
@@ -490,13 +490,13 @@ def post_purchase_return(pr, user):
     now = timezone.now()
     moves = []
 
-    for line in pr.lines.select_related('item__default_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
+    for line in pr.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
         move = StockMove(
             move_type=MoveType.RETURN_OUT,
             item=line.item,
             qty=base_qty,
-            unit=line.item.default_unit,
+            unit=line.item.stock_unit,
             from_location=line.location,
             to_location=None,
             reference_type='PurchaseReturn',
@@ -534,13 +534,13 @@ def post_sales_return(sr, user):
     now = timezone.now()
     moves = []
 
-    for line in sr.lines.select_related('item__default_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
+    for line in sr.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
         move = StockMove(
             move_type=MoveType.RETURN_IN,
             item=line.item,
             qty=base_qty,
-            unit=line.item.default_unit,
+            unit=line.item.stock_unit,
             from_location=None,
             to_location=line.location,
             reference_type='SalesReturn',
@@ -587,8 +587,8 @@ def post_inventory_to_supply(ist, user):
     moves = []
     supply_movements = []
 
-    for line in ist.lines.select_related('item__default_unit', 'unit', 'location').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.default_unit)
+    for line in ist.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all():
+        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit)
         # Deduct inventory stock
         _update_balance(line.item, line.location, -base_qty)
 
@@ -596,7 +596,7 @@ def post_inventory_to_supply(ist, user):
             move_type=MoveType.SUPPLY_OUT,
             item=line.item,
             qty=base_qty,
-            unit=line.item.default_unit,
+            unit=line.item.stock_unit,
             from_location=line.location,
             to_location=None,
             reference_type='InventoryToSupplyTransfer',

@@ -71,12 +71,13 @@ class SalesOrderLineForm(forms.ModelForm):
         cleaned = super().clean()
         item = cleaned.get('item')
         unit = cleaned.get('unit')
-        if item and unit and hasattr(item, 'default_unit') and item.default_unit_id:
-            if unit.category != item.default_unit.category:
+        if item and unit:
+            ref_unit = item.stock_unit
+            if ref_unit and unit.category != ref_unit.category:
                 self.add_error(
                     'unit',
                     f'Unit "{unit}" ({unit.get_category_display()}) is not compatible with '
-                    f'"{item.default_unit}" ({item.default_unit.get_category_display()}). '
+                    f'"{ref_unit}" ({ref_unit.get_category_display()}). '
                     f'Both must share the same measurement category.',
                 )
         return cleaned
