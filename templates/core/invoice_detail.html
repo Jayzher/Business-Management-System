@@ -4,12 +4,33 @@
 {% block page_title %}Invoice INV-{{ invoice.invoice_number }}{% endblock %}
 {% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'invoice_list' %}">Invoices</a></li><li class="breadcrumb-item active">INV-{{ invoice.invoice_number }}</li>{% endblock %}
 
+{% block extra_css %}
+<style>
+  .payment-progress { height: 10px; border-radius: 6px; }
+  .badge-paid    { background:#28a745; color:#fff; }
+  .badge-partial { background:#fd7e14; color:#fff; }
+  .badge-unpaid  { background:#dc3545; color:#fff; }
+  .running-balance { font-size:.78rem; color:#6c757d; }
+  .payment-row:hover { background:#f8f9fa; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row">
+  <!-- ── Left: Invoice Body ─────────────────────────────────────────────── -->
   <div class="col-lg-8">
     <div class="card card-outline card-primary">
-      <div class="card-header d-flex justify-content-between">
-        <h3 class="card-title"><i class="fas fa-file-invoice mr-1"></i> Invoice Details</h3>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0">
+          <i class="fas fa-file-invoice mr-1"></i> Invoice Details
+          {% if invoice.payment_status == 'PAID' %}
+            <span class="badge badge-paid ml-2">PAID</span>
+          {% elif invoice.payment_status == 'PARTIAL' %}
+            <span class="badge badge-partial ml-2">PARTIAL PAYMENT</span>
+          {% else %}
+            <span class="badge badge-unpaid ml-2">UNPAID</span>
+          {% endif %}
+        </h3>
         <div>
           <a href="{% url 'invoice_print' invoice.pk %}" class="btn btn-sm btn-outline-primary" target="_blank"><i class="fas fa-print mr-1"></i> Print</a>
           {% if not invoice.is_paid %}
@@ -21,6 +42,31 @@
           <a href="{% url 'invoice_list' %}" class="btn btn-sm btn-secondary"><i class="fas fa-arrow-left mr-1"></i> Back</a>
         </div>
       </div>
+
+      {% if invoice.grand_total > 0 %}
+      <div class="px-3 pt-2 pb-1">
+        {% with pct=total_paid|floatformat:2 %}
+        <div class="d-flex justify-content-between small mb-1">
+          <span class="text-muted">Payment Progress</span>
+          <span>&#8369;{{ total_paid|floatformat:2|intcomma }} / &#8369;{{ invoice.grand_total|floatformat:2|intcomma }}</span>
+        </div>
+        {% endwith %}
+        <div class="progress payment-progress mb-2">
+          {% with pct=total_paid %}
+          <div class="progress-bar {% if invoice.is_paid %}bg-success{% elif total_paid > 0 %}bg-warning{% else %}bg-danger{% endif %}"
+               role="progressbar"
+               style="width:{% if invoice.grand_total > 0 %}{% widthratio total_paid invoice.grand_total 100 %}{% else %}0{% endif %}%"></div>
+          {% endwith %}
+        </div>
+        {% if not invoice.is_paid and balance_due > 0 %}
+        <p class="small text-danger mb-1"><strong>Balance Due: &#8369;{{ balance_due|floatformat:2|intcomma }}</strong></p>
+        {% endif %}
+        {% if invoice.is_paid and invoice.paid_date %}
+        <p class="small text-success mb-1"><i class="fas fa-check-circle mr-1"></i>Fully paid on {{ invoice.paid_date|date:"M d, Y" }}</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
       <div class="card-body">
         <div class="row mb-4">
           <div class="col-md-6">
@@ -35,8 +81,8 @@
             <p class="mb-0"><strong>INV-{{ invoice.invoice_number }}</strong></p>
             <p class="mb-0">Date: {{ invoice.date|date:"M d, Y" }}</p>
             {% if invoice.due_date %}<p class="mb-0">Due: {{ invoice.due_date|date:"M d, Y" }}</p>{% endif %}
-            <p class="mb-0">Status: {% if invoice.is_paid %}<span class="badge bg-success">PAID</span>{% else %}<span class="badge bg-warning text-dark">UNPAID</span>{% endif %}</p>
             {% if invoice.sales_order %}<p class="mb-0">SO: <a href="{% url 'sales_order_detail' invoice.sales_order.pk %}">{{ invoice.sales_order.document_number }}</a></p>{% endif %}
+            {% if invoice.pos_sale %}<p class="mb-0">POS: {{ invoice.pos_sale.sale_no }}</p>{% endif %}
           </div>
         </div>
         <div class="row mb-4">
@@ -47,9 +93,10 @@
             {% if invoice.customer_tin %}<br>TIN: {{ invoice.customer_tin }}{% endif %}
           </div>
         </div>
+
         <table class="table table-bordered">
           <thead class="table-light">
-            <tr><th>#</th><th>Code</th><th>Description</th><th class="text-right">Qty</th><th>Unit</th><th class="text-right">Price</th><th class="text-right">Discount</th><th class="text-right">Total</th></tr>
+            <tr><th>#</th><th>Code</th><th>Description</th><th class="text-right">Qty</th><th>Unit</th><th class="text-right">Price</th><th class="text-right">Disc.</th><th class="text-right">Total</th></tr>
           </thead>
           <tbody>
             {% for line in invoice.lines.all %}
@@ -66,42 +113,82 @@
             {% endfor %}
           </tbody>
           <tfoot>
-            <tr><td colspan="7" class="text-right"><strong>Subtotal</strong></td><td class="text-right">{{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
-            {% if invoice.discount_total %}<tr><td colspan="7" class="text-right">Discount</td><td class="text-right">({{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
-            {% if invoice.tax_total %}<tr><td colspan="7" class="text-right">Tax</td><td class="text-right">{{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
-            <tr class="table-primary"><td colspan="7" class="text-right"><strong>Grand Total</strong></td><td class="text-right"><strong>{{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
-            <tr class="table-success"><td colspan="7" class="text-right"><strong>Total Paid</strong></td><td class="text-right text-success"><strong>{{ total_paid|floatformat:2|intcomma }}</strong></td></tr>
+            <tr><td colspan="7" class="text-right"><strong>Subtotal</strong></td><td class="text-right">&#8369; {{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
+            {% if invoice.discount_total %}<tr><td colspan="7" class="text-right">Discount</td><td class="text-right text-danger">(&#8369; {{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
+            {% if invoice.tax_total %}<tr><td colspan="7" class="text-right">Tax</td><td class="text-right">&#8369; {{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
+            <tr class="table-primary"><td colspan="7" class="text-right"><strong>Grand Total</strong></td><td class="text-right"><strong>&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
+            <tr class="table-success"><td colspan="7" class="text-right"><strong>Total Paid</strong></td><td class="text-right text-success"><strong>&#8369; {{ total_paid|floatformat:2|intcomma }}</strong></td></tr>
             {% if not invoice.is_paid %}
-            <tr class="table-warning"><td colspan="7" class="text-right"><strong>Balance Due</strong></td><td class="text-right text-danger"><strong>{{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
+            <tr class="table-warning"><td colspan="7" class="text-right"><strong>Balance Due</strong></td><td class="text-right text-danger"><strong>&#8369; {{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
             {% endif %}
           </tfoot>
         </table>
+
         {% if invoice.notes %}<p class="mt-2"><strong>Notes:</strong> {{ invoice.notes }}</p>{% endif %}
         {% if profile.receipt_footer %}<hr><p class="text-muted text-center"><small>{{ profile.receipt_footer }}</small></p>{% endif %}
       </div>
     </div>
   </div>
 
-  <!-- Right: Payment Panel -->
+  <!-- ── Right: Payment Panel ───────────────────────────────────────────── -->
   <div class="col-lg-4">
+
     <!-- Payment History -->
     <div class="card card-outline card-success">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-money-bill-wave mr-1"></i> Payment History</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-history mr-1"></i> Payment History</h3></div>
       <div class="card-body p-0">
         <table class="table table-sm mb-0">
-          <thead><tr><th>Date</th><th>Method</th><th class="text-right">Amount</th><th>Ref</th></tr></thead>
-          <tbody>
-            {% for p in invoice.payments.all %}
+          <thead class="table-light">
             <tr>
-              <td>{{ p.date|date:"M d" }}</td>
+              <th>Date</th>
+              <th>Method</th>
+              <th class="text-right">Amount</th>
+              <th class="text-right running-balance">Balance</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% with running=invoice.grand_total %}
+            {% for p in payments_with_balance %}
+            <tr class="payment-row">
+              <td>
+                {{ p.date|date:"M d, Y" }}
+                {% if p.reference_no %}<br><small class="text-muted">{{ p.reference_no }}</small>{% endif %}
+                {% if p.notes %}<br><small class="text-info"><i class="fas fa-comment-alt"></i> {{ p.notes }}</small>{% endif %}
+              </td>
               <td><span class="badge bg-secondary">{{ p.get_method_display }}</span></td>
-              <td class="text-right">{{ p.amount|floatformat:2|intcomma }}</td>
-              <td><small>{{ p.reference_no|default:"-" }}</small></td>
+              <td class="text-right text-success"><strong>&#8369; {{ p.amount|floatformat:2|intcomma }}</strong></td>
+              <td class="text-right running-balance">
+                {% if p.balance_after > 0 %}
+                  <span class="text-danger">&#8369; {{ p.balance_after|floatformat:2|intcomma }}</span>
+                {% else %}
+                  <span class="text-success"><i class="fas fa-check"></i> Paid</span>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                <form method="post" action="{% url 'invoice_delete_payment' invoice.pk p.pk %}" class="d-inline"
+                      onsubmit="return confirm('Delete this payment record?')">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete payment">
+                    <i class="fas fa-trash-alt"></i>
+                  </button>
+                </form>
+              </td>
             </tr>
             {% empty %}
-            <tr><td colspan="4" class="text-center text-muted py-3">No payments recorded.</td></tr>
+            <tr><td colspan="5" class="text-center text-muted py-3">No payments recorded yet.</td></tr>
             {% endfor %}
+            {% endwith %}
           </tbody>
+          {% if invoice.payments.exists %}
+          <tfoot class="table-light">
+            <tr>
+              <td colspan="2"><strong>Total Paid</strong></td>
+              <td class="text-right text-success"><strong>&#8369; {{ total_paid|floatformat:2|intcomma }}</strong></td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+          {% endif %}
         </table>
       </div>
     </div>
@@ -114,8 +201,17 @@
         <form method="post" action="{% url 'invoice_add_payment' invoice.pk %}">
           {% csrf_token %}
           <div class="mb-2">
-            <label class="form-label small fw-bold">Amount</label>
-            <input type="number" name="amount" class="form-control form-control-sm" step="0.01" value="{{ balance_due|floatformat:2 }}" required>
+            <label class="form-label small fw-bold">Payment Date</label>
+            <input type="date" name="payment_date" class="form-control form-control-sm" value="{{ today_date }}">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-bold">Amount <span class="text-danger">*</span></label>
+            <div class="input-group input-group-sm">
+              <div class="input-group-prepend"><span class="input-group-text">&#8369;</span></div>
+              <input type="number" name="amount" class="form-control" step="0.01" min="0.01"
+                     value="{{ balance_due|floatformat:2 }}" required>
+            </div>
+            <small class="text-muted">Balance due: &#8369; {{ balance_due|floatformat:2|intcomma }}</small>
           </div>
           <div class="mb-2">
             <label class="form-label small fw-bold">Payment Method</label>
@@ -130,17 +226,50 @@
           </div>
           <div class="mb-2">
             <label class="form-label small fw-bold">Reference #</label>
-            <input type="text" name="reference_no" class="form-control form-control-sm" placeholder="Check #, transaction ID, etc.">
+            <input type="text" name="reference_no" class="form-control form-control-sm" placeholder="Check #, OR #, Transaction ID…">
           </div>
           <div class="mb-3">
             <label class="form-label small fw-bold">Notes</label>
-            <input type="text" name="notes" class="form-control form-control-sm" placeholder="Optional">
+            <input type="text" name="notes" class="form-control form-control-sm" placeholder="Optional notes">
           </div>
-          <button type="submit" class="btn btn-success btn-sm w-100"><i class="fas fa-check mr-1"></i> Record Payment</button>
+          <button type="submit" class="btn btn-success btn-sm btn-block">
+            <i class="fas fa-check-circle mr-1"></i> Record Payment
+          </button>
         </form>
       </div>
     </div>
     {% endif %}
+
+    <!-- Invoice Summary Card -->
+    <div class="card card-outline card-secondary">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle mr-1"></i> Summary</h3></div>
+      <div class="card-body p-2">
+        <table class="table table-sm mb-0">
+          <tr><td>Invoice Date</td><td class="text-right">{{ invoice.date|date:"M d, Y" }}</td></tr>
+          {% if invoice.due_date %}<tr><td>Due Date</td><td class="text-right {% if not invoice.is_paid and invoice.due_date < today_date %}text-danger{% endif %}">{{ invoice.due_date|date:"M d, Y" }}</td></tr>{% endif %}
+          <tr><td>Grand Total</td><td class="text-right"><strong>&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
+          <tr><td>Total Paid</td><td class="text-right text-success">&#8369; {{ total_paid|floatformat:2|intcomma }}</td></tr>
+          {% if not invoice.is_paid %}
+          <tr><td>Balance Due</td><td class="text-right text-danger"><strong>&#8369; {{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
+          {% else %}
+          <tr><td>Paid On</td><td class="text-right">{{ invoice.paid_date|date:"M d, Y"|default:"—" }}</td></tr>
+          {% endif %}
+          <tr>
+            <td>Status</td>
+            <td class="text-right">
+              {% if invoice.payment_status == 'PAID' %}
+                <span class="badge badge-paid">PAID</span>
+              {% elif invoice.payment_status == 'PARTIAL' %}
+                <span class="badge badge-partial">PARTIAL</span>
+              {% else %}
+                <span class="badge badge-unpaid">UNPAID</span>
+              {% endif %}
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
   </div>
 </div>
 {% endblock %}

@@ -1,4 +1,5 @@
 from django import forms
+from django.forms import BaseInlineFormSet, inlineformset_factory
 from catalog.models import Category, Unit, UnitCategory, UnitConversion, Item
 
 
@@ -59,6 +60,61 @@ class UnitConversionForm(forms.ModelForm):
             'factor': 'How many target units equal 1 source unit (e.g. 1 Box = 20 pcs → factor = 20).',
             'item': 'Leave blank for a global conversion. Select a product to override the factor for that specific item only.',
         }
+
+
+class ItemUnitConversionForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound and (not getattr(self, 'instance', None) or not getattr(self.instance, 'pk', None)):
+            self.fields['factor'].initial = None
+
+    class Meta:
+        model = UnitConversion
+        fields = ['from_unit', 'to_unit', 'factor']
+        widgets = {
+            'from_unit': forms.Select(attrs={'class': 'form-control'}),
+            'to_unit': forms.Select(attrs={'class': 'form-control'}),
+            'factor': forms.NumberInput(attrs={
+                'class': 'form-control', 'step': '0.000001', 'min': '0', 'placeholder': 'e.g., 20'
+            }),
+        }
+        help_texts = {
+            'from_unit': 'Source unit for this item-specific conversion.',
+            'to_unit': 'Target unit for this item-specific conversion.',
+            'factor': 'How many target units equal 1 source unit.',
+        }
+
+
+class BaseItemUnitConversionFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        seen = set()
+        for form in self.forms:
+            if not hasattr(form, 'cleaned_data'):
+                continue
+            if form.cleaned_data.get('DELETE'):
+                continue
+            from_unit = form.cleaned_data.get('from_unit')
+            to_unit = form.cleaned_data.get('to_unit')
+            factor = form.cleaned_data.get('factor')
+            if not from_unit and not to_unit and factor in (None, ''):
+                continue
+            if from_unit and to_unit:
+                key = (from_unit.pk, to_unit.pk)
+                if key in seen:
+                    raise forms.ValidationError('Duplicate conversion rows are not allowed for the same item.')
+                seen.add(key)
+
+
+ItemUnitConversionFormSet = inlineformset_factory(
+    Item,
+    UnitConversion,
+    form=ItemUnitConversionForm,
+    formset=BaseItemUnitConversionFormSet,
+    extra=1,
+    can_delete=True,
+    fields=['from_unit', 'to_unit', 'factor'],
+)
 
 
 class ItemForm(forms.ModelForm):

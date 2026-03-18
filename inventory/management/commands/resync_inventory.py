@@ -2,21 +2,22 @@
 Management command: resync_inventory
 ======================================
 Re-synchronises StockBalance and StockMove records to reflect correct unit
-conversion after the introduction of convert_to_base_unit().
+conversion using each item's current default_unit / selling_unit setup.
 
-Before this command was available, all posting services stored RAW line.qty
-in StockMoves without converting to item.default_unit.  As a result:
-  - StockBalance was wrong whenever a document line used a non-default unit
-    (e.g. selling 3 boxes when default=pcs and 1 box=20 pcs stored -3 instead
-    of -60).
+Before this command was available, some posting services stored RAW line.qty
+in StockMoves without converting to the item's current inventory unit
+(selling_unit when set, otherwise default_unit).  As a result:
+  - StockBalance was wrong whenever a document line used a different unit
+    (e.g. selling 3 boxes when inventory unit=pcs and 1 box=20 pcs stored -3
+    instead of -60).
 
 The command does two independent phases:
 
   Phase 1 — Fix StockMove.qty
     For every POSTED StockMove linked to a source document line, recompute
-    qty = convert_to_base_unit(line.qty, line.unit, item.default_unit) and
-    update the row.  Reversal moves (created by cancel_document) are updated to
-    mirror their corrected originals.
+    qty into the item's current inventory unit derived from selling_unit /
+    default_unit, then update the row.  Reversal moves (created by
+    cancel_document) are updated to mirror their corrected originals.
 
   Phase 2 — Recalculate StockBalance from scratch
     Zeros all StockBalance records, then walks every POSTED document in order
@@ -37,20 +38,32 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
 from catalog.models import convert_to_base_unit
 from core.models import DocumentStatus
-from inventory.models import StockBalance, StockMove, MoveStatus
+from inventory.models import StockBalance, StockMove, MoveStatus, MoveType
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
+
+def _inventory_unit(item):
+    """Return the canonical resync unit for inventory rebuilding.
+
+    Resync uses the item's procurement/base unit (`default_unit`) so stock
+    reconstructed from Goods Receipts remains aligned with how stock was
+    actually received and how stock-on-hand reports are interpreted.
+    """
+    return item.default_unit
+
 
 def _safe_convert(qty, from_unit, to_unit, label, warn_fn, item=None):
     """convert_to_base_unit with graceful fallback: log warning and return raw qty."""
     try:
         return convert_to_base_unit(qty, from_unit, to_unit, item=item)
     except (ValueError, Exception) as exc:
-        warn_fn(f"    [WARN] {label}: {exc}  -> using raw qty={qty}")
+        target_label = getattr(to_unit, 'abbreviation', str(to_unit)) if to_unit is not None else 'N/A'
+        warn_fn(f"    [WARN] {label}: {exc}  -> using raw qty={qty} in target_unit={target_label}")
         return qty
 
 
@@ -72,7 +85,7 @@ def _deduplicate_moves(dry_run, warn_fn):
         .exclude(reference_number__startswith='REV-')
         .exclude(reference_number__startswith='VOID-')
         .values('reference_type', 'reference_id', 'item_id',
-                'from_location_id', 'to_location_id')
+                'from_location_id', 'to_location_id', 'batch_number', 'serial_number')
         .annotate(cnt=Count('id'))
         .filter(cnt__gt=1)
     )
@@ -86,6 +99,8 @@ def _deduplicate_moves(dry_run, warn_fn):
                 item_id=grp['item_id'],
                 from_location_id=grp['from_location_id'],
                 to_location_id=grp['to_location_id'],
+                batch_number=grp['batch_number'],
+                serial_number=grp['serial_number'],
                 status=MoveStatus.POSTED,
             ).exclude(reference_number__startswith='REV-')
              .exclude(reference_number__startswith='VOID-')
@@ -122,6 +137,8 @@ def _fix_moves_for_doc(moves_qs, line_lookup_fn, warn_fn, dry_run, stats):
             stats['no_line'] += 1
             continue
 
+        target_unit = _inventory_unit(move.item)
+
         line_qty = getattr(line, 'qty', None)
         line_unit = getattr(line, 'unit', None)
         if line_qty is None or line_unit is None:
@@ -134,24 +151,251 @@ def _fix_moves_for_doc(moves_qs, line_lookup_fn, warn_fn, dry_run, stats):
             if raw_diff == 0:
                 continue
             correct_qty = _safe_convert(
-                abs(raw_diff), line_unit, move.item.stock_unit,
+                abs(raw_diff), line_unit, target_unit,
                 f"Move#{move.pk} ADJUST", warn_fn, item=move.item,
             )
         else:
             correct_qty = _safe_convert(
-                line_qty, line_unit, move.item.stock_unit,
+                line_qty, line_unit, target_unit,
                 f"Move#{move.pk}", warn_fn, item=move.item,
             )
 
-        if correct_qty == move.qty and move.unit_id == move.item.stock_unit.pk:
+        if correct_qty == move.qty and move.unit_id == target_unit.pk:
             stats['already_correct'] += 1
             continue
 
         if not dry_run:
             move.qty = correct_qty
-            move.unit = move.item.stock_unit
+            move.unit = target_unit
             move.save(update_fields=['qty', 'unit_id'])
         stats['updated'] += 1
+
+
+def _document_reference_number(doc):
+    return (
+        getattr(doc, 'document_number', None)
+        or getattr(doc, 'sale_no', None)
+        or getattr(doc, 'refund_no', None)
+        or getattr(doc, 'service_number', None)
+        or ''
+    )
+
+
+def _document_posted_at(doc):
+    return getattr(doc, 'posted_at', None) or getattr(doc, 'updated_at', None) or getattr(doc, 'created_at', None)
+
+
+def _document_posted_by(doc):
+    return getattr(doc, 'posted_by', None) or getattr(doc, 'created_by', None)
+
+
+def _line_batch(line):
+    return getattr(line, 'batch_number', '') or ''
+
+
+def _line_serial(line):
+    return getattr(line, 'serial_number', '') or ''
+
+
+def _line_notes(ref_type, line):
+    if ref_type == 'StockAdjustment':
+        return f'Adjustment: system={line.qty_system}, counted={line.qty_counted}'
+    if ref_type == 'DamagedReport':
+        return getattr(line, 'reason', '') or ''
+    if ref_type in ('PurchaseReturn', 'SalesReturn'):
+        return getattr(line, 'reason', '') or ''
+    return getattr(line, 'notes', '') or ''
+
+
+def _line_move_type(ref_type):
+    return {
+        'GoodsReceipt': MoveType.RECEIVE,
+        'DeliveryNote': MoveType.DELIVER,
+        'SalesPickup': MoveType.DELIVER,
+        'StockTransfer': MoveType.TRANSFER,
+        'StockAdjustment': MoveType.ADJUST,
+        'DamagedReport': MoveType.DAMAGE,
+        'POSSale': MoveType.POS_SALE,
+        'POSRefund': MoveType.RETURN_IN,
+        'InventoryToSupplyTransfer': MoveType.SUPPLY_OUT,
+        'PurchaseReturn': MoveType.RETURN_OUT,
+        'SalesReturn': MoveType.RETURN_IN,
+        'CustomerService': MoveType.DELIVER,
+    }[ref_type]
+
+
+def _line_locations(ref_type, doc, line, qty):
+    if ref_type == 'GoodsReceipt':
+        return None, line.location_id
+    if ref_type in ('DeliveryNote', 'SalesPickup', 'DamagedReport', 'PurchaseReturn', 'InventoryToSupplyTransfer', 'CustomerService'):
+        return line.location_id, None
+    if ref_type == 'StockTransfer':
+        return line.from_location_id, line.to_location_id
+    if ref_type == 'StockAdjustment':
+        return (line.location_id, None) if qty < 0 else (None, line.location_id)
+    if ref_type == 'POSSale':
+        return (line.location_id or doc.location_id), None
+    if ref_type == 'POSRefund':
+        return None, line.location_id
+    if ref_type == 'SalesReturn':
+        return None, line.location_id
+    return None, None
+
+
+def _line_qty(ref_type, line, warn_fn):
+    item = line.item
+    target_unit = _inventory_unit(item)
+    if ref_type == 'StockAdjustment':
+        raw_diff = line.qty_counted - line.qty_system
+        if raw_diff == 0:
+            return None
+        qty = _safe_convert(abs(raw_diff), line.unit, target_unit, f'{ref_type} item={item.code}', warn_fn, item=item)
+        return -qty if raw_diff < 0 else qty
+    return _safe_convert(line.qty, line.unit, target_unit, f'{ref_type} item={item.code}', warn_fn, item=item)
+
+
+def _ensure_grn_purchase_orders(warn_fn, dry_run, info_fn):
+    from procurement.models import GoodsReceipt, PurchaseOrder, PurchaseOrderLine
+    from inventory.services import generate_document_number
+
+    created = 0
+    grns = GoodsReceipt.objects.filter(
+        status=DocumentStatus.POSTED,
+        purchase_order__isnull=True,
+    ).prefetch_related('lines__item', 'lines__unit')
+
+    for grn in grns:
+        po = PurchaseOrder.objects.create(
+            document_number=generate_document_number('PO', PurchaseOrder),
+            supplier=grn.supplier,
+            warehouse=grn.warehouse,
+            order_date=grn.receipt_date,
+            created_by=grn.created_by,
+            status=DocumentStatus.APPROVED,
+            approved_by=grn.posted_by or grn.created_by,
+            approved_at=grn.posted_at or timezone.now(),
+        )
+        po_lines = []
+        for line in grn.lines.all():
+            po_lines.append(PurchaseOrderLine(
+                purchase_order=po,
+                item=line.item,
+                qty_ordered=line.qty,
+                qty_received=line.qty,
+                unit=line.unit,
+                unit_price=Decimal('0'),
+                notes=line.notes,
+            ))
+        PurchaseOrderLine.objects.bulk_create(po_lines)
+        grn.purchase_order = po
+        grn.save(update_fields=['purchase_order', 'updated_at'])
+        info_fn(f'  [PO BACKFILL] Created {po.document_number} for GRN {grn.document_number}')
+        created += 1
+
+    if dry_run:
+        transaction.set_rollback(True)
+    return created
+
+
+def _iter_expected_moves(warn_fn):
+    from procurement.models import GoodsReceipt, PurchaseReturn
+    from sales.models import DeliveryNote, SalesPickup, SalesReturn
+    from inventory.models import StockTransfer, StockAdjustment, DamagedReport, InventoryToSupplyTransfer
+    from pos.models import POSSale, POSRefund, SaleStatus, RefundStatus
+    from services.models import CustomerService, ServiceStatus
+
+    doc_specs = [
+        ('GoodsReceipt', GoodsReceipt.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('DeliveryNote', DeliveryNote.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('SalesPickup', SalesPickup.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('StockTransfer', StockTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__from_location', 'lines__to_location')),
+        ('StockAdjustment', StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('DamagedReport', DamagedReport.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('POSSale', POSSale.objects.filter(status=SaleStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('location')),
+        ('POSRefund', POSRefund.objects.filter(status=RefundStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('InventoryToSupplyTransfer', InventoryToSupplyTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('PurchaseReturn', PurchaseReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('SalesReturn', SalesReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('CustomerService', CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+    ]
+
+    for ref_type, docs in doc_specs:
+        for doc in docs:
+            for line in doc.lines.all():
+                qty = _line_qty(ref_type, line, warn_fn)
+                if qty in (None, Decimal('0')):
+                    continue
+                from_location_id, to_location_id = _line_locations(ref_type, doc, line, qty)
+                yield {
+                    'reference_type': ref_type,
+                    'reference_id': doc.pk,
+                    'reference_number': _document_reference_number(doc),
+                    'move_type': _line_move_type(ref_type),
+                    'item': line.item,
+                    'item_id': line.item_id,
+                    'qty': abs(qty),
+                    'unit': _inventory_unit(line.item),
+                    'from_location_id': from_location_id,
+                    'to_location_id': to_location_id,
+                    'batch_number': _line_batch(line),
+                    'serial_number': _line_serial(line),
+                    'notes': _line_notes(ref_type, line),
+                    'created_by': getattr(doc, 'created_by', None),
+                    'posted_by': _document_posted_by(doc),
+                    'posted_at': _document_posted_at(doc),
+                }
+
+
+def _backfill_missing_moves(warn_fn, dry_run, info_fn):
+    existing_keys = set(
+        StockMove.objects.filter(status=MoveStatus.POSTED)
+        .exclude(reference_number__startswith='REV-')
+        .exclude(reference_number__startswith='VOID-')
+        .values_list(
+            'reference_type', 'reference_id', 'item_id', 'from_location_id', 'to_location_id', 'batch_number', 'serial_number'
+        )
+    )
+
+    created = 0
+    for payload in _iter_expected_moves(warn_fn):
+        key = (
+            payload['reference_type'],
+            payload['reference_id'],
+            payload['item_id'],
+            payload['from_location_id'],
+            payload['to_location_id'],
+            payload['batch_number'],
+            payload['serial_number'],
+        )
+        if key in existing_keys:
+            continue
+
+        info_fn(
+            f"    [BACKFILL] {payload['reference_type']}#{payload['reference_id']} item={payload['item'].code} qty={payload['qty']}"
+        )
+        if not dry_run:
+            StockMove.objects.create(
+                move_type=payload['move_type'],
+                item=payload['item'],
+                qty=payload['qty'],
+                unit=payload['unit'],
+                from_location_id=payload['from_location_id'],
+                to_location_id=payload['to_location_id'],
+                reference_type=payload['reference_type'],
+                reference_id=payload['reference_id'],
+                reference_number=payload['reference_number'],
+                batch_number=payload['batch_number'],
+                serial_number=payload['serial_number'],
+                notes=payload['notes'],
+                status=MoveStatus.POSTED,
+                created_by=payload['created_by'],
+                posted_by=payload['posted_by'],
+                posted_at=payload['posted_at'],
+            )
+        existing_keys.add(key)
+        created += 1
+
+    return created
 
 
 # ── line-lookup functions per document type ──────────────────────────────────
@@ -160,11 +404,34 @@ def _make_grn_lookup():
     from procurement.models import GoodsReceiptLine
     cache = {}
     def lookup(move):
-        key = (move.reference_id, move.item_id)
+        key = (
+            move.reference_id,
+            move.item_id,
+            move.to_location_id,
+            move.batch_number or '',
+            move.serial_number or '',
+            move.unit_id,
+        )
         if key not in cache:
-            cache[key] = GoodsReceiptLine.objects.filter(
-                goods_receipt_id=move.reference_id, item_id=move.item_id
-            ).select_related('unit').first()
+            qs = GoodsReceiptLine.objects.filter(
+                goods_receipt_id=move.reference_id,
+                item_id=move.item_id,
+                location_id=move.to_location_id,
+            )
+            if move.batch_number:
+                qs = qs.filter(batch_number=move.batch_number)
+            if move.serial_number:
+                qs = qs.filter(serial_number=move.serial_number)
+
+            line = qs.select_related('unit').filter(unit_id=move.unit_id).first()
+            if line is None:
+                line = qs.select_related('unit').first()
+            if line is None:
+                line = GoodsReceiptLine.objects.filter(
+                    goods_receipt_id=move.reference_id,
+                    item_id=move.item_id,
+                ).select_related('unit').first()
+            cache[key] = line
         return cache[key]
     return lookup
 
@@ -351,7 +618,8 @@ def _build_balance_from_documents(warn_fn):
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         for line in grn.lines.all():
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"GRN#{grn.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, q)
 
@@ -360,7 +628,8 @@ def _build_balance_from_documents(warn_fn):
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         for line in dn.lines.all():
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"DN#{dn.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
@@ -369,7 +638,8 @@ def _build_balance_from_documents(warn_fn):
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         for line in sp.lines.all():
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"Pickup#{sp.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
@@ -379,7 +649,8 @@ def _build_balance_from_documents(warn_fn):
         'lines__from_location', 'lines__to_location'
     ):
         for line in tr.lines.all():
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"Transfer#{tr.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.from_location_id, -q)
             _accumulate(bal, line.item_id, line.to_location_id, q)
@@ -392,7 +663,8 @@ def _build_balance_from_documents(warn_fn):
             raw_diff = line.qty_counted - line.qty_system
             if raw_diff == 0:
                 continue
-            q = _safe_convert(abs(raw_diff), line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(abs(raw_diff), line.unit, target_unit,
                               f"Adj#{adj.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id,
                         q if raw_diff > 0 else -q)
@@ -402,7 +674,8 @@ def _build_balance_from_documents(warn_fn):
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         for line in dr.lines.all():
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"Damaged#{dr.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
@@ -412,7 +685,8 @@ def _build_balance_from_documents(warn_fn):
     ):
         for line in sale.lines.all():
             loc_id = line.location_id or sale.location_id
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"POSSale#{sale.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, loc_id, -q)
 
@@ -421,7 +695,8 @@ def _build_balance_from_documents(warn_fn):
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         for line in refund.lines.all():
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"POSRefund#{refund.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, q)
 
@@ -430,7 +705,8 @@ def _build_balance_from_documents(warn_fn):
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         for line in ist.lines.all():
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"IST#{ist.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
@@ -439,7 +715,8 @@ def _build_balance_from_documents(warn_fn):
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         for line in pr.lines.all():
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"PurchReturn#{pr.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
@@ -448,7 +725,8 @@ def _build_balance_from_documents(warn_fn):
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         for line in sr.lines.all():
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"SalesReturn#{sr.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, q)
 
@@ -460,7 +738,8 @@ def _build_balance_from_documents(warn_fn):
         for line in svc.lines.all():
             if line.location_id is None:
                 continue
-            q = _safe_convert(line.qty, line.unit, line.item.stock_unit,
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(line.qty, line.unit, target_unit,
                               f"Service#{svc.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
@@ -562,7 +841,13 @@ class Command(BaseCommand):
     def _run_phase1(self, dry_run):
         self.stdout.write('\n--- Phase 1: Correcting StockMove quantities ---')
 
-        total_stats = {'updated': 0, 'already_correct': 0, 'no_line': 0}
+        total_stats = {'updated': 0, 'already_correct': 0, 'no_line': 0, 'backfilled': 0}
+
+        with transaction.atomic():
+            po_backfilled = _ensure_grn_purchase_orders(self._warn, dry_run, self._info)
+            if dry_run:
+                transaction.set_rollback(True)
+        self._info(f'  Missing GRN purchase orders created: {po_backfilled}')
 
         for ref_type, lookup_factory in REFERENCE_TYPE_LOOKUPS.items():
             moves_qs = StockMove.objects.filter(
@@ -590,6 +875,13 @@ class Command(BaseCommand):
             )
             for k, v in stats.items():
                 total_stats[k] += v
+
+        with transaction.atomic():
+            backfilled = _backfill_missing_moves(self._warn, dry_run, self._info)
+            if dry_run:
+                transaction.set_rollback(True)
+        self._info(f'  Missing moves backfilled: {backfilled}')
+        total_stats['backfilled'] += backfilled
 
         # Fix reversal moves: their qty should mirror the corrected original
         rev_moves = StockMove.objects.filter(
@@ -620,7 +912,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'\n  Phase 1 total — updated: {total_stats["updated"]}  '
             f'already_correct: {total_stats["already_correct"]}  '
-            f'missing_source: {total_stats["no_line"]}'
+            f'missing_source: {total_stats["no_line"]}  '
+            f'backfilled: {total_stats["backfilled"]}'
         ))
 
     # ── Phase 2: recalculate StockBalance from document lines ────────────────
@@ -759,14 +1052,14 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.SUCCESS('  [UNKNOWN REF]  none OK'))
 
-        # 3d: Items whose stock_unit category conflicts with any StockMove unit
+        # 3d: Items whose current inventory-unit category conflicts with any StockMove unit
         cross_cat_items = set()
         for move in (StockMove.objects
                      .filter(status=MoveStatus.POSTED)
                      .select_related('item__default_unit', 'item__selling_unit', 'unit')
                      .only('item__id', 'unit__category',
                            'item__default_unit__category', 'item__selling_unit__category')):
-            stock_cat = move.item.stock_unit.category
+            stock_cat = _inventory_unit(move.item).category
             if move.unit.category != stock_cat:
                 cross_cat_items.add(move.item.code)
 

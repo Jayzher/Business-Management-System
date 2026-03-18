@@ -1093,24 +1093,43 @@ function wisSoFetchPrice($row) {
   });
 }
 
-/* ── Unit filter cache: category → [{id, name, abbreviation}] ── */
-var _wisUnitCache = {};
+/* ── Unit cache for sales order form dropdown ── */
+var _wisAllUnitsCache = null;
 
-function wisFilterUnitsByCat(category, $unitSel, preferredId) {
-  /* Rebuild the unit <select> options filtered to the given category. */
-  if (_wisUnitCache[category]) {
-    _wisApplyUnitOptions($unitSel, _wisUnitCache[category], preferredId);
-  } else {
-    $.getJSON('/api/units/', { category: category, page_size: 200 }, function(resp) {
-      var units = resp.results || resp;
-      _wisUnitCache[category] = units;
-      _wisApplyUnitOptions($unitSel, units, preferredId);
-    });
+function wisPopulateUnits($unitSel, preferredId) {
+  var applyUnits = function(units) {
+    _wisApplyUnitOptions($unitSel, units, preferredId, true);
+  };
+  if (_wisAllUnitsCache) {
+    applyUnits(_wisAllUnitsCache);
+    return;
   }
+  var acc = [];
+  var fetchUnitsPage = function(url) {
+    $.getJSON(url, function(resp) {
+      var units = resp.results || resp;
+      if (Array.isArray(resp.results)) {
+        acc = acc.concat(units);
+        if (resp.next) {
+          fetchUnitsPage(resp.next);
+        } else {
+          _wisAllUnitsCache = acc;
+          applyUnits(acc);
+        }
+      } else {
+        _wisAllUnitsCache = units;
+        applyUnits(units);
+      }
+    });
+  };
+  fetchUnitsPage('/api/units/?page_size=500');
 }
 
-function _wisApplyUnitOptions($unitSel, units, preferredId) {
+function _wisApplyUnitOptions($unitSel, units, preferredId, forcePreferred) {
   var currentVal = $unitSel.val();
+  if (forcePreferred) {
+    currentVal = '';
+  }
   var placeholder = $unitSel.find('option[value=""]').text() || '---------';
   $unitSel.empty();
   $unitSel.append('<option value="">' + placeholder + '</option>');
@@ -1138,19 +1157,10 @@ function wisSoSetUnitThenPrice($row) {
 
   $.getJSON('/api/items/' + itemId + '/', function(item) {
     var $unitSel = $row.find('.so-line-unit');
-    var cat = item.default_unit_category;
-    if (cat) {
-      wisFilterUnitsByCat(cat, $unitSel, item.default_unit);
-      /* Price fetch happens after units are rebuilt */
-      setTimeout(function() { wisSoFetchPrice($row); }, 250);
-    } else {
-      /* Fallback: no category info, just set default unit */
-      var cur = $unitSel.val();
-      if ((!cur || cur === '') && item.default_unit) {
-        $unitSel.val(String(item.default_unit)).trigger('change');
-      }
-      wisSoFetchPrice($row);
-    }
+    var preferred = item.selling_unit || item.default_unit;
+    wisPopulateUnits($unitSel, preferred);
+    /* Allow the units dropdown to rebuild before fetching price */
+    setTimeout(function() { wisSoFetchPrice($row); }, 250);
   }).fail(function() {
     wisSoFetchPrice($row);
   });
@@ -1394,6 +1404,10 @@ $(document).on('input change', 'form[data-so-form="1"] .so-line-qty', function()
 
 $(document).on('change', 'form[data-so-form="1"] .so-line-unit', function() {
   wisSoFetchPrice($(this).closest('.formset-row'));
+});
+
+$(document).on('change', 'form[data-so-form="1"] .so-line-item', function() {
+  wisSoSetUnitThenPrice($(this).closest('.formset-row'));
 });
 
 $(document).on('change input', 'form[data-so-form="1"] .so-line-discount-type, form[data-so-form="1"] .so-line-discount-val', function() {

@@ -558,71 +558,36 @@ def profit_margin_view(request):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# FINANCIAL STATEMENT  (P&L)
+# FINANCIAL STATEMENT  (P&L)  — Invoice-based (paid invoices only)
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def financial_statement_view(request):
-    from pos.models import POSSale, POSSaleLine, SaleStatus
-    from core.models import Expense, ExpenseCategory, DocumentStatus
-    from sales.models import SalesOrder, SalesOrderLine, SalesOrderPriceListLine
+    from core.models import Expense, Invoice
 
     today = date.today()
     first_of_month = today.replace(day=1)
     date_from = request.GET.get('date_from', first_of_month.isoformat())
     date_to = request.GET.get('date_to', today.isoformat())
 
-    # ── POS REVENUE ────────────────────────────────────────────────────
-    sale_qs = POSSale.objects.filter(status__in=[SaleStatus.POSTED, SaleStatus.PAID])
+    # ── PAID INVOICES (filtered by paid_date) ──────────────────────────
+    inv_qs = Invoice.objects.filter(is_paid=True, is_void=False, paid_date__isnull=False)
     if date_from:
-        sale_qs = sale_qs.filter(created_at__date__gte=date_from)
+        inv_qs = inv_qs.filter(paid_date__gte=date_from)
     if date_to:
-        sale_qs = sale_qs.filter(created_at__date__lte=date_to)
+        inv_qs = inv_qs.filter(paid_date__lte=date_to)
 
-    pos_revenue = sale_qs.aggregate(
-        total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
-    )['total']
-    discount = sale_qs.aggregate(
-        total=Coalesce(Sum('discount_total'), Decimal('0'), output_field=DecimalField())
-    )['total']
-
-    # ── SO REVENUE (APPROVED + POSTED, lines + bundles) ─────────────────
-    so_qs_fs = SalesOrder.objects.filter(status__in=[DocumentStatus.APPROVED, DocumentStatus.POSTED])
-    if date_from:
-        so_qs_fs = so_qs_fs.filter(order_date__gte=date_from)
-    if date_to:
-        so_qs_fs = so_qs_fs.filter(order_date__lte=date_to)
-    so_lines_fs = list(SalesOrderLine.objects.filter(
-        sales_order__in=so_qs_fs
-    ).select_related('item', 'sales_order'))
-    so_bundles_fs = list(SalesOrderPriceListLine.objects.filter(
-        sales_order__in=so_qs_fs
-    ).select_related('sales_order', 'price_list').prefetch_related('price_list__items__item'))
-    # line_total and bundle_total are @properties — must compute in Python
-    so_revenue_fs = sum(line.line_total for line in so_lines_fs) + sum(b.bundle_total for b in so_bundles_fs)
-
-    revenue = pos_revenue + so_revenue_fs
-    net_revenue = revenue
-
-    # ── COGS (POS inventory cost + SO inventory cost) ──────────────────
-    line_qs = POSSaleLine.objects.filter(sale__in=sale_qs)
-    cogs_inventory_pos = line_qs.aggregate(
-        total=Coalesce(
-            Sum(F('item__cost_price') * F('qty'), output_field=DecimalField()),
-            Decimal('0'), output_field=DecimalField(),
-        )
-    )['total']
-    cogs_so_lines_fs = sum(
-        (line.item.cost_price or Decimal('0')) * line.qty_ordered
-        for line in so_lines_fs
+    agg = inv_qs.aggregate(
+        revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
+        discount=Coalesce(Sum('discount_total'), Decimal('0'), output_field=DecimalField()),
+        cogs=Coalesce(Sum('grand_total_cogs'), Decimal('0'), output_field=DecimalField()),
     )
-    cogs_so_bundles_fs = Decimal('0')
-    for _b in so_bundles_fs:
-        for _p in _b.price_list.items.all():
-            cogs_so_bundles_fs += ((_p.item.cost_price or Decimal('0')) * _p.min_qty * _b.qty_multiplier)
-    cogs_inventory_so = cogs_so_lines_fs + cogs_so_bundles_fs
-    cogs_inventory = cogs_inventory_pos + cogs_inventory_so
+    invoice_revenue = agg['revenue']
+    discount = agg['discount']
+    cogs_from_invoices = agg['cogs']
 
-    # COGS from expense categories marked as COGS
+    net_revenue = invoice_revenue - discount
+
+    # ── COGS from expense categories marked as COGS ────────────────────
     exp_qs = Expense.objects.all()
     if date_from:
         exp_qs = exp_qs.filter(date__gte=date_from)
@@ -632,7 +597,8 @@ def financial_statement_view(request):
     cogs_expenses = exp_qs.filter(category__is_cogs=True).aggregate(
         total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField())
     )['total']
-    total_cogs = cogs_inventory + cogs_expenses
+
+    total_cogs = cogs_from_invoices + cogs_expenses
     gross_profit = net_revenue - total_cogs
     gross_margin = (gross_profit / net_revenue * 100) if net_revenue > 0 else Decimal('0')
 
@@ -647,14 +613,13 @@ def financial_statement_view(request):
     net_profit = gross_profit - total_opex
     net_margin = (net_profit / net_revenue * 100) if net_revenue > 0 else Decimal('0')
 
-    # ── Monthly P&L trend ──────────────────────────────────────────────
-    # POS Revenue: created_at is DateTimeField — TruncMonth is safe
-    monthly_rev = list(
-        sale_qs.annotate(month=TruncMonth('created_at')).values('month').annotate(
+    # ── Monthly P&L trend (by paid_date month) ─────────────────────────
+    monthly_inv_raw = list(
+        inv_qs.annotate(yr=ExtractYear('paid_date'), mo=ExtractMonth('paid_date'))
+        .values('yr', 'mo').annotate(
             total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
-        ).order_by('month')
+        ).order_by('yr', 'mo')
     )
-    # Expenses: date is DateField — use Extract to avoid SQLite issues
     monthly_exp_raw = list(
         exp_qs.annotate(yr=ExtractYear('date'), mo=ExtractMonth('date'))
         .values('yr', 'mo').annotate(
@@ -662,26 +627,11 @@ def financial_statement_view(request):
         ).order_by('yr', 'mo')
     )
 
-    # Merge months (POS revenue first)
     month_map = {}
-    for r in monthly_rev:
-        try:
-            key = r['month'].strftime('%b %Y')
-        except Exception:
-            key = str(r['month'])
+    for r in monthly_inv_raw:
+        key = date(r['yr'], r['mo'], 1).strftime('%b %Y')
         month_map.setdefault(key, {'revenue': Decimal('0'), 'expenses': Decimal('0')})
         month_map[key]['revenue'] += r['total']
-
-    # Add SO revenue to monthly trend: lines + bundles
-    for line in so_lines_fs:
-        key = line.sales_order.order_date.replace(day=1).strftime('%b %Y')
-        month_map.setdefault(key, {'revenue': Decimal('0'), 'expenses': Decimal('0')})
-        month_map[key]['revenue'] += line.line_total
-    for bundle in so_bundles_fs:
-        key = bundle.sales_order.order_date.replace(day=1).strftime('%b %Y')
-        month_map.setdefault(key, {'revenue': Decimal('0'), 'expenses': Decimal('0')})
-        month_map[key]['revenue'] += bundle.bundle_total
-
     for r in monthly_exp_raw:
         key = date(r['yr'], r['mo'], 1).strftime('%b %Y')
         month_map.setdefault(key, {'revenue': Decimal('0'), 'expenses': Decimal('0')})
@@ -692,106 +642,70 @@ def financial_statement_view(request):
     trend_expenses = [float(month_map[k]['expenses']) for k in trend_labels]
     trend_profit = [float(month_map[k]['revenue'] - month_map[k]['expenses']) for k in trend_labels]
 
-    # ── Invoice / Computation Breakdown ────────────────────────────────
-    from core.models import Invoice
-    from services.models import CustomerService
-
+    # ── Breakdown: one row per paid invoice ────────────────────────────
+    from core.models import InvoicePayment
     breakdown_rows = []
-
-    # 1. POS Sales (with or without linked Invoice)
-    for sale in sale_qs.select_related('customer').prefetch_related('lines__item'):
-        pos_cogs = sum(
-            (line.item.cost_price or Decimal('0')) * line.qty
-            for line in sale.lines.all()
-        )
-        inv_no = ''
-        inv_qs = sale.invoices.filter(is_void=False).first()
-        if inv_qs:
-            inv_no = inv_qs.invoice_number
+    for inv in inv_qs.select_related(
+        'sales_order__customer', 'pos_sale__customer'
+    ).prefetch_related('payments').order_by('paid_date'):
+        source_type = 'INV'
+        ref = ''
+        if inv.sales_order_id:
+            source_type = 'SO'
+            ref = inv.sales_order.document_number
+        elif inv.pos_sale_id:
+            source_type = 'POS'
+            ref = inv.pos_sale.sale_no
+        elif hasattr(inv, 'customer_services') and inv.customer_services.exists():
+            source_type = 'SVC'
+            ref = inv.customer_services.first().service_number
+        cogs_val = inv.grand_total_cogs
+        payment_methods = ', '.join(
+            p.get_method_display() for p in inv.payments.all()
+        ) or '—'
         breakdown_rows.append({
-            'type': 'POS',
-            'ref': sale.sale_no,
-            'invoice_no': inv_no,
-            'date': sale.created_at.date() if sale.created_at else None,
-            'customer': sale.customer.name if sale.customer_id else '—',
-            'revenue': sale.grand_total,
-            'cogs': pos_cogs.quantize(Decimal('0.01')),
-            'gross_profit': (sale.grand_total - pos_cogs).quantize(Decimal('0.01')),
+            'type': source_type,
+            'ref': ref,
+            'invoice_no': inv.invoice_number,
+            'date': inv.paid_date,
+            'customer': inv.customer_name or '—',
+            'revenue': inv.grand_total,
+            'discount': inv.discount_total,
+            'cogs': cogs_val,
+            'gross_profit': inv.grand_total - inv.discount_total - cogs_val,
+            'payment_methods': payment_methods,
         })
 
-    # 2. Sales Orders (lines + bundles)
-    for so in so_qs_fs.select_related('customer').prefetch_related(
-        'lines__item',
-        'price_list_lines__price_list__items__item',
-        'invoices',
-    ):
-        so_rev = sum(line.line_total for line in so.lines.all()) + \
-                 sum(b.bundle_total for b in so.price_list_lines.all())
-        so_cogs_val = sum(
-            (l.item.cost_price or Decimal('0')) * l.qty_ordered
-            for l in so.lines.all()
-        )
-        for bundle in so.price_list_lines.all():
-            for pli in bundle.price_list.items.all():
-                so_cogs_val += (pli.item.cost_price or Decimal('0')) * pli.min_qty * bundle.qty_multiplier
-        inv_no = ''
-        inv_obj = so.invoices.filter(is_void=False).first()
-        if inv_obj:
-            inv_no = inv_obj.invoice_number
-        breakdown_rows.append({
-            'type': 'SO',
-            'ref': so.document_number,
-            'invoice_no': inv_no,
-            'date': so.order_date,
-            'customer': so.customer.name if so.customer_id else '—',
-            'revenue': so_rev,
-            'cogs': so_cogs_val.quantize(Decimal('0.01')),
-            'gross_profit': (so_rev - so_cogs_val).quantize(Decimal('0.01')),
-        })
-
-    # 3. Completed Services linked to an Invoice in the period
-    svc_qs = CustomerService.objects.filter(
-        status='COMPLETED',
-        invoice__isnull=False,
-    )
-    if date_from:
-        svc_qs = svc_qs.filter(completion_date__gte=date_from)
-    if date_to:
-        svc_qs = svc_qs.filter(completion_date__lte=date_to)
-    for svc in svc_qs.select_related('invoice').prefetch_related('lines__item'):
-        svc_rev = svc.grand_total
-        svc_cogs = sum(
-            (line.item.cost_price or Decimal('0')) * line.qty
-            for line in svc.lines.all()
-        )
-        breakdown_rows.append({
-            'type': 'SVC',
-            'ref': svc.service_number,
-            'invoice_no': svc.invoice.invoice_number if svc.invoice_id else '',
-            'date': svc.completion_date,
-            'customer': svc.customer_name or '—',
-            'revenue': svc_rev,
-            'cogs': svc_cogs.quantize(Decimal('0.01')),
-            'gross_profit': (svc_rev - svc_cogs).quantize(Decimal('0.01')),
-        })
-
-    # Sort breakdown by date
-    breakdown_rows.sort(key=lambda r: r['date'] or date.min)
-
-    # Totals for the breakdown
     breakdown_total_revenue = sum(r['revenue'] for r in breakdown_rows)
+    breakdown_total_discount = sum(r['discount'] for r in breakdown_rows)
     breakdown_total_cogs = sum(r['cogs'] for r in breakdown_rows)
     breakdown_total_gp = sum(r['gross_profit'] for r in breakdown_rows)
 
+    # ── Payment method summary (from InvoicePayment records) ───────────
+    from django.db.models import Count
+    payment_method_rows = list(
+        InvoicePayment.objects.filter(invoice__in=inv_qs)
+        .values('method')
+        .annotate(
+            total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()),
+            count=Count('id'),
+        )
+        .order_by('-total')
+    )
+    # Attach display name
+    from core.models import PaymentMethod as PM
+    for row in payment_method_rows:
+        row['method_display'] = dict(PM.choices).get(row['method'], row['method'])
+    payment_total_collected = sum(r['total'] for r in payment_method_rows)
+
+    # Invoice count
+    inv_count = inv_qs.count()
+
     return render(request, 'reports/financial_statement.html', {
-        'revenue': revenue,
-        'pos_revenue': pos_revenue,
-        'so_revenue': so_revenue_fs,
+        'invoice_revenue': invoice_revenue,
         'discount': discount,
         'net_revenue': net_revenue,
-        'cogs_inventory': cogs_inventory,
-        'cogs_inventory_pos': cogs_inventory_pos,
-        'cogs_inventory_so': cogs_inventory_so,
+        'cogs_from_invoices': cogs_from_invoices,
         'cogs_expenses': cogs_expenses,
         'total_cogs': total_cogs,
         'gross_profit': gross_profit,
@@ -807,8 +721,12 @@ def financial_statement_view(request):
         'filters': {'date_from': date_from, 'date_to': date_to},
         'breakdown_rows': breakdown_rows,
         'breakdown_total_revenue': breakdown_total_revenue,
+        'breakdown_total_discount': breakdown_total_discount,
         'breakdown_total_cogs': breakdown_total_cogs,
         'breakdown_total_gp': breakdown_total_gp,
+        'payment_method_rows': payment_method_rows,
+        'payment_total_collected': payment_total_collected,
+        'inv_count': inv_count,
     })
 
 

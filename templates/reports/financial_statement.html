@@ -46,19 +46,23 @@
     <div class="card">
       <div class="card-header"><h3 class="card-title"><i class="fas fa-file-invoice-dollar mr-1"></i> Profit & Loss Statement</h3></div>
       <div class="card-body p-0">
+        <div class="px-3 pt-2 pb-0">
+          <small class="text-muted"><i class="fas fa-info-circle mr-1"></i>
+            Based on <strong>{{ inv_count }}</strong> paid invoice{{ inv_count|pluralize }} with payment date between
+            <strong>{{ filters.date_from }}</strong> and <strong>{{ filters.date_to }}</strong>.
+          </small>
+        </div>
         <table class="table pnl-table mb-0">
           <tbody>
             <!-- REVENUE -->
-            <tr class="pnl-section"><td colspan="2">REVENUE</td></tr>
-            {% if pos_revenue %}<tr><td class="ps-4">POS Sales Revenue</td><td class="text-right">&#8369; {{ pos_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
-            {% if so_revenue %}<tr><td class="ps-4">Sales Orders Revenue</td><td class="text-right">&#8369; {{ so_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
+            <tr class="pnl-section"><td colspan="2">REVENUE <small class="text-muted font-weight-normal">(from paid invoices)</small></td></tr>
+            <tr><td class="ps-4">Invoice Revenue (gross)</td><td class="text-right">&#8369; {{ invoice_revenue|floatformat:2|intcomma }}</td></tr>
             {% if discount %}<tr><td class="ps-4">Less: Discounts</td><td class="text-right negative">(&#8369; {{ discount|floatformat:2|intcomma }})</td></tr>{% endif %}
             <tr class="pnl-total"><td>Net Revenue</td><td class="text-right">&#8369; {{ net_revenue|floatformat:2|intcomma }}</td></tr>
 
             <!-- COGS -->
             <tr class="pnl-section"><td colspan="2">COST OF GOODS SOLD</td></tr>
-            {% if cogs_inventory_pos %}<tr><td class="ps-4">POS COGS (cost price &times; qty sold)</td><td class="text-right">&#8369; {{ cogs_inventory_pos|floatformat:2|intcomma }}</td></tr>{% endif %}
-            {% if cogs_inventory_so %}<tr><td class="ps-4">SO COGS (cost price &times; qty ordered)</td><td class="text-right">&#8369; {{ cogs_inventory_so|floatformat:2|intcomma }}</td></tr>{% endif %}
+            {% if cogs_from_invoices %}<tr><td class="ps-4">Inventory COGS (from invoices)</td><td class="text-right">&#8369; {{ cogs_from_invoices|floatformat:2|intcomma }}</td></tr>{% endif %}
             {% if cogs_expenses %}<tr><td class="ps-4">Direct Cost Expenses (COGS categories)</td><td class="text-right">&#8369; {{ cogs_expenses|floatformat:2|intcomma }}</td></tr>{% endif %}
             <tr class="pnl-total"><td>Total COGS</td><td class="text-right">&#8369; {{ total_cogs|floatformat:2|intcomma }}</td></tr>
 
@@ -144,61 +148,137 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body p-0">
-        <div class="table-responsive">
-          <table class="table table-sm table-hover table-bordered mb-0" id="breakdownTable">
-            <thead class="thead-dark">
-              <tr>
-                <th>Type</th>
-                <th>Reference</th>
-                <th>Invoice #</th>
-                <th>Date</th>
-                <th>Customer</th>
-                <th class="text-right">Revenue</th>
-                <th class="text-right text-danger">COGS</th>
-                <th class="text-right text-success">Gross Profit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for row in breakdown_rows %}
-              <tr>
-                <td>
-                  {% if row.type == 'POS' %}<span class="bdg-pos">POS</span>
-                  {% elif row.type == 'SO' %}<span class="bdg-so">SO</span>
-                  {% else %}<span class="bdg-svc">SVC</span>{% endif %}
-                </td>
-                <td class="font-monospace small">{{ row.ref }}</td>
-                <td class="font-monospace small text-muted">{{ row.invoice_no|default:"—" }}</td>
-                <td class="small">{{ row.date|date:"M d, Y"|default:"—" }}</td>
-                <td class="small">{{ row.customer }}</td>
-                <td class="text-right">&#8369; {{ row.revenue|floatformat:2|intcomma }}</td>
-                <td class="text-right text-danger">&#8369; {{ row.cogs|floatformat:2|intcomma }}</td>
-                <td class="text-right {% if row.gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
-                  &#8369; {{ row.gross_profit|floatformat:2|intcomma }}
-                </td>
-              </tr>
-              {% empty %}
-              <tr><td colspan="8" class="text-center text-muted py-4">
-                <i class="fas fa-inbox mr-1"></i>No transactions found for the selected period.
-              </td></tr>
-              {% endfor %}
-            </tbody>
-            {% if breakdown_rows %}
-            <tfoot class="table-dark font-weight-bold">
-              <tr>
-                <td colspan="5" class="text-right">TOTALS</td>
-                <td class="text-right">&#8369; {{ breakdown_total_revenue|floatformat:2|intcomma }}</td>
-                <td class="text-right text-danger">&#8369; {{ breakdown_total_cogs|floatformat:2|intcomma }}</td>
-                <td class="text-right {% if breakdown_total_gp >= 0 %}text-success{% else %}text-danger{% endif %}">
-                  &#8369; {{ breakdown_total_gp|floatformat:2|intcomma }}
-                </td>
-              </tr>
-            </tfoot>
-            {% endif %}
-          </table>
+        <!-- Tabs -->
+        <ul class="nav nav-tabs px-3 pt-2" id="breakdownTabs" role="tablist">
+          <li class="nav-item">
+            <a class="nav-link active" id="tab-invoices" data-toggle="tab" href="#pane-invoices" role="tab">
+              <i class="fas fa-file-invoice mr-1"></i> Invoices ({{ breakdown_rows|length }})
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" id="tab-payments" data-toggle="tab" href="#pane-payments" role="tab">
+              <i class="fas fa-credit-card mr-1"></i> Payment Methods
+            </a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <!-- ── Invoice breakdown tab ── -->
+          <div class="tab-pane fade show active" id="pane-invoices" role="tabpanel">
+            <div class="table-responsive">
+              <table class="table table-sm table-hover table-bordered mb-0" id="breakdownTable">
+                <thead class="thead-dark">
+                  <tr>
+                    <th>Type</th>
+                    <th>Reference</th>
+                    <th>Invoice #</th>
+                    <th>Date</th>
+                    <th>Customer</th>
+                    <th>Payment Via</th>
+                    <th class="text-right">Revenue</th>
+                    <th class="text-right text-warning">Discount</th>
+                    <th class="text-right text-danger">COGS</th>
+                    <th class="text-right text-success">Gross Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in breakdown_rows %}
+                  <tr>
+                    <td>
+                      {% if row.type == 'POS' %}<span class="bdg-pos">POS</span>
+                      {% elif row.type == 'SO' %}<span class="bdg-so">SO</span>
+                      {% else %}<span class="bdg-svc">SVC</span>{% endif %}
+                    </td>
+                    <td class="font-monospace small">{{ row.ref }}</td>
+                    <td class="font-monospace small text-muted">{{ row.invoice_no|default:"—" }}</td>
+                    <td class="small">{{ row.date|date:"M d, Y"|default:"—" }}</td>
+                    <td class="small">{{ row.customer }}</td>
+                    <td class="small text-muted">{{ row.payment_methods }}</td>
+                    <td class="text-right">&#8369; {{ row.revenue|floatformat:2|intcomma }}</td>
+                    <td class="text-right text-warning">
+                      {% if row.discount %}&minus;&#8369; {{ row.discount|floatformat:2|intcomma }}{% else %}—{% endif %}
+                    </td>
+                    <td class="text-right text-danger">&#8369; {{ row.cogs|floatformat:2|intcomma }}</td>
+                    <td class="text-right {% if row.gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+                      &#8369; {{ row.gross_profit|floatformat:2|intcomma }}
+                    </td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="10" class="text-center text-muted py-4">
+                    <i class="fas fa-inbox mr-1"></i>No transactions found for the selected period.
+                  </td></tr>
+                  {% endfor %}
+                </tbody>
+                {% if breakdown_rows %}
+                <tfoot class="table-dark font-weight-bold">
+                  <tr>
+                    <td colspan="6" class="text-right">TOTALS</td>
+                    <td class="text-right">&#8369; {{ breakdown_total_revenue|floatformat:2|intcomma }}</td>
+                    <td class="text-right text-warning">
+                      {% if breakdown_total_discount %}&minus;&#8369; {{ breakdown_total_discount|floatformat:2|intcomma }}{% else %}—{% endif %}
+                    </td>
+                    <td class="text-right text-danger">&#8369; {{ breakdown_total_cogs|floatformat:2|intcomma }}</td>
+                    <td class="text-right {% if breakdown_total_gp >= 0 %}text-success{% else %}text-danger{% endif %}">
+                      &#8369; {{ breakdown_total_gp|floatformat:2|intcomma }}
+                    </td>
+                  </tr>
+                </tfoot>
+                {% endif %}
+              </table>
+            </div>
+          </div>
+
+          <!-- ── Payment method tab ── -->
+          <div class="tab-pane fade" id="pane-payments" role="tabpanel">
+            <div class="p-3">
+              <p class="text-muted small mb-3">
+                <i class="fas fa-info-circle mr-1"></i>
+                Total collected via <strong>{{ inv_count }}</strong> paid invoice{{ inv_count|pluralize }}:
+                <strong>&#8369; {{ payment_total_collected|floatformat:2|intcomma }}</strong>
+              </p>
+              <table class="table table-sm table-bordered" id="paymentMethodTable">
+                <thead class="thead-dark">
+                  <tr>
+                    <th>Payment Method</th>
+                    <th class="text-right">Transactions</th>
+                    <th class="text-right">Amount Collected</th>
+                    <th class="text-right">% of Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in payment_method_rows %}
+                  <tr>
+                    <td><i class="fas fa-money-bill-wave mr-1 text-success"></i> {{ row.method_display }}</td>
+                    <td class="text-right">{{ row.count }}</td>
+                    <td class="text-right text-success"><strong>&#8369; {{ row.total|floatformat:2|intcomma }}</strong></td>
+                    <td class="text-right">
+                      {% if payment_total_collected %}
+                        {% widthratio row.total payment_total_collected 100 %}%
+                      {% else %}—{% endif %}
+                    </td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="4" class="text-center text-muted py-4">
+                    <i class="fas fa-inbox mr-1"></i>No payment records found.
+                  </td></tr>
+                  {% endfor %}
+                </tbody>
+                {% if payment_method_rows %}
+                <tfoot class="table-dark font-weight-bold">
+                  <tr>
+                    <td>TOTAL</td>
+                    <td class="text-right">{{ inv_count }}</td>
+                    <td class="text-right">&#8369; {{ payment_total_collected|floatformat:2|intcomma }}</td>
+                    <td class="text-right">100%</td>
+                  </tr>
+                </tfoot>
+                {% endif %}
+              </table>
+            </div>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
       </div>
     </div>
   </div>

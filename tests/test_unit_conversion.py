@@ -80,11 +80,10 @@ class UnitConversionValidationTest(UnitCategoryTestBase):
         conv = UnitConversion(from_unit=self.box, to_unit=self.pcs, factor=Decimal('20'))
         conv.clean()  # should NOT raise
 
-    def test_cross_category_conversion_raises(self):
+    def test_cross_category_conversion_valid(self):
         from catalog.models import UnitConversion
         conv = UnitConversion(from_unit=self.box, to_unit=self.kg, factor=Decimal('5'))
-        with self.assertRaises(ValidationError):
-            conv.clean()
+        conv.clean()
 
     def test_self_conversion_raises(self):
         from catalog.models import UnitConversion
@@ -123,10 +122,20 @@ class ConvertToBaseUnitTest(UnitCategoryTestBase):
         result = convert_to_base_unit(Decimal('100'), self.pcs, self.box)
         self.assertEqual(result, Decimal('5'))
 
-    def test_cross_category_raises_value_error(self):
+    def test_cross_category_conversion_works_when_configured(self):
+        from catalog.models import UnitConversion, convert_to_base_unit
+        UnitConversion.objects.create(
+            from_unit=self.box,
+            to_unit=self.kg,
+            factor=Decimal('5'),
+        )
+        result = convert_to_base_unit(Decimal('3'), self.box, self.kg)
+        self.assertEqual(result, Decimal('15'))
+
+    def test_cross_category_raises_value_error_when_missing_conversion(self):
         from catalog.models import convert_to_base_unit
         with self.assertRaises(ValueError):
-            convert_to_base_unit(Decimal('5'), self.box, self.kg)
+            convert_to_base_unit(Decimal('5'), self.kg, self.box)
 
     def test_missing_conversion_raises_value_error(self):
         from catalog.models import Unit, UnitCategory, convert_to_base_unit
@@ -140,6 +149,49 @@ class ConvertToBaseUnitTest(UnitCategoryTestBase):
         # 10 pcs / 20 = 0.5 box
         result = convert_to_base_unit(Decimal('10'), self.pcs, self.box)
         self.assertEqual(result, Decimal('0.5'))
+
+
+class ItemUnitConversionFormsetViewTest(UnitCategoryTestBase):
+
+    def test_item_create_view_saves_multiple_item_specific_conversions(self):
+        from django.urls import reverse
+        from catalog.models import Item, UnitConversion, Unit, UnitCategory
+
+        meter = Unit.objects.create(name='TestMeter', abbreviation='tm', category=UnitCategory.LENGTH)
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('item_create'), {
+            'code': 'ITM-CONV-001',
+            'name': 'Convertible Product',
+            'item_type': 'FINISHED',
+            'category': self.cat_items.pk,
+            'default_unit': self.pcs.pk,
+            'selling_unit': self.pcs.pk,
+            'description': '',
+            'barcode': '',
+            'cost_price': '100.00',
+            'selling_price': '200.00',
+            'minimum_stock': '1.00',
+            'maximum_stock': '10.00',
+            'reorder_point': '2.00',
+            'conversions-TOTAL_FORMS': '2',
+            'conversions-INITIAL_FORMS': '0',
+            'conversions-MIN_NUM_FORMS': '0',
+            'conversions-MAX_NUM_FORMS': '1000',
+            'conversions-0-from_unit': self.box.pk,
+            'conversions-0-to_unit': self.pcs.pk,
+            'conversions-0-factor': '20',
+            'conversions-1-from_unit': meter.pk,
+            'conversions-1-to_unit': self.kg.pk,
+            'conversions-1-factor': '3.5',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        item = Item.objects.get(code='ITM-CONV-001')
+        conversions = UnitConversion.objects.filter(item=item).order_by('from_unit__name', 'to_unit__name')
+        self.assertEqual(conversions.count(), 2)
+        self.assertTrue(conversions.filter(from_unit=self.box, to_unit=self.pcs, factor=Decimal('20')).exists())
+        self.assertTrue(conversions.filter(from_unit=meter, to_unit=self.kg, factor=Decimal('3.5')).exists())
 
 
 # ──────────────────────────────────────────────────────────────────────────────

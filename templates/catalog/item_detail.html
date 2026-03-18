@@ -72,6 +72,34 @@
         </table>
       </div>
     </div>
+
+    <div class="card card-outline card-info">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-ruler-combined mr-1"></i> Unit Conversions</h3></div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th>From Unit</th>
+              <th>To Unit</th>
+              <th class="text-right">Factor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for conv in item_conversions %}
+            <tr>
+              <td>{{ conv.from_unit.name }} ({{ conv.from_unit.abbreviation }})</td>
+              <td>{{ conv.to_unit.name }} ({{ conv.to_unit.abbreviation }})</td>
+              <td class="text-right">{{ conv.factor|floatformat:6 }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="3" class="text-center text-muted py-3"><i class="fas fa-inbox mr-1"></i> No item-specific conversion units configured.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- Stock by Warehouse + Location -->

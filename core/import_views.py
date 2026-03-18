@@ -434,7 +434,7 @@ def sales_order_import(request):
                         qty_ordered=qty,
                         unit=item.stock_unit,
                         unit_price=price,
-                        discount_pct=discount_pct,
+                        discount_value=safe_decimal(line_norm.get('discount_pct', '0')),
                         notes=line_norm.get('notes', ''),
                     )
 

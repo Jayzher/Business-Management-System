@@ -24,5 +24,5 @@ class GoodsReceiptLineInline(admin.TabularInline):
 class GoodsReceiptAdmin(admin.ModelAdmin):
     list_display = ['document_number', 'purchase_order', 'supplier', 'warehouse', 'receipt_date', 'status', 'created_by']
     list_filter = ['status', 'supplier', 'warehouse']
-    search_fields = ['document_number', 'supplier__name']
+    search_fields = ['document_number', 'supplier__name', 'lines__item__code', 'lines__item__name']
     inlines = [GoodsReceiptLineInline]

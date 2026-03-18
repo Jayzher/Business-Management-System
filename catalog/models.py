@@ -87,11 +87,6 @@ class UnitConversion(SoftDeleteModel):
         if self.from_unit_id and self.to_unit_id:
             if self.from_unit_id == self.to_unit_id:
                 raise ValidationError('A unit cannot be converted to itself.')
-            if self.from_unit.category != self.to_unit.category:
-                raise ValidationError(
-                    f'Cannot create a conversion between units of different categories: '
-                    f'{self.from_unit.get_category_display()} ≠ {self.to_unit.get_category_display()}.'
-                )
 
     def __str__(self):
         scope = f' [{self.item.code}]' if self.item_id else ''
@@ -103,20 +98,13 @@ def convert_to_base_unit(qty, sale_unit, base_unit, item=None):
 
     Rules:
     - If sale_unit == base_unit, return qty unchanged.
-    - Both units must be in the same category; raises ValueError otherwise.
     - When *item* is supplied, item-specific UnitConversion records are
       checked first before falling back to global (item=NULL) ones.
-    - Looks up a UnitConversion (direct or reverse).  Raises ValueError when
-      no conversion exists — the calling code should handle this gracefully.
+    - Looks up a UnitConversion (direct or reverse), even across categories.
+      Raises ValueError only when no applicable conversion exists.
     """
     if sale_unit.pk == base_unit.pk:
         return qty
-
-    if sale_unit.category != base_unit.category:
-        raise ValueError(
-            f'Cannot convert {sale_unit} → {base_unit}: '
-            f'different categories ({sale_unit.category} vs {base_unit.category}).'
-        )
 
     def _lookup(from_u, to_u):
         """Return (conv, is_reverse) or (None, False). Item-specific first."""
@@ -136,16 +124,19 @@ def convert_to_base_unit(qty, sale_unit, base_unit, item=None):
     if conv:
         return qty * conv.factor
 
-    # Try reverse: base_unit → sale_unit  ⟹ factor = 1/reverse_factor
-    conv_rev, _ = _lookup(base_unit, sale_unit)
-    if conv_rev:
-        if conv_rev.factor == 0:
-            raise ValueError(f'UnitConversion factor for {conv_rev} is zero.')
-        return qty / conv_rev.factor
+    # Try reverse: base_unit → sale_unit, then divide by factor
+    conv, _ = _lookup(base_unit, sale_unit)
+    if conv:
+        if conv.factor == 0:
+            raise ValueError(
+                f'Invalid unit conversion configured between {sale_unit} and {base_unit}: factor cannot be zero.'
+            )
+        return qty / conv.factor
 
     raise ValueError(
-        f'No UnitConversion found between {sale_unit} and {base_unit}. '
-        f'Please add one under Catalog → Unit Conversions.'
+        f'No unit conversion configured between {sale_unit} and {base_unit}'
+        + (f' for item {item.code}' if item is not None and getattr(item, 'code', None) else '')
+        + '. Please add one under Catalog → Unit Conversions.'
     )
 
 

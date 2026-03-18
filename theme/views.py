@@ -65,63 +65,39 @@ def dashboard_view(request):
         status='POSTED'
     ).select_related('item', 'created_by')[:10]
 
-    # ── POS Sales for selected period ─────────────────────────────────────
+    # ── Revenue & COGS from PAID INVOICES (filtered by paid_date) ────────
+    period_invoices = Invoice.objects.filter(
+        is_paid=True, is_void=False, paid_date__isnull=False,
+        paid_date__gte=period_start.date(),
+        paid_date__lt=period_end.date(),
+    )
+    inv_agg = period_invoices.aggregate(
+        revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
+        discount=Coalesce(Sum('discount_total'), Decimal('0'), output_field=DecimalField()),
+        cogs=Coalesce(Sum('grand_total_cogs'), Decimal('0'), output_field=DecimalField()),
+    )
+    combined_revenue = inv_agg['revenue'] - inv_agg['discount']
+    combined_count = period_invoices.count()
+    combined_profit = combined_revenue - inv_agg['cogs']
+    pos_margin = (combined_profit / combined_revenue * 100) if combined_revenue > 0 else Decimal('0')
+
+    # Keep POS sales queryset for channel breakdown and top-items widgets (non-revenue)
     period_sales = POSSale.objects.filter(
         status__in=[SaleStatus.POSTED, SaleStatus.PAID],
         created_at__gte=period_start,
         created_at__lt=period_end,
     )
     pos_count = period_sales.count()
-    pos_revenue = period_sales.aggregate(
-        total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
-    )['total']
-    pos_cogs = POSSaleLine.objects.filter(sale__in=period_sales).aggregate(
-        total=Coalesce(
-            Sum(F('item__cost_price') * F('qty'), output_field=DecimalField()),
-            Decimal('0'), output_field=DecimalField(),
-        )
-    )['total']
-    pos_profit = pos_revenue - pos_cogs
+    pos_revenue = Decimal('0')
+    so_count = 0
+    so_revenue = Decimal('0')
+    pos_cogs = inv_agg['cogs']
+    pos_profit = combined_profit
+    so_cogs = Decimal('0')
+    so_profit = Decimal('0')
 
-    # ── Sales Orders for selected period (APPROVED + POSTED) ──────────
-    period_so = SalesOrder.objects.filter(
-        status__in=[DocumentStatus.APPROVED, DocumentStatus.POSTED],
-        order_date__gte=period_start.date(),
-        order_date__lt=period_end.date(),
-    )
-    so_count = period_so.count()
-    period_so_lines = list(SalesOrderLine.objects.filter(
-        sales_order__in=period_so
-    ).select_related('item'))
-    period_so_bundles = list(SalesOrderPriceListLine.objects.filter(
-        sales_order__in=period_so
-    ).select_related('price_list').prefetch_related('price_list__items__item'))
-    # line_total is a @property (not DB field); bundle_total also a @property
-    so_line_rev = sum(line.line_total for line in period_so_lines)
-    so_bundle_rev = sum(bundle.bundle_total for bundle in period_so_bundles)
-    so_revenue = so_line_rev + so_bundle_rev
-    so_line_cogs = sum(
-        (line.item.cost_price or Decimal('0')) * line.qty_ordered
-        for line in period_so_lines
-    )
-    so_bundle_cogs = Decimal('0')
-    for _bundle in period_so_bundles:
-        for _pli in _bundle.price_list.items.all():
-            so_bundle_cogs += ((_pli.item.cost_price or Decimal('0')) * _pli.min_qty * _bundle.qty_multiplier)
-    so_cogs = so_line_cogs + so_bundle_cogs
-    so_profit = so_revenue - so_cogs
-
-    combined_revenue = pos_revenue + so_revenue
-    combined_count = pos_count + so_count
-    combined_profit = pos_profit + so_profit
-    pos_margin = (combined_profit / combined_revenue * 100) if combined_revenue > 0 else Decimal('0')
-
-    # Paid invoices (SO-only, non-POS, non-void) — for the unpaid invoices widget only
-    invoice_paid_count = Invoice.objects.filter(
-        is_paid=True, paid_at__isnull=False,
-        paid_at__gte=period_start, paid_at__lt=period_end,
-        pos_sale__isnull=True, is_void=False,
-    ).count()
+    # Paid invoices count (for unpaid invoices widget — keep as-is)
+    invoice_paid_count = period_invoices.count()
 
     # ── Expenses for selected period ───────────────────────────────────
     period_expenses = Expense.objects.filter(
@@ -167,30 +143,16 @@ def dashboard_view(request):
         )
     )['total']
 
-    # ── 7-day revenue trend (POS + SO combined) ─────────────────────────
+    # ── 7-day revenue trend (paid invoices by paid_date) ─────────────────
     revenue_trend = []
     for i in range(6, -1, -1):
         day = (now - timedelta(days=i)).date()
-        day_start_dt = timezone.make_aware(timezone.datetime.combine(day, timezone.datetime.min.time()))
-        day_end_dt = day_start_dt + timedelta(days=1)
-        # POS revenue for this day
-        pos_day_rev = POSSale.objects.filter(
-            status__in=[SaleStatus.POSTED, SaleStatus.PAID],
-            created_at__gte=day_start_dt, created_at__lt=day_end_dt,
+        day_rev = Invoice.objects.filter(
+            is_paid=True, is_void=False, paid_date=day,
         ).aggregate(
             total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
         )['total']
-        # SO revenue for this day (APPROVED + POSTED, by order_date)
-        day_so_qs = SalesOrder.objects.filter(
-            status__in=[DocumentStatus.APPROVED, DocumentStatus.POSTED],
-            order_date=day,
-        )
-        day_so_lines = SalesOrderLine.objects.filter(sales_order__in=day_so_qs).select_related('item')
-        day_so_bundles = SalesOrderPriceListLine.objects.filter(sales_order__in=day_so_qs).select_related('price_list').prefetch_related('price_list__items__item')
-        so_day_rev = sum(line.line_total for line in day_so_lines) + sum(b.bundle_total for b in day_so_bundles)
-        # Combined
-        day_total = float(pos_day_rev) + float(so_day_rev)
-        revenue_trend.append({'date': day.strftime('%b %d'), 'revenue': day_total})
+        revenue_trend.append({'date': day.strftime('%b %d'), 'revenue': float(day_rev)})
 
     # ── Active goals ───────────────────────────────────────────────────
     active_goals = TargetGoal.objects.filter(
@@ -238,14 +200,10 @@ def dashboard_view(request):
 
     # ── Formula breakdown for modal ──────────────────────────────────
     dash_formulas = {
-        'pos_revenue': pos_revenue,
-        'pos_count': pos_count,
-        'pos_cogs': pos_cogs,
-        'pos_profit': pos_profit,
-        'so_revenue': so_revenue,
-        'so_count': so_count,
-        'so_cogs': so_cogs,
-        'so_profit': so_profit,
+        'inv_revenue': inv_agg['revenue'],
+        'inv_discount': inv_agg['discount'],
+        'inv_cogs': inv_agg['cogs'],
+        'inv_count': combined_count,
         'combined_revenue': combined_revenue,
         'combined_count': combined_count,
         'combined_profit': combined_profit,
