@@ -65,8 +65,8 @@
           <th class="text-end">Remaining</th>
           <th>Unit</th>
           <th class="text-end">Unit Price</th>
-          <th class="text-end">Line Total</th>
           <th class="text-end text-danger">COGS</th>
+          <th class="text-end">Line Total</th>
         </tr>
       </thead>
       <tbody>
@@ -79,8 +79,8 @@
           <td class="text-end">{{ line.qty_remaining|decimal2 }}</td>
           <td>{{ line.unit.abbreviation }}</td>
           <td class="text-end">{{ line.unit_price|currency }}</td>
-          <td class="text-end fw-semibold">{{ line.line_total|currency }}</td>
           <td class="text-end text-danger">{{ line_cogs_map|get_item:line.pk|currency }}</td>
+          <td class="text-end fw-semibold text-primary">{{ line.line_total|currency }}</td>
         </tr>
         {% empty %}
         <tr><td colspan="9" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
@@ -90,8 +90,8 @@
       <tfoot class="table-light fw-bold">
         <tr>
           <td colspan="7" class="text-end">Lines Subtotal</td>
-          <td class="text-end">{{ order.line_amount_total|currency }}</td>
           <td class="text-end text-danger">{{ so_line_cogs_total|currency }}</td>
+          <td class="text-end text-primary">{{ order.line_amount_total|currency }}</td>
         </tr>
       </tfoot>
       {% endif %}
@@ -126,8 +126,8 @@
             <th class="text-end">Qty (× multiplier)</th>
             <th>Unit</th>
             <th class="text-end">Bundle Price</th>
-            <th class="text-end">Line Total</th>
             <th class="text-end text-danger">COGS</th>
+            <th class="text-end">Line Total</th>
           </tr>
         </thead>
         <tbody>
@@ -137,8 +137,8 @@
             <td class="text-end">{{ pli.min_qty|decimal2 }} × {{ bundle.qty_multiplier|decimal2 }}</td>
             <td>{{ pli.unit.abbreviation }}</td>
             <td class="text-end text-success fw-semibold">{{ pli.price|currency }}</td>
-            <td class="text-end">{{ pli.price|currency }}</td>
             <td class="text-end text-danger">{{ pli.item.cost_price|currency }}</td>
+            <td class="text-end text-primary fw-semibold">{{ pli.price|currency }}</td>
           </tr>
           {% empty %}
           <tr><td colspan="6" class="text-center text-muted py-2">No items in this bundle.</td></tr>
