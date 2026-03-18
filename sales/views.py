@@ -601,12 +601,18 @@ def pickup_post_view(request, pk):
         try:
             post_sales_pickup(pickup, request.user)
             messages.success(request, f'Pickup {pickup.document_number} posted. Stock updated.')
-            from inventory.automation import auto_create_invoice_from_pickup
-            inv = auto_create_invoice_from_pickup(pickup, request.user)
-            if inv:
-                messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
         except ValueError as e:
             messages.error(request, str(e))
+        except Exception as e:
+            messages.error(request, f'Unable to post pickup: {e}')
+        else:
+            try:
+                from inventory.automation import auto_create_invoice_from_pickup
+                inv = auto_create_invoice_from_pickup(pickup, request.user)
+                if inv:
+                    messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
+            except Exception as e:
+                messages.warning(request, f'Pickup was posted, but invoice auto-creation failed: {e}')
     return redirect('pickup_detail', pk=pk)
 
 
