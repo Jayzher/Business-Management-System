@@ -352,6 +352,53 @@ class ResyncPhase1FixMovesTest(TestCase):
         self.assertEqual(move.unit_id, self.pcs.pk)
 
 
+class ResyncPhase1BackfillPONoGRNLinkTest(TestCase):
+    """Phase 1 creates a PO for posted GRNs that have no purchase_order link."""
+
+    @classmethod
+    def setUpTestData(cls):
+        _setup_base(cls)
+
+    def test_phase1_creates_po_for_posted_grn_without_purchase_order(self):
+        from procurement.models import GoodsReceipt, GoodsReceiptLine, PurchaseOrder
+        from core.models import DocumentStatus
+
+        grn = GoodsReceipt.objects.create(
+            document_number='GRN-NOPO-001',
+            supplier=self.supplier,
+            warehouse=self.wh,
+            receipt_date=datetime.date.today(),
+            created_by=self.user,
+            status=DocumentStatus.POSTED,
+            posted_by=self.user,
+        )
+        GoodsReceiptLine.objects.create(
+            goods_receipt=grn,
+            item=self.item,
+            location=self.loc1,
+            qty=Decimal('3'),
+            unit=self.box,
+        )
+
+        self.assertEqual(PurchaseOrder.objects.count(), 0)
+        self.assertIsNone(grn.purchase_order_id)
+
+        _call_resync('--phase', '1', '--apply')
+
+        grn.refresh_from_db()
+        self.assertIsNotNone(grn.purchase_order_id)
+        self.assertEqual(PurchaseOrder.objects.count(), 1)
+        self.assertEqual(grn.purchase_order.supplier_id, self.supplier.id)
+        self.assertEqual(grn.purchase_order.warehouse_id, self.wh.id)
+        self.assertEqual(grn.purchase_order.lines.count(), 1)
+
+        po_line = grn.purchase_order.lines.first()
+        self.assertEqual(po_line.item_id, self.item.id)
+        self.assertEqual(po_line.qty_ordered, Decimal('3'))
+        self.assertEqual(po_line.qty_received, Decimal('3'))
+        self.assertEqual(po_line.unit_id, self.box.id)
+
+
 class ResyncFullCycleTest(TestCase):
     """Phase 1 + Phase 2 together: wrong move qty AND wrong balance both fixed."""
 

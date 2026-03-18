@@ -218,6 +218,10 @@ class Invoice(TimeStampedModel):
     notes = models.TextField(blank=True, default='')
     is_paid = models.BooleanField(default=False)
     paid_at = models.DateTimeField(null=True, blank=True)
+    paid_date = models.DateField(
+        null=True, blank=True, db_index=True,
+        help_text='Date the invoice was fully paid (used for financial reporting date filter).',
+    )
     is_void = models.BooleanField(
         default=False,
         help_text='Set True when the linked delivery/pickup is cancelled after posting.',
@@ -230,6 +234,23 @@ class Invoice(TimeStampedModel):
 
     class Meta:
         ordering = ['-date', '-created_at']
+
+    @property
+    def payment_status(self):
+        if self.is_paid:
+            return 'PAID'
+        total = sum(p.amount for p in self.payments.all())
+        if total > 0:
+            return 'PARTIAL'
+        return 'UNPAID'
+
+    @property
+    def total_paid(self):
+        return sum(p.amount for p in self.payments.all())
+
+    @property
+    def balance_due(self):
+        return self.grand_total - self.total_paid
 
     def __str__(self):
         return f"INV-{self.invoice_number}"

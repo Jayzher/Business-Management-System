@@ -1,5 +1,9 @@
 from django.contrib import admin
-from sales.models import SalesOrder, SalesOrderLine, SalesOrderPriceListLine, DeliveryNote, DeliveryLine
+from sales.models import (
+    SalesOrder, SalesOrderLine, SalesOrderPriceListLine,
+    DeliveryNote, DeliveryLine,
+    SalesPickup, SalesPickupLine,
+)
 
 
 class SalesOrderLineInline(admin.TabularInline):
@@ -30,5 +34,18 @@ class DeliveryLineInline(admin.TabularInline):
 class DeliveryNoteAdmin(admin.ModelAdmin):
     list_display = ['document_number', 'sales_order', 'customer', 'warehouse', 'delivery_date', 'status', 'created_by']
     list_filter = ['status', 'customer', 'warehouse']
-    search_fields = ['document_number', 'customer__name']
+    search_fields = ['document_number', 'customer__name', 'lines__item__code', 'lines__item__name']
     inlines = [DeliveryLineInline]
+
+
+class PickupLineInline(admin.TabularInline):
+    model = SalesPickupLine
+    extra = 1
+
+
+@admin.register(SalesPickup)
+class SalesPickupAdmin(admin.ModelAdmin):
+    list_display = ['document_number', 'sales_order', 'customer', 'warehouse', 'pickup_date', 'status', 'created_by']
+    list_filter = ['status', 'customer', 'warehouse']
+    search_fields = ['document_number', 'customer__name', 'lines__item__code', 'lines__item__name']
+    inlines = [PickupLineInline]

@@ -19,7 +19,7 @@ from catalog.serializers import (
     CategorySerializer, UnitSerializer, UnitConversionSerializer,
     ItemSerializer, ItemListSerializer,
 )
-from catalog.forms import CategoryForm, UnitForm, UnitConversionForm, ItemForm
+from catalog.forms import CategoryForm, UnitForm, UnitConversionForm, ItemForm, ItemUnitConversionFormSet
 from inventory.models import StockBalance
 from django.db.models import Sum, F
 from inventory.serializers import StockBalanceSerializer
@@ -124,6 +124,7 @@ def item_detail_view(request, pk):
     from django.db.models import Sum
     from django.db.models.functions import Coalesce
     item = get_object_or_404(Item, pk=pk)
+    item_conversions = item.unit_conversions.select_related('from_unit', 'to_unit').order_by('from_unit__name', 'to_unit__name')
     balances = StockBalance.objects.filter(
         item=item
     ).select_related('location', 'location__warehouse')
@@ -150,6 +151,7 @@ def item_detail_view(request, pk):
     ).select_related('unit', 'from_location', 'to_location', 'created_by')[:20]
     return render(request, 'catalog/item_detail.html', {
         'item': item,
+        'item_conversions': item_conversions,
         'balances': balances,
         'warehouse_summary': warehouse_summary,
         'totals': totals,
@@ -161,13 +163,22 @@ def item_detail_view(request, pk):
 def item_create_view(request):
     if request.method == 'POST':
         form = ItemForm(request.POST, request.FILES)
-        if form.is_valid():
-            form.save()
+        item = form.instance
+        formset = ItemUnitConversionFormSet(request.POST, instance=item, prefix='conversions')
+        if form.is_valid() and formset.is_valid():
+            item = form.save()
+            formset.instance = item
+            formset.save()
             messages.success(request, 'Item created successfully.')
             return redirect('item_list')
     else:
         form = ItemForm()
-    return render(request, 'catalog/item_form.html', {'form': form, 'title': 'Create Item'})
+        formset = ItemUnitConversionFormSet(instance=Item(), prefix='conversions')
+    return render(request, 'catalog/item_form.html', {
+        'form': form,
+        'formset': formset,
+        'title': 'Create Item',
+    })
 
 
 @login_required
@@ -175,13 +186,21 @@ def item_edit_view(request, pk):
     item = get_object_or_404(Item, pk=pk)
     if request.method == 'POST':
         form = ItemForm(request.POST, request.FILES, instance=item)
-        if form.is_valid():
+        formset = ItemUnitConversionFormSet(request.POST, instance=item, prefix='conversions')
+        if form.is_valid() and formset.is_valid():
             form.save()
+            formset.save()
             messages.success(request, 'Item updated successfully.')
             return redirect('item_detail', pk=item.pk)
     else:
         form = ItemForm(instance=item)
-    return render(request, 'catalog/item_form.html', {'form': form, 'title': f'Edit Item: {item.code}'})
+        formset = ItemUnitConversionFormSet(instance=item, prefix='conversions')
+    return render(request, 'catalog/item_form.html', {
+        'form': form,
+        'formset': formset,
+        'title': f'Edit Item: {item.code}',
+        'item': item,
+    })
 
 
 @login_required

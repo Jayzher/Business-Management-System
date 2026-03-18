@@ -200,6 +200,41 @@ def _next_invoice_number():
     num = (last.id + 1) if last else 1
     return f"{num:06d}"
 
+def _compute_cogs_for_invoice(inv):
+    """Compute COGS from linked source document and save to grand_total_cogs."""
+    cogs = Decimal('0')
+    if inv.pos_sale_id:
+        try:
+            for line in inv.pos_sale.lines.select_related('item').all():
+                cogs += (line.item.cost_price or Decimal('0')) * line.qty
+        except Exception:
+            pass
+    elif inv.sales_order_id:
+        try:
+            for line in inv.sales_order.lines.select_related('item').all():
+                cogs += (line.item.cost_price or Decimal('0')) * line.qty_ordered
+            for bundle in inv.sales_order.price_list_lines.prefetch_related(
+                'price_list__items__item'
+            ).all():
+                for pli in bundle.price_list.items.all():
+                    cogs += (
+                        (pli.item.cost_price or Decimal('0'))
+                        * pli.min_qty
+                        * bundle.qty_multiplier
+                    )
+        except Exception:
+            pass
+    try:
+        for svc in inv.customer_services.prefetch_related('lines__item').all():
+            for line in svc.lines.all():
+                cogs += (line.item.cost_price or Decimal('0')) * line.qty
+    except Exception:
+        pass
+    cogs = cogs.quantize(Decimal('0.01'))
+    if inv.grand_total_cogs != cogs:
+        inv.grand_total_cogs = cogs
+        inv.save(update_fields=['grand_total_cogs'])
+    return cogs
 
 @login_required
 def invoice_list(request):
@@ -229,9 +264,11 @@ def invoice_from_sale(request, sale_id):
         return redirect('invoice_detail', pk=existing.pk)
 
     profile = BusinessProfile.get_instance()
+    is_paid = sale.status in ('PAID', 'POSTED')
+    today = timezone.now().date()
     inv = Invoice.objects.create(
         invoice_number=_next_invoice_number(),
-        date=timezone.now().date(),
+        date=today,
         pos_sale=sale,
         customer_name=sale.customer.name if sale.customer else 'Walk-in Customer',
         customer_address=sale.customer.address if sale.customer else '',
@@ -239,7 +276,9 @@ def invoice_from_sale(request, sale_id):
         discount_total=sale.discount_total,
         tax_total=sale.tax_total,
         grand_total=sale.grand_total,
-        is_paid=sale.status in ('PAID', 'POSTED'),
+        is_paid=is_paid,
+        paid_at=timezone.now() if is_paid else None,
+        paid_date=today if is_paid else None,
         created_by=request.user,
     )
     for line in sale.lines.select_related('item', 'unit'):
@@ -253,6 +292,19 @@ def invoice_from_sale(request, sale_id):
             discount=line.discount_amount,
             line_total=line.line_total,
         )
+    if is_paid:
+        _compute_cogs_for_invoice(inv)
+        from core.models import InvoicePayment, PaymentMethod as PM
+        if not inv.payments.exists():
+            InvoicePayment.objects.create(
+                invoice=inv,
+                date=today,
+                method=PM.CASH,
+                amount=inv.grand_total,
+                reference_no=getattr(sale, 'sale_no', ''),
+                notes='Auto-recorded from POS sale',
+                created_by=request.user,
+            )
     messages.success(request, f'Invoice {inv.invoice_number} generated.')
     return redirect('invoice_detail', pk=inv.pk)
 
@@ -295,11 +347,23 @@ def invoice_from_so(request, so_id):
 def invoice_detail(request, pk):
     inv = get_object_or_404(Invoice.objects.prefetch_related('lines', 'payments'), pk=pk)
     profile = BusinessProfile.get_instance()
-    total_paid = sum(p.amount for p in inv.payments.all())
-    balance_due = inv.grand_total - total_paid
+    payments = list(inv.payments.order_by('date', 'created_at'))
+    running = inv.grand_total
+    payments_with_balance = []
+    for p in payments:
+        running -= p.amount
+        p.balance_after = max(running, 0)
+        payments_with_balance.append(p)
+    total_paid = sum(p.amount for p in payments)
+    balance_due = max(inv.grand_total - total_paid, 0)
+    today_date = timezone.now().date()
     return render(request, 'core/invoice_detail.html', {
-        'invoice': inv, 'profile': profile,
-        'total_paid': total_paid, 'balance_due': balance_due,
+        'invoice': inv,
+        'profile': profile,
+        'total_paid': total_paid,
+        'balance_due': balance_due,
+        'payments_with_balance': payments_with_balance,
+        'today_date': today_date,
     })
 
 
@@ -326,24 +390,46 @@ def invoice_add_payment(request, pk):
             messages.error(request, 'Payment amount must be greater than 0.')
             return redirect('invoice_detail', pk=pk)
 
+        existing_paid = sum(p.amount for p in inv.payments.all())
+        balance_due = max(inv.grand_total - existing_paid, Decimal('0'))
+        if balance_due <= 0:
+            messages.error(request, 'Invoice has no outstanding balance — it is already fully paid.')
+            return redirect('invoice_detail', pk=pk)
+        if amount > balance_due:
+            messages.error(
+                request,
+                f'Payment of ₱{amount:,.2f} exceeds the balance due of ₱{balance_due:,.2f}. '
+                'Please enter an amount equal to or less than the outstanding balance.'
+            )
+            return redirect('invoice_detail', pk=pk)
+
+        payment_date_str = request.POST.get('payment_date', '') or timezone.now().date().isoformat()
+        try:
+            from datetime import date as _date
+            payment_date = _date.fromisoformat(payment_date_str)
+        except (ValueError, TypeError):
+            payment_date = timezone.now().date()
+
         InvoicePayment.objects.create(
             invoice=inv,
-            date=timezone.now().date(),
+            date=payment_date,
             method=method,
             amount=amount,
             reference_no=reference_no,
             notes=notes,
             created_by=request.user,
         )
-        messages.success(request, f'Payment of {amount} recorded.')
+        messages.success(request, f'Payment of \u20b1{amount:,.2f} recorded.')
 
         # Check if fully paid
         total_paid = sum(p.amount for p in inv.payments.all())
         if total_paid >= inv.grand_total and not inv.is_paid:
             inv.is_paid = True
             inv.paid_at = timezone.now()
-            inv.save(update_fields=['is_paid', 'paid_at', 'updated_at'])
-            messages.success(request, f'Invoice {inv.invoice_number} marked as PAID.')
+            inv.paid_date = payment_date
+            inv.save(update_fields=['is_paid', 'paid_at', 'paid_date', 'updated_at'])
+            _compute_cogs_for_invoice(inv)
+            messages.success(request, f'Invoice {inv.invoice_number} fully paid — marked PAID.')
 
             # Auto-post linked Sales Order if it exists and is APPROVED
             if inv.sales_order:
@@ -361,16 +447,32 @@ def invoice_add_payment(request, pk):
 
 @login_required
 def invoice_mark_paid(request, pk):
-    """Manually mark an invoice as paid."""
+    """Manually mark an invoice as fully paid (records a single full-amount payment if none exist)."""
     inv = get_object_or_404(Invoice, pk=pk)
     if request.method == 'POST':
         if not inv.is_paid:
+            from core.models import InvoicePayment, PaymentMethod as PM
+            from decimal import Decimal
+            today = timezone.now().date()
+            existing_paid = sum(p.amount for p in inv.payments.all())
+            remaining = inv.grand_total - existing_paid
+            if remaining > 0:
+                InvoicePayment.objects.create(
+                    invoice=inv,
+                    date=today,
+                    method=PM.CASH,
+                    amount=remaining,
+                    reference_no='',
+                    notes='Marked paid manually',
+                    created_by=request.user,
+                )
             inv.is_paid = True
             inv.paid_at = timezone.now()
-            inv.save(update_fields=['is_paid', 'paid_at', 'updated_at'])
+            inv.paid_date = today
+            inv.save(update_fields=['is_paid', 'paid_at', 'paid_date', 'updated_at'])
+            _compute_cogs_for_invoice(inv)
             messages.success(request, f'Invoice {inv.invoice_number} marked as PAID.')
 
-            # Auto-post linked SO
             if inv.sales_order:
                 so = inv.sales_order
                 from core.models import DocumentStatus
@@ -379,9 +481,28 @@ def invoice_mark_paid(request, pk):
                     so.posted_by = request.user
                     so.posted_at = timezone.now()
                     so.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
-                    messages.info(request, f'Sales Order {so.document_number} auto-posted (invoice paid).')
+                    messages.info(request, f'Sales Order {so.document_number} auto-posted.')
         else:
             messages.info(request, 'Invoice is already paid.')
+    return redirect('invoice_detail', pk=pk)
+
+
+@login_required
+def invoice_delete_payment(request, pk, payment_pk):
+    """Delete a single payment record from an invoice (re-opens invoice if was paid)."""
+    inv = get_object_or_404(Invoice, pk=pk)
+    from core.models import InvoicePayment
+    payment = get_object_or_404(InvoicePayment, pk=payment_pk, invoice=inv)
+    if request.method == 'POST':
+        payment.delete()
+        messages.success(request, 'Payment record deleted.')
+        total_paid = sum(p.amount for p in inv.payments.all())
+        if inv.is_paid and total_paid < inv.grand_total:
+            inv.is_paid = False
+            inv.paid_at = None
+            inv.paid_date = None
+            inv.save(update_fields=['is_paid', 'paid_at', 'paid_date', 'updated_at'])
+            messages.warning(request, 'Invoice re-opened (total payments now below grand total).')
     return redirect('invoice_detail', pk=pk)
 
 
