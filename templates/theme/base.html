@@ -218,6 +218,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <!-- Select2 -->
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<!-- SweetAlert2 -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 /* Utility: debounce */
 function debounce(fn, delay) {
@@ -323,9 +325,33 @@ WIS.toast = function(message, type) {
   el.addEventListener('hidden.bs.toast', function(){ el.remove(); });
 };
 
+WIS.showMessage = function(message, type) {
+  type = type || 'info';
+  var normalized = (type || '').toLowerCase();
+  if (normalized.indexOf('error') !== -1 || normalized.indexOf('danger') !== -1) {
+    Swal.fire({
+      icon: 'error',
+      title: 'Validation Error',
+      text: message,
+      confirmButtonColor: '#dc3545'
+    });
+    return;
+  }
+  if (normalized.indexOf('warning') !== -1) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Warning',
+      text: message,
+      confirmButtonColor: '#f0ad4e'
+    });
+    return;
+  }
+  WIS.toast(message, normalized === 'success' ? 'success' : 'info');
+};
+
 /* ── Render Django messages as toasts on page load ─────────────────── */
 {% if messages %}{% for message in messages %}
-WIS.toast('{{ message|escapejs }}', '{{ message.tags|escapejs }}');
+WIS.showMessage('{{ message|escapejs }}', '{{ message.tags|escapejs }}');
 {% endfor %}{% endif %}
 
 /* ── Modal helpers ─────────────────────────────────────────────────── */
