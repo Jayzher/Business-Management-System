@@ -16,6 +16,7 @@ from decimal import Decimal
 from django.test import TestCase, RequestFactory
 from django.contrib.auth import get_user_model
 from django.test import Client
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -213,6 +214,115 @@ class FinancialStatementBreakdownTest(TestCase):
         self.assertIn('Revenue', content)
         self.assertIn('COGS', content)
         self.assertIn('Gross Profit', content)
+
+
+class InvoiceCOGSRegressionTest(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        import datetime
+        from catalog.models import Category, Item, Unit
+        from partners.models import Customer
+        from warehouses.models import Warehouse, Location
+        from sales.models import SalesOrder, SalesOrderLine
+        from services.models import CustomerService, ServiceLine
+        from core.models import Invoice, DocumentStatus
+
+        cls.user = User.objects.create_superuser('cogs_reg_u', 'reg@test.com', 'pass1234')
+        cls.client_user = Client()
+        cls.client_user.force_login(cls.user)
+
+        cat = Category.objects.create(name='RegCat', code='REGCAT')
+        unit = Unit.objects.create(name='PieceReg', abbreviation='pcr')
+        item = Item.objects.create(
+            code='REG-ITEM-1',
+            name='Regression Item',
+            category=cat,
+            default_unit=unit,
+            cost_price=Decimal('100.00'),
+            selling_price=Decimal('250.00'),
+        )
+        svc_item = Item.objects.create(
+            code='REG-SVC-PART',
+            name='Regression Service Part',
+            category=cat,
+            default_unit=unit,
+            cost_price=Decimal('500.00'),
+            selling_price=Decimal('900.00'),
+        )
+        customer = Customer.objects.create(name='Regression Customer', code='REG-CUST')
+        wh = Warehouse.objects.create(name='REG WH', code='REGWH')
+        Location.objects.create(name='REG Main', code='REGMAIN', warehouse=wh)
+
+        cls.so = SalesOrder.objects.create(
+            document_number='SO-REG-001',
+            status=DocumentStatus.APPROVED,
+            customer=customer,
+            warehouse=wh,
+            order_date=datetime.date.today(),
+            created_by=cls.user,
+        )
+        SalesOrderLine.objects.create(
+            sales_order=cls.so,
+            item=item,
+            qty_ordered=Decimal('2'),
+            unit=unit,
+            unit_price=Decimal('300.00'),
+        )
+
+        cls.invoice = Invoice.objects.create(
+            invoice_number='REG-INV-001',
+            date=datetime.date.today(),
+            sales_order=cls.so,
+            customer_name=customer.name,
+            subtotal=Decimal('600.00'),
+            grand_total=Decimal('600.00'),
+            is_paid=True,
+            paid_at=timezone.now(),
+            paid_date=datetime.date.today(),
+            grand_total_cogs=Decimal('9999.99'),
+            created_by=cls.user,
+        )
+
+        svc = CustomerService.objects.create(
+            service_number='SVC-REG-001',
+            service_name='Regression Service',
+            customer_name=customer.name,
+            service_date=datetime.date.today(),
+            completion_date=datetime.date.today(),
+            status='COMPLETED',
+            warehouse=wh,
+            invoice=cls.invoice,
+            created_by=cls.user,
+        )
+        ServiceLine.objects.create(
+            service=svc,
+            item=svc_item,
+            qty=Decimal('1'),
+            unit=unit,
+            unit_price=Decimal('700.00'),
+        )
+
+    def setUp(self):
+        self.client.force_login(self.user)
+
+    def test_compute_invoice_cogs_prefers_sales_order_source(self):
+        from core.cogs import compute_invoice_cogs
+        cogs = compute_invoice_cogs(self.invoice)
+        self.assertEqual(cogs, Decimal('200.00'))
+
+    def test_financial_statement_uses_live_invoice_cogs_not_stale_field(self):
+        from django.urls import reverse
+        resp = self.client.get(reverse('report_financial_statement'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['cogs_from_invoices'], Decimal('200.00'))
+        self.assertEqual(resp.context['breakdown_total_cogs'], Decimal('200.00'))
+        self.assertEqual(resp.context['gross_profit'], Decimal('400.00'))
+
+    def test_dashboard_uses_live_invoice_cogs_not_stale_field(self):
+        resp = self.client.get('/dashboard/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['pos_cogs'], Decimal('200.00'))
+        self.assertEqual(resp.context['dash_formulas']['combined_profit'], Decimal('400.00'))
 
 
 if __name__ == '__main__':

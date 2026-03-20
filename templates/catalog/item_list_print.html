@@ -1,0 +1,196 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WIS – Full Product Catalog</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; background: #fff; color: #1a2840; }
+
+    /* ── @page rule: Legal portrait ──────────────────────────────── */
+    @page {
+      size: legal;
+      margin: .4in;
+    }
+
+    /* ── Print-page container ─────────────────────────────────────── */
+    .print-page {
+      display: grid;
+      grid-template-columns: repeat({{ cols }}, 1fr);
+      gap: .18in;
+      width: 100%;
+      page-break-after: always;
+      break-after: page;
+    }
+    .print-page:last-child {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+
+    /* ── Item card ────────────────────────────────────────────────── */
+    .print-card {
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      break-inside: avoid;
+      page-break-inside: avoid;
+      background: #fff;
+    }
+
+    /* Image area — fixed height to prevent overflow */
+    .print-card-img {
+      width: 100%;
+      height: 1.35in;
+      background: linear-gradient(135deg, #f0f4fb 0%, #e8eef8 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border-bottom: 1px solid #e0e5ef;
+      flex-shrink: 0;
+    }
+    .print-card-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .print-card-img-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #c0c9dc;
+      font-size: 7.5pt;
+      gap: 3px;
+    }
+
+    /* Body */
+    .print-card-body {
+      padding: 4px 6px 5px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .print-code { font-size: 6.5pt; color: #9aa5bb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .print-name { font-size: 8pt; font-weight: bold; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1a2840; }
+    .print-cat  { font-size: 6.5pt; color: #9aa5bb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .print-row  { display: flex; justify-content: space-between; align-items: center; margin-top: 3px; }
+    .print-badge { font-size: 6pt; padding: 1px 5px; border-radius: 3px; color: #fff; white-space: nowrap; }
+    .print-badge-raw { background: #17a2b8; }
+    .print-badge-fin { background: #28a745; }
+    .print-badge-svc { background: #6c757d; }
+    .print-price { font-size: 7.5pt; font-weight: bold; color: #1553b8; white-space: nowrap; }
+
+    /* ── Controls bar (screen only, hidden in print) ──────────────── */
+    .print-controls {
+      background: #1F4E79;
+      color: #fff;
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: Arial, sans-serif;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .print-controls .meta { font-size: .83rem; opacity: .85; }
+    .print-controls .btn-print {
+      background: #fff;
+      color: #1F4E79;
+      border: none;
+      padding: 6px 20px;
+      border-radius: 5px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: .9rem;
+      transition: background .15s;
+    }
+    .print-controls .btn-print:hover { background: #e8f0fe; }
+
+    /* ── Screen preview spacing ───────────────────────────────────── */
+    @media screen {
+      .print-page {
+        margin: 0 auto 0;
+        max-width: 8.5in;
+        padding: .3in;
+        border-bottom: 2px dashed #ddd;
+      }
+      body { background: #eef2f7; }
+      .print-page { background: #fff; }
+    }
+
+    @media print {
+      .print-controls { display: none !important; }
+      body { background: #fff !important; }
+      .print-page { max-width: none; padding: 0; border-bottom: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Controls (hidden in print) -->
+<div class="print-controls">
+  <div>
+    <strong style="font-size:1rem;">WIS — Product Catalog</strong>
+    <span class="meta" style="margin-left:12px;">
+      {{ total_count }} item{{ total_count|pluralize }}
+      &nbsp;·&nbsp;{{ cols }} col{{ cols|pluralize }} × {{ rows }} row{{ rows|pluralize }}
+      &nbsp;·&nbsp;{{ pages|length }} page{{ pages|length|pluralize }}
+    </span>
+  </div>
+  <button class="btn-print" onclick="window.print()">
+    🖨️ Print / Save as PDF
+  </button>
+</div>
+
+<!-- Print pages -->
+{% for page in pages %}
+<div class="print-page">
+  {% for item in page %}
+  <div class="print-card">
+    <div class="print-card-img">
+      {% if item.image %}
+      <img src="{{ item.image.url }}" alt="{{ item.name }}">
+      {% else %}
+      <div class="print-card-img-placeholder">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
+             stroke="#c0c9dc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+          <polyline points="21 15 16 10 5 21"></polyline>
+        </svg>
+        <span>No Image</span>
+      </div>
+      {% endif %}
+    </div>
+    <div class="print-card-body">
+      <div class="print-code">{{ item.code }}</div>
+      <div class="print-name" title="{{ item.name }}">{{ item.name }}</div>
+      <div class="print-cat" title="{{ item.category.name }}">{{ item.category.name }}</div>
+      <div class="print-row">
+        {% if item.item_type == 'RAW' %}
+          <span class="print-badge print-badge-raw">Raw</span>
+        {% elif item.item_type == 'FINISHED' %}
+          <span class="print-badge print-badge-fin">Finished</span>
+        {% else %}
+          <span class="print-badge print-badge-svc">{{ item.get_item_type_display }}</span>
+        {% endif %}
+        <span class="print-price">₱{{ item.selling_price|floatformat:2 }}</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% empty %}
+<div style="text-align:center; padding: 2in; color:#888; font-size:14pt;">
+  No items to display.
+</div>
+{% endfor %}
+
+</body>
+</html>
