@@ -401,7 +401,68 @@
       }
     },
 
-    /* /catalog/items/ (list, detail, create, edit) — see Detail & Sub-page section below */
+    /* ── Catalog: Items ──────────────────────────────────────────────── */
+    '/catalog/items/': {
+      title: 'Product Catalog Guide',
+      steps: function () {
+        var s = [];
+        var path = window.location.pathname;
+
+        /* Detail page */
+        if (path.match(/\/catalog\/items\/\d+\//)) {
+          s.push({ popover: { title: '📦 Item Details', description: 'Full details for this product — stock levels, unit conversions, cost & selling price, and recent stock movements. Click the Edit button to update item information.', position: 'center' } });
+          return s;
+        }
+        /* Edit page */
+        if (path.match(/\/catalog\/items\/\d+\/edit\//)) {
+          s.push({ popover: { title: '✏️ Edit Item', description: 'Update this item\'s code, name, category, units, pricing, and image. You can also manage item-specific unit conversions in the table below.', position: 'center' } });
+          return s;
+        }
+        /* Create page */
+        if (path.indexOf('/create/') !== -1) {
+          s.push({ popover: { title: '➕ New Item', description: 'Create a new catalog item. Fill in the item code, name, category, default unit, cost price, and selling price. Upload an image to display on the catalog card.', position: 'center' } });
+          return s;
+        }
+        /* Print page */
+        if (path.indexOf('/print/') !== -1) {
+          s.push({ popover: { title: '🖨️ Full Catalog PDF', description: 'This is the print-ready full catalog. Click "Print / Save as PDF" in the top bar to export. Items are arranged in the same columns × rows grid you set on the catalog page.', position: 'center' } });
+          return s;
+        }
+
+        /* ── List page (card grid) ────────────────────────────────── */
+        s.push({ popover: { title: '🗂️ Product Catalog', description: '<p>Your entire product catalog displayed as an <strong>interactive card grid</strong>. Each card shows the item image, code, name, type, category, and selling price.</p><p class="mb-0"><small>Click any card to open the full item details in a new tab.</small></p>', position: 'center' } });
+
+        if (exists('#catalog-toolbar')) {
+          s.push({ element: '#catalog-toolbar', popover: { title: '🔧 Catalog Toolbar', description: 'Use this toolbar to <strong>search</strong>, <strong>filter by category or type</strong>, adjust the <strong>grid layout</strong> (columns × rows), import items, create new items, or export the catalog.', position: 'bottom' } });
+        }
+        if (exists('#cat-search')) {
+          s.push({ element: '#cat-search', popover: { title: '🔍 Search', description: 'Type to instantly search items by <strong>name or code</strong>. Results update after a short pause as you type.', position: 'bottom' } });
+        }
+        if (exists('#cat-category')) {
+          s.push({ element: '#cat-category', popover: { title: '📂 Category Filter', description: 'Filter the catalog to show only items belonging to a specific <strong>category</strong>. Select "All Categories" to reset.', position: 'bottom' } });
+        }
+        if (exists('#cat-grid-controls')) {
+          s.push({ element: '#cat-grid-controls', popover: { title: '⊞ Grid Layout', description: '<strong>Cols</strong> sets how many cards appear per row (1–6). <strong>Rows</strong> sets how many rows per page (1–10). The page size is <em>cols × rows</em>. Change either to instantly reflow the grid.', position: 'bottom' } });
+        }
+        if (exists('#catalog-export-dropdown')) {
+          s.push({ element: '#catalog-export-dropdown', popover: { title: '📤 Export Options', description: '<ul style="padding-left:1.2rem;margin-bottom:0;">' +
+            '<li><strong>PDF – This Page</strong>: Prints the current visible page (legal paper, fits exactly your cols × rows layout)</li>' +
+            '<li><strong>PDF – Full Catalog</strong>: Opens a print-ready page with ALL items across multiple pages</li>' +
+            '<li><strong>Export to Excel</strong>: Downloads all item details (code, name, prices, units, etc.) — no images</li>' +
+            '</ul>', position: 'bottom' } });
+        }
+        if (exists('#catalog-grid')) {
+          s.push({ element: '#catalog-grid', popover: { title: '🃏 Item Cards', description: 'Each card shows: <strong>product image</strong> (top), then <strong>code</strong>, <strong>name</strong>, <strong>type badge</strong>, <strong>price</strong>, and <strong>category</strong>. Cards are sorted alphabetically by category, then name. Click a card to open its full details in a new tab.', position: 'top' } });
+        }
+        if (exists('#catalog-pagination')) {
+          s.push({ element: '#catalog-pagination', popover: { title: '📄 Pagination', description: 'Navigate between pages of your catalog. The page size equals <strong>cols × rows</strong> (default 12 cards per page). Use First/Prev/Next/Last buttons or click a page number directly.', position: 'top' } });
+        }
+        if (exists('#catalog-new-btn')) {
+          s.push({ element: '#catalog-new-btn', popover: { title: '➕ New Item', description: 'Open the item creation form to add a new product to your catalog. You can set the image, code, name, category, units, and pricing.', position: 'bottom' } });
+        }
+        return s;
+      }
+    },
 
     /* ── Catalog: Categories ──────────────────────────────────────────── */
     '/catalog/categories/create/': { title: 'Create Category Guide', steps: function () { return [{ popover: { title: '➕ New Category', description: 'Create a product category to organize your catalog items. Categories help you group similar items together for easier management and reporting.', position: 'center' } }]; } },

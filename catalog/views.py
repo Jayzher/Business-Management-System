@@ -1,8 +1,9 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.db.models import ProtectedError
+from django.core.paginator import Paginator
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -98,23 +99,170 @@ class ItemViewSet(viewsets.ModelViewSet):
 
 @login_required
 def item_list_view(request):
-    items = Item.objects.select_related('category', 'default_unit').all()
-    item_type = request.GET.get('type')
-    category_id = request.GET.get('category')
-    search = request.GET.get('q')
+    items_qs = Item.objects.select_related('category', 'default_unit', 'selling_unit').all()
+    item_type = request.GET.get('type', '')
+    category_id = request.GET.get('category', '')
+    search = request.GET.get('q', '')
+
     if item_type:
-        items = items.filter(item_type=item_type)
+        items_qs = items_qs.filter(item_type=item_type)
     if category_id:
-        items = items.filter(category_id=category_id)
+        items_qs = items_qs.filter(category_id=category_id)
     if search:
-        items = items.filter(name__icontains=search) | items.filter(code__icontains=search)
-    categories = Category.objects.filter(is_active=True)
+        items_qs = (
+            items_qs.filter(name__icontains=search) |
+            items_qs.filter(code__icontains=search)
+        )
+
+    items_qs = items_qs.order_by('category__name', 'name')
+
+    try:
+        cols = max(1, min(6, int(request.GET.get('cols', 4))))
+    except (ValueError, TypeError):
+        cols = 4
+    try:
+        rows = max(1, min(10, int(request.GET.get('rows', 3))))
+    except (ValueError, TypeError):
+        rows = 3
+
+    per_page = cols * rows
+    paginator = Paginator(items_qs, per_page)
+    try:
+        page_num = int(request.GET.get('page', 1))
+    except (ValueError, TypeError):
+        page_num = 1
+    page_obj = paginator.get_page(page_num)
+
+    categories = Category.objects.filter(is_active=True).order_by('name')
+
+    params = request.GET.copy()
+    params.pop('page', None)
+    query_base = params.urlencode()
+
     return render(request, 'catalog/item_list.html', {
-        'items': items,
+        'page_obj': page_obj,
+        'items': page_obj.object_list,
         'categories': categories,
         'current_type': item_type,
         'current_category': category_id,
-        'search': search or '',
+        'search': search,
+        'cols': cols,
+        'rows': rows,
+        'per_page': per_page,
+        'query_base': query_base,
+        'col_range': range(1, 7),
+        'row_range': range(1, 11),
+    })
+
+
+@login_required
+def catalog_export_excel_view(request):
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    items_qs = Item.objects.select_related('category', 'default_unit', 'selling_unit').all()
+    item_type = request.GET.get('type', '')
+    category_id = request.GET.get('category', '')
+    search = request.GET.get('q', '')
+
+    if item_type:
+        items_qs = items_qs.filter(item_type=item_type)
+    if category_id:
+        items_qs = items_qs.filter(category_id=category_id)
+    if search:
+        items_qs = (
+            items_qs.filter(name__icontains=search) |
+            items_qs.filter(code__icontains=search)
+        )
+    items_qs = items_qs.order_by('category__name', 'name')
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Item Catalog'
+
+    header_font = Font(bold=True, color='FFFFFF')
+    header_fill = PatternFill(start_color='1F4E79', end_color='1F4E79', fill_type='solid')
+    center = Alignment(horizontal='center', vertical='center')
+
+    headers = [
+        'Code', 'Name', 'Type', 'Category', 'Default Unit', 'Selling Unit',
+        'Cost Price', 'Selling Price', 'Barcode',
+        'Min Stock', 'Max Stock', 'Reorder Point', 'Description', 'Status',
+    ]
+    ws.append(headers)
+    for idx, _ in enumerate(headers, 1):
+        c = ws.cell(row=1, column=idx)
+        c.font = header_font
+        c.fill = header_fill
+        c.alignment = center
+
+    for item in items_qs:
+        ws.append([
+            item.code,
+            item.name,
+            item.get_item_type_display(),
+            item.category.name if item.category_id else '',
+            item.default_unit.abbreviation if item.default_unit_id else '',
+            item.selling_unit.abbreviation if item.selling_unit_id else '',
+            float(item.cost_price or 0),
+            float(item.selling_price or 0),
+            item.barcode or '',
+            float(item.minimum_stock or 0),
+            float(item.maximum_stock or 0),
+            float(item.reorder_point or 0),
+            item.description or '',
+            'Active' if item.is_active else 'Inactive',
+        ])
+
+    for col in ws.columns:
+        max_len = max((len(str(cell.value or '')) for cell in col), default=8)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 42)
+
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = 'attachment; filename="catalog_items.xlsx"'
+    wb.save(response)
+    return response
+
+
+@login_required
+def catalog_print_view(request):
+    items_qs = Item.objects.select_related('category', 'default_unit', 'selling_unit').all()
+    item_type = request.GET.get('type', '')
+    category_id = request.GET.get('category', '')
+    search = request.GET.get('q', '')
+
+    if item_type:
+        items_qs = items_qs.filter(item_type=item_type)
+    if category_id:
+        items_qs = items_qs.filter(category_id=category_id)
+    if search:
+        items_qs = (
+            items_qs.filter(name__icontains=search) |
+            items_qs.filter(code__icontains=search)
+        )
+    items_qs = items_qs.order_by('category__name', 'name')
+
+    try:
+        cols = max(1, min(6, int(request.GET.get('cols', 4))))
+    except (ValueError, TypeError):
+        cols = 4
+    try:
+        rows = max(1, min(10, int(request.GET.get('rows', 3))))
+    except (ValueError, TypeError):
+        rows = 3
+
+    per_page = cols * rows
+    items_list = list(items_qs)
+    pages = [items_list[i:i + per_page] for i in range(0, max(len(items_list), 1), per_page)]
+
+    return render(request, 'catalog/item_list_print.html', {
+        'pages': pages,
+        'cols': cols,
+        'rows': rows,
+        'per_page': per_page,
+        'total_count': len(items_list),
     })
 
 
