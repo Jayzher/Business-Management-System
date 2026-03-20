@@ -12,6 +12,7 @@ Usage:
 from decimal import Decimal
 from django.core.management.base import BaseCommand
 from django.utils import timezone
+from core.cogs import compute_invoice_cogs
 
 
 class Command(BaseCommand):
@@ -119,32 +120,4 @@ class Command(BaseCommand):
         ))
 
     def _compute_cogs(self, inv):
-        cogs = Decimal('0')
-        if inv.pos_sale_id:
-            try:
-                for line in inv.pos_sale.lines.select_related('item').all():
-                    cogs += (line.item.cost_price or Decimal('0')) * line.qty
-            except Exception:
-                pass
-        elif inv.sales_order_id:
-            try:
-                for line in inv.sales_order.lines.select_related('item').all():
-                    cogs += (line.item.cost_price or Decimal('0')) * line.qty_ordered
-                for bundle in inv.sales_order.price_list_lines.prefetch_related(
-                    'price_list__items__item'
-                ).all():
-                    for pli in bundle.price_list.items.all():
-                        cogs += (
-                            (pli.item.cost_price or Decimal('0'))
-                            * pli.min_qty
-                            * bundle.qty_multiplier
-                        )
-            except Exception:
-                pass
-        try:
-            for svc in inv.customer_services.prefetch_related('lines__item').all():
-                for line in svc.lines.all():
-                    cogs += (line.item.cost_price or Decimal('0')) * line.qty
-        except Exception:
-            pass
-        return cogs.quantize(Decimal('0.01'))
+        return compute_invoice_cogs(inv)

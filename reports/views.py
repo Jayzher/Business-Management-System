@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from inventory.models import StockBalance, StockMove, MoveType
 from catalog.models import Item
 from warehouses.models import Warehouse
+from core.cogs import compute_invoice_cogs
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -576,14 +577,20 @@ def financial_statement_view(request):
     if date_to:
         inv_qs = inv_qs.filter(paid_date__lte=date_to)
 
+    invoice_rows = list(
+        inv_qs.select_related('sales_order__customer', 'pos_sale__customer')
+        .prefetch_related('payments', 'customer_services__lines__item')
+        .order_by('paid_date')
+    )
+
     agg = inv_qs.aggregate(
         revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
         discount=Coalesce(Sum('discount_total'), Decimal('0'), output_field=DecimalField()),
-        cogs=Coalesce(Sum('grand_total_cogs'), Decimal('0'), output_field=DecimalField()),
     )
     invoice_revenue = agg['revenue']
     discount = agg['discount']
-    cogs_from_invoices = agg['cogs']
+    invoice_cogs_map = {inv.pk: compute_invoice_cogs(inv) for inv in invoice_rows}
+    cogs_from_invoices = sum(invoice_cogs_map.values(), Decimal('0'))
 
     net_revenue = invoice_revenue - discount
 
@@ -645,9 +652,7 @@ def financial_statement_view(request):
     # ── Breakdown: one row per paid invoice ────────────────────────────
     from core.models import InvoicePayment
     breakdown_rows = []
-    for inv in inv_qs.select_related(
-        'sales_order__customer', 'pos_sale__customer'
-    ).prefetch_related('payments').order_by('paid_date'):
+    for inv in invoice_rows:
         source_type = 'INV'
         ref = ''
         if inv.sales_order_id:
@@ -659,7 +664,7 @@ def financial_statement_view(request):
         elif hasattr(inv, 'customer_services') and inv.customer_services.exists():
             source_type = 'SVC'
             ref = inv.customer_services.first().service_number
-        cogs_val = inv.grand_total_cogs
+        cogs_val = invoice_cogs_map[inv.pk]
         payment_methods = ', '.join(
             p.get_method_display() for p in inv.payments.all()
         ) or '—'
