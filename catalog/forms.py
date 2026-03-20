@@ -164,14 +164,6 @@ class ItemForm(forms.ModelForm):
         cleaned = super().clean()
         default_unit = cleaned.get('default_unit')
         selling_unit = cleaned.get('selling_unit')
-        if default_unit and selling_unit and selling_unit != default_unit:
-            if selling_unit.category != default_unit.category:
-                self.add_error(
-                    'selling_unit',
-                    f'Selling unit "{selling_unit}" ({selling_unit.get_category_display()}) '
-                    f'must be in the same category as the base unit "{default_unit}" '
-                    f'({default_unit.get_category_display()}).',
-                )
         return cleaned
 
     def __init__(self, *args, **kwargs):
