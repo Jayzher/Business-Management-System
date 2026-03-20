@@ -1,71 +1,465 @@
 {% extends "theme/base.html" %}
+{% load static %}
 
-{% block title %}Items{% endblock %}
-{% block page_title %}Items{% endblock %}
-{% block breadcrumb %}<li class="breadcrumb-item active">Items</li>{% endblock %}
+{% block title %}Item Catalog{% endblock %}
+{% block page_title %}Product Catalog{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Catalog</li>{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ── Toolbar ─────────────────────────────────────────────── */
+#catalog-toolbar .form-control,
+#catalog-toolbar .form-select { font-size: .85rem; }
+
+/* ── Card Grid ───────────────────────────────────────────── */
+#catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cat-cols, 4), 1fr);
+  gap: .85rem;
+}
+.catalog-item-card {
+  cursor: pointer;
+  border-radius: 10px;
+  border: 1px solid #e4e9f2;
+  transition: transform .18s, box-shadow .18s;
+  overflow: hidden;
+  background: #fff;
+}
+.catalog-item-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 22px rgba(0,0,0,.12) !important;
+  border-color: #c2d0e8;
+}
+.catalog-card-img-wrap {
+  width: 100%;
+  aspect-ratio: 4/3;
+  background: linear-gradient(135deg, #f0f4fb 0%, #e8eef8 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid #edf0f7;
+}
+.catalog-card-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.catalog-card-img-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #c0c9dc;
+  font-size: .68rem;
+  gap: .3rem;
+  height: 100%;
+  width: 100%;
+}
+.catalog-item-card .card-body { padding: .5rem .65rem .6rem; }
+.catalog-item-code {
+  font-size: .7rem;
+  color: #9aa5bb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: .2px;
+}
+.catalog-item-name {
+  font-size: .84rem;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #1e2d45;
+  margin: .1rem 0;
+}
+.catalog-item-cat {
+  font-size: .7rem;
+  color: #9aa5bb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: .18rem;
+}
+.catalog-item-price {
+  font-size: .82rem;
+  font-weight: 700;
+  color: #1553b8;
+}
+.catalog-item-card .badge { font-size: .65rem; padding: 2px 6px; }
+
+/* ── Pagination ──────────────────────────────────────────── */
+#catalog-pagination .page-link { font-size: .82rem; padding: .28rem .55rem; }
+
+/* ── Active filter badges ────────────────────────────────── */
+.filter-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #e8f0fe; color: #1553b8;
+  border-radius: 20px; padding: 2px 10px 2px 8px;
+  font-size: .78rem; font-weight: 500;
+}
+.filter-badge .remove { cursor: pointer; opacity: .6; font-size: .75rem; }
+.filter-badge .remove:hover { opacity: 1; }
+
+/* ── Print ───────────────────────────────────────────────── */
+@media print {
+  .main-sidebar, .main-header, .content-header,
+  footer.main-footer, #catalog-toolbar, #catalog-pagination,
+  .no-print { display: none !important; }
+  .content-wrapper { margin-left: 0 !important; padding: 0 !important; }
+  @page { size: legal; margin: .4in; }
+  body { background: #fff !important; }
+  #catalog-grid {
+    grid-template-columns: repeat(var(--cat-cols, 4), 1fr) !important;
+    gap: .2in;
+  }
+  .catalog-item-card {
+    border: 1px solid #bbb !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .catalog-card-img-wrap { height: 1.2in; }
+}
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="card">
-  <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-boxes mr-1"></i> Item Master List</h3>
-    <div class="card-tools">
-      <a href="#" data-modal-url="{% url 'catalog_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
-      <a href="#" data-modal-url="{% url 'item_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Item</a>
+
+<!-- ── Toolbar ──────────────────────────────────────────────────────── -->
+<div class="card shadow-sm mb-3" id="catalog-toolbar">
+  <div class="card-body py-2 px-3">
+    <div class="row g-2 align-items-center">
+
+      <!-- Search -->
+      <div class="col-12 col-md-3" id="cat-search-col">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text bg-white border-end-0 pe-1">
+            <i class="fas fa-search text-muted" style="font-size:.8rem;"></i>
+          </span>
+          <input type="text" id="cat-search" class="form-control border-start-0"
+                 placeholder="Search by name or code…"
+                 value="{{ search }}" autocomplete="off">
+          {% if search %}
+          <button class="btn btn-outline-secondary" type="button" id="cat-clear-search"
+                  title="Clear search"><i class="fas fa-times"></i></button>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Category -->
+      <div class="col-6 col-md-2" id="cat-category-col">
+        <select id="cat-category" class="form-control form-control-sm"
+                title="Filter by category">
+          <option value="">All Categories</option>
+          {% for cat in categories %}
+          <option value="{{ cat.pk }}"
+                  {% if current_category == cat.pk|stringformat:"s" %}selected{% endif %}>
+            {{ cat.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Type -->
+      <div class="col-6 col-md-2" id="cat-type-col">
+        <select id="cat-type" class="form-control form-control-sm"
+                title="Filter by item type">
+          <option value="">All Types</option>
+          <option value="RAW"      {% if current_type == "RAW"      %}selected{% endif %}>Raw Material</option>
+          <option value="FINISHED" {% if current_type == "FINISHED" %}selected{% endif %}>Finished Good</option>
+          <option value="SERVICE"  {% if current_type == "SERVICE"  %}selected{% endif %}>Service</option>
+        </select>
+      </div>
+
+      <!-- Grid cols / rows -->
+      <div class="col-auto d-flex align-items-center gap-2" id="cat-grid-controls">
+        <span class="small text-muted fw-semibold text-nowrap">Cols:</span>
+        <select id="cat-cols" class="form-control form-control-sm" style="width:62px;"
+                title="Cards per row">
+          {% for c in col_range %}
+          <option value="{{ c }}" {% if cols == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+        <span class="small text-muted fw-semibold text-nowrap">Rows:</span>
+        <select id="cat-rows" class="form-control form-control-sm" style="width:62px;"
+                title="Rows per page">
+          {% for r in row_range %}
+          <option value="{{ r }}" {% if rows == r %}selected{% endif %}>{{ r }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="col ms-auto d-flex justify-content-end gap-2 flex-wrap" id="cat-action-btns">
+        <a href="#" data-modal-url="{% url 'catalog_import' %}"
+           class="btn btn-sm btn-outline-success no-print" id="catalog-import-btn"
+           title="Import items from CSV">
+          <i class="fas fa-file-import me-1"></i>Import
+        </a>
+        <a href="#" data-modal-url="{% url 'item_create' %}"
+           class="btn btn-sm btn-primary no-print" id="catalog-new-btn">
+          <i class="fas fa-plus me-1"></i>New Item
+        </a>
+        <div class="dropdown no-print" id="catalog-export-dropdown">
+          <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                  data-bs-toggle="dropdown" id="catalog-export-btn" type="button"
+                  title="Export options">
+            <i class="fas fa-file-export me-1"></i>Export
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="min-width:210px;">
+            <li>
+              <a class="dropdown-item py-2" href="#" id="export-pdf-page">
+                <i class="fas fa-file-pdf me-2 text-danger"></i>
+                <span>PDF – This Page</span>
+                <small class="d-block text-muted ms-4" style="font-size:.72rem;">
+                  Current {{ cols }}×{{ rows }} grid
+                </small>
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item py-2" href="#" id="export-pdf-all">
+                <i class="fas fa-file-pdf me-2 text-danger"></i>
+                <span>PDF – Full Catalog</span>
+                <small class="d-block text-muted ms-4" style="font-size:.72rem;">
+                  All {{ page_obj.paginator.count }} items, {{ cols }}×{{ rows }} layout
+                </small>
+              </a>
+            </li>
+            <li><hr class="dropdown-divider my-1"></li>
+            <li>
+              <a class="dropdown-item py-2" href="#" id="export-excel">
+                <i class="fas fa-file-excel me-2 text-success"></i>
+                <span>Export to Excel</span>
+                <small class="d-block text-muted ms-4" style="font-size:.72rem;">
+                  All details, no images
+                </small>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
     </div>
-  </div>
-  <div class="card-body table-responsive p-0">
-    <table class="table table-hover table-striped wis-table" data-page-length="25">
-      <thead>
-        <tr>
-          <th style="min-width:90px;max-width:140px;">Code</th>
-          <th style="min-width:160px;max-width:260px;">Name</th>
-          <th class="text-nowrap">Type</th>
-          <th class="text-nowrap">Category</th>
-          <th class="text-nowrap">Base Unit</th>
-          <th class="text-nowrap">Selling Unit</th>
-          <th class="text-right text-nowrap">Selling Price</th>
-          <th class="text-nowrap">Status</th>
-          <th data-orderable="false" class="text-nowrap">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in items %}
-        <tr>
-          <td style="max-width:140px;white-space:normal;word-break:break-word;"><a href="{% url 'item_detail' item.pk %}">{{ item.code }}</a></td>
-          <td style="max-width:260px;white-space:normal;word-break:break-word;">{{ item.name }}</td>
-          <td class="text-nowrap">
-            {% if item.item_type == 'RAW' %}
-              <span class="badge badge-info">Raw Material</span>
-            {% elif item.item_type == 'FINISHED' %}
-              <span class="badge badge-success">Finished Product</span>
-            {% else %}
-              <span class="badge badge-secondary">{{ item.get_item_type_display }}</span>
-            {% endif %}
-          </td>
-          <td class="text-nowrap">{{ item.category.name }}</td>
-          <td class="text-nowrap">{{ item.default_unit.abbreviation }}</td>
-          <td class="text-nowrap">
-            {% if item.selling_unit %}{{ item.selling_unit.abbreviation }}{% else %}<span class="text-muted">—</span>{% endif %}
-          </td>
-          <td class="text-right text-nowrap">{{ item.selling_price|floatformat:2 }}</td>
-          <td class="text-nowrap">
-            {% if item.is_active %}
-              <span class="badge badge-success">Active</span>
-            {% else %}
-              <span class="badge badge-secondary">Inactive</span>
-            {% endif %}
-          </td>
-          <td class="text-nowrap">
-            <a href="{% url 'item_detail' item.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
-            <a href="#" data-modal-url="{% url 'item_edit' item.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
-            <a href="#" data-modal-url="{% url 'item_delete' item.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
-          </td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="9" class="text-center text-muted">No items found.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+
+    <!-- Active filter badges -->
+    {% if search or current_category or current_type %}
+    <div class="mt-2 d-flex gap-2 flex-wrap" id="cat-active-filters">
+      <span class="small text-muted me-1">Active filters:</span>
+      {% if search %}
+      <span class="filter-badge">
+        <i class="fas fa-search" style="font-size:.65rem;"></i> {{ search }}
+        <span class="remove" id="filter-clear-search">×</span>
+      </span>
+      {% endif %}
+      {% if current_category %}
+      {% for cat in categories %}{% if cat.pk|stringformat:"s" == current_category %}
+      <span class="filter-badge">
+        <i class="fas fa-folder" style="font-size:.65rem;"></i> {{ cat.name }}
+        <span class="remove" id="filter-clear-category">×</span>
+      </span>
+      {% endif %}{% endfor %}
+      {% endif %}
+      {% if current_type %}
+      <span class="filter-badge">
+        <i class="fas fa-tag" style="font-size:.65rem;"></i>
+        {% if current_type == "RAW" %}Raw Material{% elif current_type == "FINISHED" %}Finished Good{% else %}Service{% endif %}
+        <span class="remove" id="filter-clear-type">×</span>
+      </span>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
 </div>
+
+<!-- ── Card Grid ─────────────────────────────────────────────────────── -->
+<div id="catalog-grid" style="--cat-cols: {{ cols }};">
+  {% for item in items %}
+  <div class="catalog-item-card shadow-sm"
+       onclick="window.open('{% url 'item_detail' item.pk %}', '_blank')"
+       title="{{ item.name }} ({{ item.code }}) — Click to view full details"
+       data-item-pk="{{ item.pk }}"
+       role="button" tabindex="0"
+       onkeydown="if(event.key==='Enter')window.open('{% url 'item_detail' item.pk %}','_blank')">
+    <div class="catalog-card-img-wrap">
+      {% if item.image %}
+      <img src="{{ item.image.url }}" alt="{{ item.name }}" loading="lazy">
+      {% else %}
+      <div class="catalog-card-img-placeholder">
+        <i class="fas fa-box" style="font-size:2rem;"></i>
+        <span>No Image</span>
+      </div>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      <div class="catalog-item-code">{{ item.code }}</div>
+      <div class="catalog-item-name" title="{{ item.name }}">{{ item.name }}</div>
+      <div class="d-flex justify-content-between align-items-center mt-1">
+        {% if item.item_type == 'RAW' %}
+          <span class="badge bg-info text-white">Raw</span>
+        {% elif item.item_type == 'FINISHED' %}
+          <span class="badge bg-success">Finished</span>
+        {% else %}
+          <span class="badge bg-secondary">Svc</span>
+        {% endif %}
+        <span class="catalog-item-price">₱{{ item.selling_price|floatformat:2 }}</span>
+      </div>
+      <div class="catalog-item-cat" title="{{ item.category.name }}">{{ item.category.name }}</div>
+    </div>
+  </div>
+  {% empty %}
+  <div style="grid-column: 1 / -1;" class="text-center py-5 text-muted">
+    <i class="fas fa-box-open fa-3x mb-3 d-block opacity-50"></i>
+    <p class="fw-semibold mb-1">No items found</p>
+    <p class="small mb-0">Try adjusting your search or filter criteria.</p>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ── Pagination ─────────────────────────────────────────────────────── -->
+{% if page_obj.paginator.num_pages > 1 %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mt-3 gap-2 no-print"
+     id="catalog-pagination">
+  <div class="text-muted small">
+    Showing <strong>{{ page_obj.start_index }}–{{ page_obj.end_index }}</strong>
+    of <strong>{{ page_obj.paginator.count }}</strong> items
+    &nbsp;·&nbsp;
+    Page <strong>{{ page_obj.number }}</strong> of <strong>{{ page_obj.paginator.num_pages }}</strong>
+  </div>
+  <nav aria-label="Catalog pagination">
+    <ul class="pagination pagination-sm mb-0">
+      <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+        <a class="page-link"
+           href="{% if page_obj.has_previous %}?{{ query_base }}{% if query_base %}&{% endif %}page=1{% else %}#{% endif %}"
+           title="First page"><i class="fas fa-angle-double-left"></i></a>
+      </li>
+      <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}">
+        <a class="page-link"
+           href="{% if page_obj.has_previous %}?{{ query_base }}{% if query_base %}&{% endif %}page={{ page_obj.previous_page_number }}{% else %}#{% endif %}"
+           title="Previous"><i class="fas fa-angle-left"></i></a>
+      </li>
+      {% for num in page_obj.paginator.page_range %}
+        {% if num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+        <li class="page-item {% if num == page_obj.number %}active{% endif %}">
+          <a class="page-link"
+             href="?{{ query_base }}{% if query_base %}&{% endif %}page={{ num }}">{{ num }}</a>
+        </li>
+        {% endif %}
+      {% endfor %}
+      <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+        <a class="page-link"
+           href="{% if page_obj.has_next %}?{{ query_base }}{% if query_base %}&{% endif %}page={{ page_obj.next_page_number }}{% else %}#{% endif %}"
+           title="Next"><i class="fas fa-angle-right"></i></a>
+      </li>
+      <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}">
+        <a class="page-link"
+           href="{% if page_obj.has_next %}?{{ query_base }}{% if query_base %}&{% endif %}page={{ page_obj.paginator.num_pages }}{% else %}#{% endif %}"
+           title="Last page"><i class="fas fa-angle-double-right"></i></a>
+      </li>
+    </ul>
+  </nav>
+</div>
+{% elif items %}
+<div class="text-muted small mt-2 no-print">
+  {{ page_obj.paginator.count }} item{{ page_obj.paginator.count|pluralize }} total
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+
+  /* ── Navigate preserving all current params ───────────────────── */
+  function catNavigate(params) {
+    var url = new URL(window.location.href);
+    Object.keys(params).forEach(function (k) {
+      var v = params[k];
+      if (v !== null && v !== undefined && v !== '') {
+        url.searchParams.set(k, v);
+      } else {
+        url.searchParams.delete(k);
+      }
+    });
+    if (!Object.prototype.hasOwnProperty.call(params, 'page')) {
+      url.searchParams.set('page', '1');
+    }
+    window.location.href = url.toString();
+  }
+
+  /* ── Search (450 ms debounce) ─────────────────────────────────── */
+  var _st;
+  var si = document.getElementById('cat-search');
+  if (si) {
+    si.addEventListener('input', function () {
+      clearTimeout(_st);
+      _st = setTimeout(function () { catNavigate({ q: si.value.trim() }); }, 450);
+    });
+    si.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { clearTimeout(_st); catNavigate({ q: si.value.trim() }); }
+    });
+  }
+  var clr = document.getElementById('cat-clear-search');
+  if (clr) clr.addEventListener('click', function () { catNavigate({ q: '' }); });
+
+  /* ── Active filter badge removals ────────────────────────────── */
+  var fc = document.getElementById('filter-clear-search');
+  if (fc) fc.addEventListener('click', function () { catNavigate({ q: '' }); });
+  var fcat = document.getElementById('filter-clear-category');
+  if (fcat) fcat.addEventListener('click', function () { catNavigate({ category: '' }); });
+  var ftype = document.getElementById('filter-clear-type');
+  if (ftype) ftype.addEventListener('click', function () { catNavigate({ type: '' }); });
+
+  /* ── Category / Type selects ──────────────────────────────────── */
+  var catSel = document.getElementById('cat-category');
+  if (catSel) catSel.addEventListener('change', function () { catNavigate({ category: catSel.value }); });
+
+  var typeSel = document.getElementById('cat-type');
+  if (typeSel) typeSel.addEventListener('change', function () { catNavigate({ type: typeSel.value }); });
+
+  /* ── Grid Cols / Rows ─────────────────────────────────────────── */
+  var colsSel = document.getElementById('cat-cols');
+  if (colsSel) colsSel.addEventListener('change', function () { catNavigate({ cols: colsSel.value }); });
+
+  var rowsSel = document.getElementById('cat-rows');
+  if (rowsSel) rowsSel.addEventListener('change', function () { catNavigate({ rows: rowsSel.value }); });
+
+  /* ── Export: PDF — This Page ──────────────────────────────────── */
+  var btnPdfPage = document.getElementById('export-pdf-page');
+  if (btnPdfPage) {
+    btnPdfPage.addEventListener('click', function (e) {
+      e.preventDefault();
+      window.print();
+    });
+  }
+
+  /* ── Export: PDF — Full Catalog ───────────────────────────────── */
+  var btnPdfAll = document.getElementById('export-pdf-all');
+  if (btnPdfAll) {
+    btnPdfAll.addEventListener('click', function (e) {
+      e.preventDefault();
+      var sp = new URL(window.location.href).searchParams;
+      sp.delete('page');
+      var qs = sp.toString();
+      window.open('/catalog/items/print/' + (qs ? '?' + qs : ''), '_blank');
+    });
+  }
+
+  /* ── Export: Excel ────────────────────────────────────────────── */
+  var btnExcel = document.getElementById('export-excel');
+  if (btnExcel) {
+    btnExcel.addEventListener('click', function (e) {
+      e.preventDefault();
+      var sp = new URL(window.location.href).searchParams;
+      sp.delete('page');
+      var qs = sp.toString();
+      window.location.href = '/catalog/items/export-excel/' + (qs ? '?' + qs : '');
+    });
+  }
+
+})();
+</script>
 {% endblock %}

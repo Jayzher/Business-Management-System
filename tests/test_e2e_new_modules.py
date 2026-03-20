@@ -291,6 +291,9 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         # Phase 13: Unit Conversions Module
         self._step_53_unit_conversions_crud()
 
+        # Phase 14: Catalog Card Grid UI
+        self._step_54_catalog_card_grid()
+
     # ═══════════════════════════════════════════════════════════════════
     # PHASE 1: Core CRUD Modules
     # ═══════════════════════════════════════════════════════════════════
@@ -2018,6 +2021,115 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         self.assertIn('Service Completion', body, 'Dictionary should mention Service Completion')
 
     # ═══════════════════════════════════════════════════════════════════
+    # PHASE 14: Catalog Card Grid UI
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _step_54_catalog_card_grid(self):
+        """Catalog card grid: grid renders, toolbar controls exist, filters work,
+        export buttons present, pagination present when items exist, guide fires."""
+        # ── 1. Catalog list renders as card grid ────────────────────────────
+        self.browser.get(self.url('/catalog/items/'))
+        time.sleep(1)
+        self.assert_no_errors()
+        body = self.browser.page_source
+        self.assertIn('catalog-grid', body, 'Card grid container should exist')
+        self.assertIn('catalog-toolbar', body, 'Catalog toolbar should exist')
+
+        # ── 2. Toolbar controls present ────────────────────────────────────
+        self.assertTrue(
+            len(self.browser.find_elements(By.ID, 'cat-search')) > 0,
+            'Search input should exist'
+        )
+        self.assertTrue(
+            len(self.browser.find_elements(By.ID, 'cat-category')) > 0,
+            'Category filter should exist'
+        )
+        self.assertTrue(
+            len(self.browser.find_elements(By.ID, 'cat-type')) > 0,
+            'Type filter should exist'
+        )
+        self.assertTrue(
+            len(self.browser.find_elements(By.ID, 'cat-cols')) > 0,
+            'Columns selector should exist'
+        )
+        self.assertTrue(
+            len(self.browser.find_elements(By.ID, 'cat-rows')) > 0,
+            'Rows selector should exist'
+        )
+
+        # ── 3. New Item button present ──────────────────────────────────────
+        self.assertTrue(
+            len(self.browser.find_elements(By.ID, 'catalog-new-btn')) > 0,
+            'New Item button should exist'
+        )
+
+        # ── 4. Export dropdown has all three options ────────────────────────
+        export_btn = self.browser.find_element(By.ID, 'catalog-export-btn')
+        self.browser.execute_script('arguments[0].click();', export_btn)
+        time.sleep(0.5)
+        page_html = self.browser.page_source
+        self.assertIn('export-pdf-page', page_html, 'PDF This Page export should exist')
+        self.assertIn('export-pdf-all', page_html, 'PDF Full Catalog export should exist')
+        self.assertIn('export-excel', page_html, 'Excel export should exist')
+        # close dropdown
+        self.browser.find_element(By.TAG_NAME, 'body').click()
+        time.sleep(0.3)
+
+        # ── 5. Excel export returns .xlsx ───────────────────────────────────
+        from django.test import Client as _Client
+        client = _Client()
+        from django.contrib.auth import get_user_model
+        _U = get_user_model()
+        admin = _U.objects.filter(is_superuser=True).first()
+        client.force_login(admin)
+        resp = client.get('/catalog/items/export-excel/')
+        self.assertEqual(resp.status_code, 200, 'Excel export should return 200')
+        ct = resp['Content-Type']
+        self.assertIn(
+            'spreadsheetml',
+            ct,
+            f'Excel export should return xlsx content-type, got: {ct}'
+        )
+        disp = resp.get('Content-Disposition', '')
+        self.assertIn('.xlsx', disp, 'Excel export should have .xlsx filename')
+
+        # ── 6. Print view renders ───────────────────────────────────────────
+        resp2 = client.get('/catalog/items/print/?cols=4&rows=3')
+        self.assertEqual(resp2.status_code, 200, 'Print view should return 200')
+        print_html = resp2.content.decode()
+        self.assertIn('print-page', print_html, 'Print template should contain print-page class')
+        self.assertIn('print-card', print_html, 'Print template should contain print-card class')
+
+        # ── 7. Cards render for existing items ─────────────────────────────
+        cards = self.browser.find_elements(By.CSS_SELECTOR, '.catalog-item-card')
+        # Items may exist from previous test steps; if any exist verify structure
+        if cards:
+            first = cards[0]
+            self.assertTrue(
+                len(first.find_elements(By.CSS_SELECTOR, '.catalog-card-img-wrap')) > 0,
+                'Card should have image area'
+            )
+            self.assertTrue(
+                len(first.find_elements(By.CSS_SELECTOR, '.catalog-item-name')) > 0,
+                'Card should have item name'
+            )
+            self.assertTrue(
+                len(first.find_elements(By.CSS_SELECTOR, '.catalog-item-code')) > 0,
+                'Card should have item code'
+            )
+
+        # ── 8. Guide fires for catalog list page ────────────────────────────
+        self._dismiss_tour()
+        guide_btn = self.browser.find_element(By.ID, 'wis-page-guide')
+        self.browser.execute_script('arguments[0].click();', guide_btn)
+        time.sleep(1)
+        popovers = self.browser.find_elements(By.CSS_SELECTOR, '.driver-popover')
+        visible = [p for p in popovers if p.is_displayed()]
+        self.assertTrue(len(visible) > 0, 'Guide popover should appear on catalog list page')
+        popover_text = visible[0].text
+        self.assertIn('Catalog', popover_text, 'Guide should mention Catalog')
+        self._dismiss_tour()
+
     # PHASE 13: Unit Conversions Module
     # ═══════════════════════════════════════════════════════════════════
 
