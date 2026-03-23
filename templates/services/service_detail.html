@@ -1,4 +1,5 @@
 {% extends "theme/base.html" %}
+{% load humanize %}
 {% block title %}Service {{ service.service_number }}{% endblock %}
 {% block page_title %}Service {{ service.service_number }}{% endblock %}
 {% block breadcrumb %}
@@ -56,7 +57,7 @@
       </div>
     </div>
 
-    <!-- Product Lines -->
+    <!-- Product Lines + P&L -->
     <div class="card">
       <div class="card-header">
         <h3 class="card-title"><i class="fas fa-list mr-2 text-secondary"></i>Product / Parts Used</h3>
@@ -71,43 +72,75 @@
               <th>Unit</th>
               <th class="text-right">Unit Price</th>
               <th class="text-right">Line Total</th>
+              <th class="text-right text-danger">Cost (COGS)</th>
+              <th class="text-right text-success">Line Profit</th>
               <th>Notes</th>
             </tr>
           </thead>
           <tbody>
-            {% for line in service.lines.all %}
+            {% for row in line_pnl %}
             <tr>
-              <td><span class="text-muted small">{{ line.item.code }}</span> {{ line.item.name }}</td>
-              <td>{{ line.location|default:"—" }}</td>
-              <td class="text-right">{{ line.qty|floatformat:2 }}</td>
-              <td>{{ line.unit.abbreviation }}</td>
-              <td class="text-right">{{ line.unit_price|floatformat:2 }}</td>
-              <td class="text-right font-weight-bold">{{ line.line_total|floatformat:2 }}</td>
-              <td>{{ line.notes|default:"" }}</td>
+              <td><span class="text-muted small">{{ row.line.item.code }}</span> {{ row.line.item.name }}</td>
+              <td>{{ row.line.location|default:"—" }}</td>
+              <td class="text-right">{{ row.line.qty|floatformat:2 }}</td>
+              <td>{{ row.line.unit.abbreviation }}</td>
+              <td class="text-right">{{ row.line.unit_price|floatformat:2 }}</td>
+              <td class="text-right font-weight-bold">{{ row.line.line_total|floatformat:2 }}</td>
+              <td class="text-right text-danger">{{ row.cogs|floatformat:2 }}</td>
+              <td class="text-right {% if row.profit >= 0 %}text-success{% else %}text-danger{% endif %} font-weight-bold">{{ row.profit|floatformat:2 }}</td>
+              <td>{{ row.line.notes|default:"" }}</td>
             </tr>
             {% empty %}
-            <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No product lines.</td></tr>
+            <tr><td colspan="9" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No product lines.</td></tr>
             {% endfor %}
           </tbody>
           <tfoot>
             <tr>
               <td colspan="5" class="text-right font-weight-bold">Product Lines Total:</td>
               <td class="text-right font-weight-bold">{{ service.line_total|floatformat:2 }}</td>
+              <td class="text-right text-danger font-weight-bold">{{ service_cogs|floatformat:2 }}</td>
+              <td class="text-right {% if gross_profit >= 0 %}text-success{% else %}text-danger{% endif %} font-weight-bold">{{ gross_profit|floatformat:2 }}</td>
               <td></td>
             </tr>
             {% if service.amount is not None %}
             <tr>
               <td colspan="5" class="text-right font-weight-bold text-warning">Manual Service Amount:</td>
               <td class="text-right font-weight-bold text-warning">{{ service.amount|floatformat:2 }}</td>
-              <td></td>
+              <td></td><td></td><td></td>
             </tr>
             {% endif %}
             <tr class="table-success">
               <td colspan="5" class="text-right font-weight-bold">Grand Total:</td>
               <td class="text-right font-weight-bold">{{ service.grand_total|floatformat:2 }}</td>
-              <td></td>
+              <td></td><td></td><td></td>
             </tr>
           </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- P&L Summary -->
+    <div class="card card-outline card-info">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-chart-line mr-2 text-info"></i>Profit &amp; Loss Summary</h3>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0">
+          <tr>
+            <th style="width:60%">Revenue (Service Total)</th>
+            <td class="text-right text-success font-weight-bold">{{ service_revenue|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr>
+            <th>Cost of Goods Sold (Parts Cost)</th>
+            <td class="text-right text-danger">{{ service_cogs|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr class="{% if gross_profit >= 0 %}table-success{% else %}table-danger{% endif %}">
+            <th>Gross Profit</th>
+            <td class="text-right font-weight-bold">
+              {{ gross_profit|floatformat:2|intcomma }}
+              <span class="badge {% if gross_margin >= 20 %}bg-success{% elif gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2" style="font-size:.72rem;">{{ gross_margin|floatformat:1 }}%</span>
+            </td>
+          </tr>
         </table>
       </div>
     </div>

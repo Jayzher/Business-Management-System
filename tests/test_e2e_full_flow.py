@@ -331,6 +331,7 @@ class FullProcessFlowTest(StaticLiveServerTestCase):
         self.select_by_text('customer', '[CUS-001] Metro Builders Inc.')
         self.select_by_text('warehouse', '[WH-MAIN] Main Warehouse')
         self.fill_date_field('order_date', date.today().isoformat())
+        self.fill_field('exchange_rate', '1.00')
         # Fill first line
         self.select_by_text('lines-0-item', '[ITEM-001] Aluminum Profile 6063')
         self.fill_field('lines-0-qty_ordered', '25')

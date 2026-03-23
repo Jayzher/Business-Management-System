@@ -50,11 +50,10 @@ from inventory.models import StockBalance, StockMove, MoveStatus, MoveType
 def _inventory_unit(item):
     """Return the canonical resync unit for inventory rebuilding.
 
-    Resync uses the item's procurement/base unit (`default_unit`) so stock
-    reconstructed from Goods Receipts remains aligned with how stock was
-    actually received and how stock-on-hand reports are interpreted.
+    Uses item.stock_unit (selling_unit when set, else default_unit) to match
+    the unit in which all posting services store StockMoves and StockBalances.
     """
-    return item.default_unit
+    return item.stock_unit
 
 
 def _safe_convert(qty, from_unit, to_unit, label, warn_fn, item=None):
