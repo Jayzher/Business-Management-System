@@ -870,14 +870,24 @@ $(document).on('change select2:select', '.svc-line-item', function() {
   var itemId = $sel.val();
   if (!itemId) return;
   var prefix = ($sel.attr('name') || '').replace(/-item$/, '');
-  $.getJSON('/api/items/' + itemId + '/', function(data) {
+  var unitId = $('select[name="' + prefix + '-unit"]', row).val() || '';
+  
+  /* Fetch with unit conversion support */
+  var itemApiUrl = '/api/items/' + itemId + '/';
+  if (unitId) {
+    itemApiUrl += '?unit=' + unitId;
+  }
+  $.getJSON(itemApiUrl, function(data) {
     var $price = row.find('.svc-line-price');
-    if ($price.length && data.selling_price !== undefined) {
-      $price.val(parseFloat(data.selling_price).toFixed(2));
+    if ($price.length) {
+      var price = data.converted_selling_price || data.selling_price;
+      if (price !== undefined) {
+        $price.val(parseFloat(price).toFixed(4));
+      }
     }
     var $unit = $('select[name="' + prefix + '-unit"]', row);
-    if ($unit.length && data.unit) {
-      $unit.val(data.unit).trigger('change');
+    if ($unit.length && data.selling_unit) {
+      $unit.val(data.selling_unit).trigger('change');
     }
   });
 });
@@ -1061,6 +1071,23 @@ function wisSoLoadCustomerCatalog($form, customerId) {
 }
 
 function wisSoFetchPrice($row) {
+  /* ══════════════════════════════════════════════════════════════════════
+     Unit Conversion Pricing Logic:
+     
+     When fetching a price for an item, the system now automatically adjusts
+     the price based on unit conversions if the selling unit differs from
+     the item's stock unit.
+     
+     Example: If an item is normally sold per "Piece" at $100, but the user
+     selects a selling unit of "Foot" where 1 Piece = 19.7 Feet, then the
+     price will be automatically recalculated to $100 / 19.7 = ~$5.08 per Foot.
+     
+     This works by:
+     1. Passing the unit_id as a query parameter to the API
+     2. The ItemSerializer calculates the conversion factor
+     3. The converted_selling_price is returned in the API response
+     4. The price field is populated with the converted price
+     ══════════════════════════════════════════════════════════════════════ */
   var api = wisSoGetPriceApi($row);
   var itemId = $row.find('.so-line-item').val();
   if (!itemId) {
@@ -1076,7 +1103,7 @@ function wisSoFetchPrice($row) {
     wisSoApplyPrice($row, cdcPrice);
     /* Mark the field to show it came from customer catalog */
     $row.find('.so-line-price')
-        .attr('title', 'Customer catalog price')
+        .attr('title', 'Customer catalog price (unit-adjusted)')
         .css('border-color', '#0d6efd');
     return;
   }
@@ -1084,9 +1111,15 @@ function wisSoFetchPrice($row) {
   $row.find('.so-line-price').removeAttr('title').css('border-color', '');
 
   if (!api) {
-    $.getJSON('/api/items/' + itemId + '/', function(item) {
-      if (item && item.selling_price && parseFloat(item.selling_price) > 0) {
-        wisSoApplyPrice($row, item.selling_price);
+    /* Fetch item with unit conversion awareness */
+    var itemApiUrl = '/api/items/' + itemId + '/';
+    if (unitId) {
+      itemApiUrl += '?unit=' + unitId;
+    }
+    $.getJSON(itemApiUrl, function(item) {
+      var price = item.converted_selling_price || item.selling_price;
+      if (item && price && parseFloat(price) > 0) {
+        wisSoApplyPrice($row, price);
       } else {
         wisSoUpdateLineAndGrand($row);
       }
@@ -1098,9 +1131,15 @@ function wisSoFetchPrice($row) {
     if (data && data.price && parseFloat(data.price) > 0) {
       wisSoApplyPrice($row, data.price);
     } else {
-      $.getJSON('/api/items/' + itemId + '/', function(item) {
-        if (item && item.selling_price && parseFloat(item.selling_price) > 0) {
-          wisSoApplyPrice($row, item.selling_price);
+      /* Fallback to item API with unit conversion */
+      var itemApiUrl = '/api/items/' + itemId + '/';
+      if (unitId) {
+        itemApiUrl += '?unit=' + unitId;
+      }
+      $.getJSON(itemApiUrl, function(item) {
+        var price = item.converted_selling_price || item.selling_price;
+        if (item && price && parseFloat(price) > 0) {
+          wisSoApplyPrice($row, price);
         } else {
           wisSoUpdateLineAndGrand($row);
         }
@@ -1109,9 +1148,15 @@ function wisSoFetchPrice($row) {
   }).fail(function() {
     var itemId2 = $row.find('.so-line-item').val();
     if (!itemId2) { wisSoUpdateLineAndGrand($row); return; }
-    $.getJSON('/api/items/' + itemId2 + '/', function(item) {
-      if (item && item.selling_price && parseFloat(item.selling_price) > 0) {
-        wisSoApplyPrice($row, item.selling_price);
+    /* Fallback to item API with unit conversion */
+    var itemApiUrl = '/api/items/' + itemId2 + '/';
+    if (unitId) {
+      itemApiUrl += '?unit=' + unitId;
+    }
+    $.getJSON(itemApiUrl, function(item) {
+      var price = item.converted_selling_price || item.selling_price;
+      if (item && price && parseFloat(price) > 0) {
+        wisSoApplyPrice($row, price);
       } else {
         wisSoUpdateLineAndGrand($row);
       }
@@ -1438,6 +1483,97 @@ $(document).on('change', 'form[data-so-form="1"] .so-line-item', function() {
 
 $(document).on('change input', 'form[data-so-form="1"] .so-line-discount-type, form[data-so-form="1"] .so-line-discount-val', function() {
   wisSoUpdateLineAndGrand($(this).closest('.formset-row'));
+});
+
+/* ── Service Line unit conversion handling ── */
+$(document).on('change', '.svc-line-unit', function() {
+  var $unitSel = $(this);
+  var row = $unitSel.closest('.formset-row');
+  if (!row.length) return;
+  var itemId = row.find('.svc-line-item').val();
+  if (!itemId) return;
+  var unitId = $unitSel.val();
+  
+  /* Re-fetch price with new unit conversion */
+  var itemApiUrl = '/api/items/' + itemId + '/';
+  if (unitId) {
+    itemApiUrl += '?unit=' + unitId;
+  }
+  $.getJSON(itemApiUrl, function(data) {
+    var $price = row.find('.svc-line-price');
+    if ($price.length) {
+      var price = data.converted_selling_price || data.selling_price;
+      if (price !== undefined) {
+        $price.val(parseFloat(price).toFixed(4));
+      }
+    }
+  });
+});
+
+/* ── Generic Purchase Order / Goods Receipt / Sales Return unit conversion ── */
+/* PO line item selection with unit conversion */
+$(document).on('change select2:select', '.po-line-item, .grn-line-item, .sr-line-item', function() {
+  var $sel = $(this);
+  var row = $sel.closest('.formset-row');
+  if (!row.length) return;
+  var itemId = $sel.val();
+  if (!itemId) return;
+  
+  var prefix = ($sel.attr('name') || '').replace(/-item$/, '');
+  var $unitSel = $('select[name="' + prefix + '-unit"]', row);
+  var $priceInput = row.find('input[name$="-unit_price"]');
+  
+  /* Fetch item data with unit conversion support */
+  var unitId = $unitSel.val() || '';
+  var itemApiUrl = '/api/items/' + itemId + '/';
+  if (unitId) {
+    itemApiUrl += '?unit=' + unitId;
+  }
+  
+  $.getJSON(itemApiUrl, function(data) {
+    /* Set default unit */
+    if ($unitSel.length && data.selling_unit) {
+      $unitSel.val(data.selling_unit);
+      if ($unitSel.hasClass('select2-hidden-accessible')) {
+        $unitSel.trigger('change.select2');
+      } else {
+        $unitSel.trigger('change');
+      }
+    }
+    /* Set price with conversion if applicable */
+    if ($priceInput.length) {
+      var price = data.converted_selling_price || data.selling_price;
+      if (price !== undefined && parseFloat(price) > 0) {
+        $priceInput.val(parseFloat(price).toFixed(4));
+      }
+    }
+  });
+});
+
+/* PO/GRN/Sales Return line unit change - recalculate price with conversion */
+$(document).on('change', '.po-line-unit, .grn-line-unit, .sr-line-unit', function() {
+  var $unitSel = $(this);
+  var row = $unitSel.closest('.formset-row');
+  if (!row.length) return;
+  var itemId = row.find('[name$="-item"]').val();
+  if (!itemId) return;
+  var unitId = $unitSel.val();
+  
+  var $priceInput = row.find('input[name$="-unit_price"]');
+  if (!$priceInput.length) return;
+  
+  /* Fetch converted price */
+  var itemApiUrl = '/api/items/' + itemId + '/';
+  if (unitId) {
+    itemApiUrl += '?unit=' + unitId;
+  }
+  
+  $.getJSON(itemApiUrl, function(data) {
+    var price = data.converted_selling_price || data.selling_price;
+    if (price !== undefined && parseFloat(price) > 0) {
+      $priceInput.val(parseFloat(price).toFixed(4));
+    }
+  });
 });
 
 /* ── Delegated handlers: Bundle Lines ── */
