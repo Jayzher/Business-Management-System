@@ -3,6 +3,7 @@ from services import views
 
 urlpatterns = [
     path('', views.service_list, name='service_list'),
+    path('invoices/', views.service_invoice_list, name='service_invoice_list'),
     path('create/', views.service_create, name='service_create'),
     path('<int:pk>/', views.service_detail, name='service_detail'),
     path('<int:pk>/edit/', views.service_edit, name='service_edit'),

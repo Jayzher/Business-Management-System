@@ -140,13 +140,14 @@ def dashboard_view(request):
     # Open shifts
     open_shifts = POSShift.objects.filter(status=ShiftStatus.OPEN).select_related('register', 'opened_by')
 
-    # ── Inventory valuation ────────────────────────────────────────────
-    inventory_valuation = StockBalance.objects.filter(qty_on_hand__gt=0).aggregate(
-        total=Coalesce(
-            Sum(F('qty_on_hand') * F('item__cost_price'), output_field=DecimalField()),
-            Decimal('0'), output_field=DecimalField(),
-        )
-    )['total']
+    # ── Inventory valuation (exact calculation from Inventory module) ────────────────────────────────────────────
+    from catalog.models import Item
+    inventory_valuation = Decimal('0')
+    for item in Item.objects.filter(is_active=True).select_related('default_unit'):
+        total_on_hand = StockBalance.objects.filter(item=item).aggregate(
+            total=Coalesce(Sum('qty_on_hand'), Decimal('0'))
+        )['total'] or Decimal('0')
+        inventory_valuation += total_on_hand * (item.cost_price or Decimal('0'))
 
     # ── 7-day revenue trend (paid invoices by paid_date) ─────────────────
     revenue_trend = []

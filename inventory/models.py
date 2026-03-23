@@ -13,6 +13,7 @@ class MoveType(models.TextChoices):
     RETURN_OUT = 'RETURN_OUT', 'Return (Out)'
     POS_SALE = 'POS_SALE', 'POS Sale'
     SUPPLY_OUT = 'SUPPLY_OUT', 'Supply Out'
+    SERVICE_OUT = 'SERVICE_OUT', 'Service Out'
 
 
 class MoveStatus(models.TextChoices):
