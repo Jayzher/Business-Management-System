@@ -85,6 +85,7 @@ def sidebar_menu(request):
             'tour_id': 'nav-services',
             'children': [
                 {'label': 'Customer Services', 'url': '/services/', 'active_prefix': '/services/', 'icon': 'fas fa-clipboard-check'},
+                {'label': 'Service Invoices', 'url': '/services/invoices/', 'active_prefix': '/services/invoices', 'icon': 'fas fa-file-invoice-dollar'},
             ],
         },
         {

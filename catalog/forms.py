@@ -161,10 +161,7 @@ class ItemForm(forms.ModelForm):
     )
 
     def clean(self):
-        cleaned = super().clean()
-        default_unit = cleaned.get('default_unit')
-        selling_unit = cleaned.get('selling_unit')
-        return cleaned
+        return super().clean()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
