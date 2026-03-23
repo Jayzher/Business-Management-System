@@ -67,21 +67,6 @@ class SalesOrderLineForm(forms.ModelForm):
                 if name in self.fields:
                     self.fields[name].initial = None
 
-    def clean(self):
-        cleaned = super().clean()
-        item = cleaned.get('item')
-        unit = cleaned.get('unit')
-        if item and unit:
-            ref_unit = item.stock_unit
-            if ref_unit and unit.category != ref_unit.category:
-                self.add_error(
-                    'unit',
-                    f'Unit "{unit}" ({unit.get_category_display()}) is not compatible with '
-                    f'"{ref_unit}" ({ref_unit.get_category_display()}). '
-                    f'Both must share the same measurement category.',
-                )
-        return cleaned
-
     class Meta:
         model = SalesOrderLine
         fields = ['item', 'qty_ordered', 'unit', 'unit_price', 'discount_type', 'discount_value', 'batch_number', 'serial_number', 'notes']
