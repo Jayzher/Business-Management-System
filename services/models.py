@@ -16,6 +16,11 @@ class ServicePaymentStatus(models.TextChoices):
     PAID = 'PAID', 'Paid'
 
 
+class DiscountType(models.TextChoices):
+    FIXED = 'FIXED', 'Fixed Amount (₱)'
+    PERCENT = 'PERCENT', 'Percentage (%)'
+
+
 class CustomerService(models.Model):
     """Customer service / job order record."""
     service_number = models.CharField(max_length=50, unique=True)
@@ -43,7 +48,22 @@ class CustomerService(models.Model):
     amount = models.DecimalField(
         max_digits=15, decimal_places=2,
         null=True, blank=True,
-        help_text='Optional manual service fee (overrides product line total)',
+        help_text='Legacy manual override — use service_fee instead.',
+    )
+    service_fee = models.DecimalField(
+        max_digits=15, decimal_places=2,
+        null=True, blank=True, default=None,
+        help_text='Service / labor charge added on top of product & material lines.',
+    )
+    discount_type = models.CharField(
+        max_length=10,
+        choices=DiscountType.choices,
+        default=DiscountType.FIXED,
+    )
+    discount_value = models.DecimalField(
+        max_digits=15, decimal_places=2,
+        default=Decimal('0'),
+        help_text='Discount: fixed ₱ amount or percentage of subtotal.',
     )
     warehouse = models.ForeignKey(
         'warehouses.Warehouse',
@@ -82,14 +102,38 @@ class CustomerService(models.Model):
         return f"{self.service_number} — {self.service_name}"
 
     @property
-    def line_total(self):
+    def product_lines_total(self):
         return sum((line.line_total for line in self.lines.all()), Decimal('0'))
 
     @property
+    def other_materials_total(self):
+        return sum((mat.line_total for mat in self.other_materials.all()), Decimal('0'))
+
+    @property
+    def line_total(self):
+        """Backward-compat alias for product_lines_total."""
+        return self.product_lines_total
+
+    @property
+    def service_fee_amount(self):
+        return self.service_fee or Decimal('0')
+
+    @property
+    def subtotal(self):
+        """Sum of product lines + other materials + service fee (before discount)."""
+        return self.product_lines_total + self.other_materials_total + self.service_fee_amount
+
+    @property
+    def discount_amount(self):
+        """Computed discount based on discount_type and discount_value."""
+        val = self.discount_value or Decimal('0')
+        if self.discount_type == DiscountType.PERCENT:
+            return (self.subtotal * val / Decimal('100')).quantize(Decimal('0.01'))
+        return val
+
+    @property
     def grand_total(self):
-        if self.amount is not None:
-            return self.amount
-        return self.line_total
+        return self.subtotal - self.discount_amount
 
 
 class ServiceLine(models.Model):
@@ -106,7 +150,7 @@ class ServiceLine(models.Model):
     unit = models.ForeignKey('catalog.Unit', on_delete=models.PROTECT)
     unit_price = models.DecimalField(
         max_digits=15, decimal_places=4, default=0,
-        help_text='Auto-filled from Item catalog selling price',
+        help_text='Selling price per unit (auto-filled from Item catalog)',
     )
     notes = models.TextField(blank=True, default='')
 
@@ -116,3 +160,25 @@ class ServiceLine(models.Model):
 
     def __str__(self):
         return f"SvcLine: {self.item.code} x{self.qty}"
+
+
+class ServiceOtherMaterial(models.Model):
+    """Free-text other material / supply line for a Customer Service."""
+    service = models.ForeignKey(
+        CustomerService, on_delete=models.CASCADE, related_name='other_materials',
+    )
+    item_name = models.CharField(max_length=200, help_text='Material or supply description')
+    qty = models.DecimalField(max_digits=15, decimal_places=4)
+    unit_price = models.DecimalField(
+        max_digits=15, decimal_places=4, default=0,
+        help_text='Price charged per unit',
+    )
+    vendor = models.CharField(max_length=200, blank=True, default='')
+    notes = models.CharField(max_length=255, blank=True, default='')
+
+    @property
+    def line_total(self):
+        return self.qty * self.unit_price
+
+    def __str__(self):
+        return f"OtherMat: {self.item_name} x{self.qty}"

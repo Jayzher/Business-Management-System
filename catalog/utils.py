@@ -3,75 +3,74 @@ Catalog utilities for unit conversions and price calculations.
 Flexible logic for handling unit conversion factors across all selling scenarios.
 """
 from decimal import Decimal
-from typing import Optional, Union
-from django.db.models import QuerySet
+from typing import Optional, Union, Tuple
+
+
+def _lookup_conversion_record(from_unit, to_unit, item=None) -> Tuple:
+    """
+    Look up a UnitConversion record between two units.
+
+    Returns (conversion_record, is_reverse) where is_reverse=True means the stored
+    record goes to_unit→from_unit and the effective factor is 1/record.factor.
+
+    Priority: item-specific direct → global direct → item-specific reverse → global reverse.
+    """
+    from catalog.models import UnitConversion
+
+    if item is not None:
+        c = UnitConversion.objects.filter(
+            from_unit=from_unit, to_unit=to_unit, item=item, is_active=True
+        ).first()
+        if c:
+            return c, False
+
+    c = UnitConversion.objects.filter(
+        from_unit=from_unit, to_unit=to_unit, item__isnull=True, is_active=True
+    ).first()
+    if c:
+        return c, False
+
+    if item is not None:
+        c = UnitConversion.objects.filter(
+            from_unit=to_unit, to_unit=from_unit, item=item, is_active=True
+        ).first()
+        if c and c.factor != 0:
+            return c, True
+
+    c = UnitConversion.objects.filter(
+        from_unit=to_unit, to_unit=from_unit, item__isnull=True, is_active=True
+    ).first()
+    if c and c.factor != 0:
+        return c, True
+
+    return None, False
 
 
 def get_conversion_factor(from_unit, to_unit, item=None) -> Optional[Decimal]:
     """
     Get the conversion factor between two units.
-    
+
     Args:
         from_unit: Source unit object
         to_unit: Target unit object
         item: Optional item for item-specific conversions
-        
+
     Returns:
         Decimal conversion factor or None if not found
-        
+
     Example:
         From 1 roll to meters: factor = 50 (1 roll = 50 meters)
     """
     if not from_unit or not to_unit:
         return None
-        
+
     if from_unit.pk == to_unit.pk:
         return Decimal('1')
-    
-    from catalog.models import UnitConversion
-    
-    # Try item-specific conversion first
-    if item:
-        direct = UnitConversion.objects.filter(
-            from_unit=from_unit,
-            to_unit=to_unit,
-            item=item,
-            is_active=True
-        ).first()
-        if direct:
-            return direct.factor
-    
-    # Try global conversion
-    direct = UnitConversion.objects.filter(
-        from_unit=from_unit,
-        to_unit=to_unit,
-        item__isnull=True,
-        is_active=True
-    ).first()
-    if direct:
-        return direct.factor
-    
-    # Try reverse conversion
-    if item:
-        reverse = UnitConversion.objects.filter(
-            from_unit=to_unit,
-            to_unit=from_unit,
-            item=item,
-            is_active=True
-        ).first()
-        if reverse and reverse.factor != 0:
-            return Decimal('1') / reverse.factor
-    
-    reverse = UnitConversion.objects.filter(
-        from_unit=to_unit,
-        to_unit=from_unit,
-        item__isnull=True,
-        is_active=True
-    ).first()
-    if reverse and reverse.factor != 0:
-        return Decimal('1') / reverse.factor
-    
-    return None
+
+    conv, is_reverse = _lookup_conversion_record(from_unit, to_unit, item)
+    if conv is None:
+        return None
+    return Decimal('1') / conv.factor if is_reverse else conv.factor
 
 
 def convert_price_for_unit(
@@ -79,58 +78,56 @@ def convert_price_for_unit(
     base_unit,
     selling_unit,
     item=None,
-    round_places: int = 4
+    round_places: int = 4,
+    use_conversion_price: bool = True,
 ) -> Decimal:
     """
     Convert a price from one unit to another based on conversion factors.
-    
-    The logic: if the selling_unit is different from base_unit, adjust the price
-    proportionally using the conversion factor.
-    
-    Example:
-        base_price = 100 (per Piece)
-        base_unit = Piece
-        selling_unit = Foot
-        1 Piece = 19.7 Feet
-        
-        Result: 100 / 19.7 ≈ 5.08 (price per Foot)
-        
+
+    When *use_conversion_price* is True (the default, used for selling prices):
+      - If the matching UnitConversion record has ``conversion_price`` set **and**
+        the match is direct (not a reverse lookup), that explicit price is returned
+        instead of dividing base_price by the factor.
+      - This lets you set a per-converted-unit price independently of the ratio.
+        Example: Roll→ft factor=5, conversion_price=30 → price per ft = 30 (not 100/5=20).
+
+    When *use_conversion_price* is False (used for COGS):
+      - Always performs factor-based division: base_price / factor.
+      - ``conversion_price`` is never used for cost calculations.
+
     Args:
         base_price: The base price in the base_unit
         base_unit: The unit the base_price is denominated in
         selling_unit: The unit we want to price in
         item: Optional item for item-specific conversions
         round_places: Decimal places to round result to
-        
+        use_conversion_price: If True, prefer explicit conversion_price over factor calc
+
     Returns:
         Decimal price adjusted for the selling_unit
     """
     if not base_unit or not selling_unit:
         return Decimal(str(base_price)).quantize(Decimal(10) ** -round_places)
-    
-    # If same unit, return as-is
+
     if base_unit.pk == selling_unit.pk:
         return Decimal(str(base_price)).quantize(Decimal(10) ** -round_places)
-    
+
     base_price_dec = Decimal(str(base_price))
-    
-    # Get conversion factor from base_unit to selling_unit
-    # If 1 base_unit = X selling_units, then
-    # price_in_selling_unit = base_price / X
-    factor = get_conversion_factor(base_unit, selling_unit, item)
-    
-    if factor is None:
-        # No conversion configured, return base price
+
+    conv, is_reverse = _lookup_conversion_record(base_unit, selling_unit, item)
+
+    if conv is None:
         return base_price_dec.quantize(Decimal(10) ** -round_places)
-    
+
+    if use_conversion_price and not is_reverse and conv.conversion_price is not None:
+        return conv.conversion_price.quantize(Decimal(10) ** -round_places)
+
+    factor = Decimal('1') / conv.factor if is_reverse else conv.factor
+
     if factor == 0:
-        # Invalid factor
         return base_price_dec.quantize(Decimal(10) ** -round_places)
-    
-    # Adjust price: divide by factor because if 1 unit = X selling_units,
-    # then the price per selling_unit is base_price / X
+
     adjusted_price = base_price_dec / factor
-    
     return adjusted_price.quantize(Decimal(10) ** -round_places)
 
 
@@ -236,8 +233,10 @@ def get_item_cogs_for_unit(item, selling_unit) -> Decimal:
     if base_unit.pk == selling_unit.pk:
         return Decimal(str(cost_price))
     
-    # Otherwise, convert the cost price using the same logic as selling price
-    return convert_price_for_unit(cost_price, base_unit, selling_unit, item=item)
+    # COGS always uses factor-based calculation, never conversion_price
+    return convert_price_for_unit(
+        cost_price, base_unit, selling_unit, item=item, use_conversion_price=False
+    )
 
 
 def calculate_line_cogs_with_conversion(line_item, qty_ordered, selling_unit, item=None) -> Decimal:

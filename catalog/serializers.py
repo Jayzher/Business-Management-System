@@ -23,7 +23,7 @@ class UnitConversionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UnitConversion
-        fields = ['id', 'from_unit', 'from_unit_name', 'to_unit', 'to_unit_name', 'factor']
+        fields = ['id', 'from_unit', 'from_unit_name', 'to_unit', 'to_unit_name', 'factor', 'conversion_price']
 
 
 class MaterialSpecSerializer(serializers.ModelSerializer):
@@ -154,7 +154,8 @@ class ItemSerializer(serializers.ModelSerializer):
             obj.stock_unit,
             target_unit,
             item=obj,
-            round_places=4
+            round_places=4,
+            use_conversion_price=False,
         )
         return float(converted)
 

@@ -1,0 +1,131 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}Cash Flow Transactions{% endblock %}
+{% block page_title %}Cash Flow Management{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Cash Flow</li>{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-money-bill-wave mr-1"></i> Cash Flow Transactions</h3>
+    <div class="card-tools">
+      <a href="{% url 'cashflow_log_list' %}" class="btn btn-sm btn-outline-secondary mr-1"><i class="fas fa-history mr-1"></i> Logs</a>
+      <a href="#" data-modal-url="{% url 'cashflow_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Transaction</a>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="row g-2 mb-3">
+      <div class="col-md-2">
+        <select name="category" class="form-control form-control-sm">
+          <option value="">All Categories</option>
+          {% for val, label in category_choices %}
+          <option value="{{ val }}" {% if filters.category == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="flow_type" class="form-control form-control-sm">
+          <option value="">All Types</option>
+          {% for val, label in flow_type_choices %}
+          <option value="{{ val }}" {% if filters.flow_type == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="status" class="form-control form-control-sm">
+          <option value="">All Status</option>
+          {% for val, label in status_choices %}
+          <option value="{{ val }}" {% if filters.status == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2"><input type="date" name="date_from" class="form-control form-control-sm" value="{{ filters.date_from }}" placeholder="From"></div>
+      <div class="col-md-2"><input type="date" name="date_to" class="form-control form-control-sm" value="{{ filters.date_to }}" placeholder="To"></div>
+      <div class="col-md-2"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-filter mr-1"></i> Filter</button></div>
+    </form>
+
+    <div class="row mb-3">
+      <div class="col-md-4">
+        <div class="info-box bg-success mb-0">
+          <span class="info-box-icon"><i class="fas fa-arrow-down"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Total Cash In</span>
+            <span class="info-box-number">&#8369; {{ total_in|floatformat:2|intcomma }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="info-box bg-danger mb-0">
+          <span class="info-box-icon"><i class="fas fa-arrow-up"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Total Cash Out</span>
+            <span class="info-box-number">&#8369; {{ total_out|floatformat:2|intcomma }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="info-box bg-{% if net >= 0 %}info{% else %}warning{% endif %} mb-0">
+          <span class="info-box-icon"><i class="fas fa-balance-scale"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Net Cash Flow</span>
+            <span class="info-box-number">&#8369; {{ net|floatformat:2|intcomma }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover table-striped text-nowrap wis-table">
+      <thead>
+        <tr>
+          <th>Txn #</th>
+          <th>Date</th>
+          <th>Type</th>
+          <th>Category</th>
+          <th>Amount</th>
+          <th>Reason</th>
+          <th>Payment</th>
+          <th>Status</th>
+          <th>By</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for txn in transactions %}
+        <tr>
+          <td><a href="{% url 'cashflow_detail' txn.pk %}">{{ txn.transaction_number }}</a></td>
+          <td>{{ txn.transaction_date|date:"M d, Y" }}</td>
+          <td>
+            {% if txn.flow_type == 'CASH_IN' %}
+            <span class="badge bg-success">Cash In</span>
+            {% else %}
+            <span class="badge bg-danger">Cash Out</span>
+            {% endif %}
+          </td>
+          <td><span class="badge bg-secondary">{{ txn.get_category_display }}</span></td>
+          <td class="text-right"><strong>&#8369; {{ txn.amount|floatformat:2|intcomma }}</strong></td>
+          <td><small>{{ txn.reason|truncatewords:6 }}</small></td>
+          <td><small>{{ txn.get_payment_method_display }}</small></td>
+          <td>
+            {% if txn.status == 'PENDING' %}<span class="badge bg-warning text-dark">Pending</span>
+            {% elif txn.status == 'APPROVED' %}<span class="badge bg-success">Approved</span>
+            {% elif txn.status == 'REJECTED' %}<span class="badge bg-danger">Rejected</span>
+            {% else %}<span class="badge bg-secondary">Cancelled</span>{% endif %}
+          </td>
+          <td>{{ txn.created_by.get_short_name|default:txn.created_by.username }}</td>
+          <td class="text-right">
+            <a href="{% url 'cashflow_detail' txn.pk %}" class="btn btn-xs btn-outline-info"><i class="fas fa-eye"></i></a>
+            {% if txn.status == 'PENDING' or txn.status == 'REJECTED' %}
+            <a href="#" data-modal-url="{% url 'cashflow_edit' txn.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'cashflow_delete' txn.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="10" class="text-center text-muted py-3">No cash flow transactions yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
