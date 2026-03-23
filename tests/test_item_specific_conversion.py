@@ -357,3 +357,105 @@ class UnitConversionConstraintTest(TestCase):
             UnitConversion.objects.create(
                 from_unit=self.roll, to_unit=self.meter,
                 item=self.item_b, factor=Decimal('99'))
+
+
+# ── Tests: conversion_price on UnitConversion ────────────────────────────────
+
+class ConversionPriceTest(TestCase):
+    """conversion_price overrides factor-based selling price; COGS always uses factor."""
+
+    @classmethod
+    def setUpTestData(cls):
+        _setup(cls)
+        # item_a: global conv roll→meter factor=50, add conversion_price=3 per meter
+        from catalog.models import UnitConversion
+        cls.global_conv.conversion_price = Decimal('3')
+        cls.global_conv.save(update_fields=['conversion_price'])
+
+        # item_c_conv: item_b has item-specific roll→meter factor=30, no conversion_price yet
+        # (item_b.item_conv has factor=30, conversion_price=None)
+
+    def test_conversion_price_returned_for_direct_selling_lookup(self):
+        """convert_price_for_unit returns conversion_price when set (not factor-based)."""
+        from catalog.utils import convert_price_for_unit
+        # item_a uses global conv: roll→meter, factor=50, conversion_price=3
+        # Factor-based would give: 10 / 50 = 0.2000, but conversion_price=3 → should return 3
+        result = convert_price_for_unit(
+            Decimal('10'), self.roll, self.meter, item=self.item_a
+        )
+        self.assertEqual(result, Decimal('3.0000'))
+
+    def test_conversion_price_not_used_for_cogs(self):
+        """COGS (use_conversion_price=False) always uses factor-based calculation."""
+        from catalog.utils import convert_price_for_unit
+        # item_a: cost_price=5, global conv factor=50, conversion_price=3
+        # COGS per meter = 5 / 50 = 0.1000  (NOT 3)
+        result = convert_price_for_unit(
+            Decimal('5'), self.roll, self.meter, item=self.item_a,
+            use_conversion_price=False
+        )
+        self.assertEqual(result, Decimal('0.1000'))
+
+    def test_get_item_cogs_for_unit_never_uses_conversion_price(self):
+        """get_item_cogs_for_unit is always factor-based, ignoring conversion_price."""
+        from catalog.utils import get_item_cogs_for_unit
+        # item_a: cost_price=5, stock_unit=meter (selling_unit), default_unit=roll
+        # item_a.stock_unit = meter, so same unit → return cost_price directly
+        result = get_item_cogs_for_unit(self.item_a, self.meter)
+        self.assertEqual(result, Decimal('5'))
+
+    def test_get_item_cogs_different_unit_uses_factor(self):
+        """COGS in roll denomination uses factor, not conversion_price."""
+        from catalog.utils import get_item_cogs_for_unit
+        # item_a.stock_unit = meter, cost_price=5 per meter
+        # COGS per roll = cost_price * factor = 5 * 50 = 250 (reverse: meter→roll)
+        result = get_item_cogs_for_unit(self.item_a, self.roll)
+        self.assertAlmostEqual(float(result), 250.0, places=2)
+
+    def test_conversion_price_none_falls_back_to_factor(self):
+        """When conversion_price is None, factor-based calc is used for selling price."""
+        from catalog.utils import convert_price_for_unit
+        # item_b has item-specific conv factor=30, conversion_price=None
+        # selling price lookup: 10 / 30 = 0.3333...
+        result = convert_price_for_unit(
+            Decimal('10'), self.roll, self.meter, item=self.item_b
+        )
+        expected = (Decimal('10') / Decimal('30')).quantize(Decimal('0.0001'))
+        self.assertEqual(result, expected)
+
+    def test_item_specific_conversion_price_overrides_global(self):
+        """Item-specific conversion_price wins over global conversion_price."""
+        from catalog.models import UnitConversion
+        from catalog.utils import convert_price_for_unit
+        # Give item_b its item-specific conv a conversion_price=5
+        self.item_conv.conversion_price = Decimal('5')
+        self.item_conv.save(update_fields=['conversion_price'])
+        try:
+            result = convert_price_for_unit(
+                Decimal('10'), self.roll, self.meter, item=self.item_b
+            )
+            self.assertEqual(result, Decimal('5.0000'))
+        finally:
+            self.item_conv.conversion_price = None
+            self.item_conv.save(update_fields=['conversion_price'])
+
+    def test_get_conversion_factor_unaffected_by_conversion_price(self):
+        """get_conversion_factor always returns the unit ratio, not conversion_price."""
+        from catalog.utils import get_conversion_factor
+        # global roll→meter factor=50
+        factor = get_conversion_factor(self.roll, self.meter)
+        self.assertEqual(factor, Decimal('50'))
+        factor_item = get_conversion_factor(self.roll, self.meter, item=self.item_b)
+        self.assertEqual(factor_item, Decimal('30'))
+
+    def test_convert_price_reverse_lookup_uses_factor_not_conversion_price(self):
+        """Reverse conversion lookup never applies conversion_price (is_reverse=True)."""
+        from catalog.utils import convert_price_for_unit
+        # Reverse: base_unit=meter, selling_unit=roll for item_a
+        # global conv is roll→meter factor=50, conversion_price=3
+        # Reverse factor = 1/50; price_per_roll = price_per_meter * 50
+        result = convert_price_for_unit(
+            Decimal('1'), self.meter, self.roll, item=self.item_a
+        )
+        expected = (Decimal('1') * Decimal('50')).quantize(Decimal('0.0001'))
+        self.assertEqual(result, expected)

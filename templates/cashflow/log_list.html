@@ -1,0 +1,52 @@
+{% extends "theme/base.html" %}
+{% block title %}Cash Flow Logs{% endblock %}
+{% block page_title %}Cash Flow Logs{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'cashflow_list' %}">Cash Flow</a></li>
+<li class="breadcrumb-item active">Logs</li>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-history mr-1"></i> Cash Flow Activity Logs</h3>
+    <div class="card-tools">
+      <a href="{% url 'cashflow_list' %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left mr-1"></i> Back to Transactions</a>
+    </div>
+  </div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover table-striped text-nowrap wis-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Transaction</th>
+          <th>Action</th>
+          <th>Performed By</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+        <tr>
+          <td>{{ log.created_at|date:"M d, Y H:i" }}</td>
+          <td><a href="{% url 'cashflow_detail' log.transaction.pk %}">{{ log.transaction.transaction_number }}</a></td>
+          <td>
+            {% if log.action == 'CREATED' %}<span class="badge bg-primary">Created</span>
+            {% elif log.action == 'UPDATED' %}<span class="badge bg-info">Updated</span>
+            {% elif log.action == 'APPROVED' %}<span class="badge bg-success">Approved</span>
+            {% elif log.action == 'REJECTED' %}<span class="badge bg-danger">Rejected</span>
+            {% elif log.action == 'CANCELLED' %}<span class="badge bg-secondary">Cancelled</span>
+            {% elif log.action == 'DELETED' %}<span class="badge bg-dark">Deleted</span>
+            {% else %}<span class="badge bg-secondary">{{ log.get_action_display }}</span>{% endif %}
+          </td>
+          <td>{{ log.performed_by.get_short_name|default:log.performed_by.username }}</td>
+          <td><small>{{ log.details|truncatewords:15 }}</small></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-center text-muted py-3">No log entries yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

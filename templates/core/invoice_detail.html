@@ -247,7 +247,7 @@
         <table class="table table-sm mb-0">
           <tr><td>Invoice Date</td><td class="text-right">{{ invoice.date|date:"M d, Y" }}</td></tr>
           {% if invoice.due_date %}<tr><td>Due Date</td><td class="text-right {% if not invoice.is_paid and invoice.due_date < today_date %}text-danger{% endif %}">{{ invoice.due_date|date:"M d, Y" }}</td></tr>{% endif %}
-          <tr><td>Grand Total</td><td class="text-right"><strong>&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
+          <tr><td>Grand Total</td><td class="text-right"><strong>&#8369;{{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
           <tr><td>Total Paid</td><td class="text-right text-success">&#8369; {{ total_paid|floatformat:2|intcomma }}</td></tr>
           {% if not invoice.is_paid %}
           <tr><td>Balance Due</td><td class="text-right text-danger"><strong>&#8369; {{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
@@ -270,6 +270,61 @@
       </div>
     </div>
 
+    <!-- ROI / PNL Card (service invoices only) -->
+    {% if invoice.grand_total_cogs > 0 %}
+    {% with net_profit=invoice.grand_total|add:"-"|add:invoice.grand_total_cogs %}
+    <div class="card card-outline card-info" id="svc-roi-pnl-card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-line mr-1 text-info"></i> ROI &amp; PNL</h3></div>
+      <div class="card-body p-2">
+        <table class="table table-sm mb-0">
+          <tr>
+            <td>Revenue</td>
+            <td class="text-right text-success font-weight-bold">&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr>
+            <td>Total COGS</td>
+            <td class="text-right text-danger">&#8369; {{ invoice.grand_total_cogs|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr class="{% if invoice.grand_total > invoice.grand_total_cogs %}table-success{% else %}table-danger{% endif %}">
+            <td><strong>Gross Profit (PNL)</strong></td>
+            <td class="text-right font-weight-bold" id="inv-pnl-value">
+              &#8369; {% widthratio invoice.grand_total 1 1 as rev %}
+              {{ invoice.grand_total|floatformat:2|intcomma }}
+            </td>
+          </tr>
+          <tr class="table-info">
+            <td><strong>ROI</strong></td>
+            <td class="text-right font-weight-bold" id="inv-roi-value">—</td>
+          </tr>
+        </table>
+        <div class="mt-2">
+          {% for svc in invoice.customer_services.all %}
+          <a href="{% url 'service_detail' svc.pk %}" class="btn btn-xs btn-outline-primary btn-block mb-1">
+            <i class="fas fa-tools mr-1"></i> View Service {{ svc.service_number }}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endwith %}
+    {% endif %}
+
   </div>
 </div>
+
+{% if invoice.grand_total_cogs > 0 %}
+<script>
+(function () {
+  var rev = parseFloat('{{ invoice.grand_total|floatformat:4 }}') || 0;
+  var cogs = parseFloat('{{ invoice.grand_total_cogs|floatformat:4 }}') || 0;
+  var pnl = rev - cogs;
+  var roi = cogs > 0 ? (pnl / cogs * 100) : 0;
+  document.getElementById('inv-pnl-value').innerHTML =
+    '&#8369; ' + pnl.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) +
+    ' <small class="text-muted">(' + (rev > 0 ? (pnl/rev*100).toFixed(1) : '0.0') + '% margin)</small>';
+  document.getElementById('inv-roi-value').innerHTML =
+    roi.toFixed(1) + '% <small class="text-muted">(Profit ÷ COGS × 100)</small>';
+})();
+</script>
+{% endif %}
 {% endblock %}

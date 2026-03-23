@@ -5,8 +5,11 @@ from django.contrib import messages
 from django.db import transaction
 from django.utils import timezone
 
-from services.models import CustomerService, ServiceLine, ServiceStatus
-from services.forms import CustomerServiceForm, CustomerServiceEditForm, ServiceLineFormSet
+from services.models import CustomerService, ServiceLine, ServiceOtherMaterial, ServiceStatus
+from services.forms import (
+    CustomerServiceForm, CustomerServiceEditForm,
+    ServiceLineFormSet, ServiceOtherMaterialFormSet,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -71,31 +74,63 @@ def service_list(request):
 def service_detail(request, pk):
     svc = get_object_or_404(
         CustomerService.objects.select_related('invoice', 'warehouse', 'created_by', 'posted_by')
-        .prefetch_related('lines__item', 'lines__unit', 'lines__location'),
+        .prefetch_related(
+            'lines__item__default_unit', 'lines__item__selling_unit',
+            'lines__unit', 'lines__location',
+            'other_materials',
+        ),
         pk=pk,
     )
-    # ── P&L Calculations ─────────────────────────────────────────────────
+
+    # ── Product Line P&L (with unit conversion for COGS) ─────────────────
+    try:
+        from catalog.utils import get_item_cogs_for_unit
+        _cogs_fn = get_item_cogs_for_unit
+    except ImportError:
+        _cogs_fn = None
+
     line_cogs = Decimal('0')
     line_pnl = []
     for line in svc.lines.all():
-        cost = (line.item.cost_price or Decimal('0')) * line.qty
+        if _cogs_fn:
+            try:
+                cogs_per_unit = _cogs_fn(line.item, line.unit)
+            except Exception:
+                cogs_per_unit = line.item.cost_price or Decimal('0')
+        else:
+            cogs_per_unit = line.item.cost_price or Decimal('0')
+        cost = cogs_per_unit * line.qty
         line_pnl.append({
             'line': line,
+            'cogs_per_unit': cogs_per_unit,
             'cogs': cost,
+            'selling': line.line_total,
             'profit': line.line_total - cost,
         })
         line_cogs += cost
-    revenue = svc.grand_total or Decimal('0')
-    gross_profit = revenue - line_cogs
+
+    # ── Other Materials (treat unit_price as both revenue & cost basis) ───
+    mat_total_cost = sum(
+        (mat.line_total for mat in svc.other_materials.all()), Decimal('0')
+    )
+
+    revenue = svc.grand_total
+    total_cogs = line_cogs + mat_total_cost
+    gross_profit = revenue - total_cogs
     gross_margin = (gross_profit / revenue * 100) if revenue > 0 else Decimal('0')
+    roi = (gross_profit / total_cogs * 100) if total_cogs > 0 else Decimal('0')
 
     return render(request, 'services/service_detail.html', {
         'service': svc,
         'line_pnl': line_pnl,
+        'other_materials': svc.other_materials.all(),
         'service_cogs': line_cogs,
+        'mat_total_cost': mat_total_cost,
+        'total_cogs': total_cogs,
         'service_revenue': revenue,
         'gross_profit': gross_profit,
         'gross_margin': gross_margin,
+        'roi': roi,
     })
 
 
@@ -107,21 +142,26 @@ def service_create(request):
     if request.method == 'POST':
         form = CustomerServiceForm(request.POST)
         formset = ServiceLineFormSet(request.POST, prefix='lines')
+        mat_formset = ServiceOtherMaterialFormSet(request.POST, prefix='mats')
         if form.is_valid():
             svc = form.save(commit=False)
             svc.created_by = request.user
             svc.save()
             formset = ServiceLineFormSet(request.POST, instance=svc, prefix='lines')
-            if formset.is_valid():
+            mat_formset = ServiceOtherMaterialFormSet(request.POST, instance=svc, prefix='mats')
+            if formset.is_valid() and mat_formset.is_valid():
                 formset.save()
+                mat_formset.save()
                 messages.success(request, f'Service {svc.service_number} created.')
                 return redirect('service_detail', pk=svc.pk)
     else:
         form = CustomerServiceForm()
         formset = ServiceLineFormSet(prefix='lines')
+        mat_formset = ServiceOtherMaterialFormSet(prefix='mats')
     return render(request, 'services/service_form.html', {
         'form': form,
         'formset': formset,
+        'mat_formset': mat_formset,
         'title': 'New Customer Service',
         'is_create': True,
     })
@@ -139,17 +179,21 @@ def service_edit(request, pk):
     if request.method == 'POST':
         form = CustomerServiceEditForm(request.POST, instance=svc)
         formset = ServiceLineFormSet(request.POST, instance=svc, prefix='lines')
-        if form.is_valid() and formset.is_valid():
+        mat_formset = ServiceOtherMaterialFormSet(request.POST, instance=svc, prefix='mats')
+        if form.is_valid() and formset.is_valid() and mat_formset.is_valid():
             form.save()
             formset.save()
+            mat_formset.save()
             messages.success(request, f'Service {svc.service_number} updated.')
             return redirect('service_detail', pk=svc.pk)
     else:
         form = CustomerServiceEditForm(instance=svc)
         formset = ServiceLineFormSet(instance=svc, prefix='lines')
+        mat_formset = ServiceOtherMaterialFormSet(instance=svc, prefix='mats')
     return render(request, 'services/service_form.html', {
         'form': form,
         'formset': formset,
+        'mat_formset': mat_formset,
         'title': f'Edit Service: {svc.service_number}',
         'service': svc,
         'is_create': False,
@@ -189,7 +233,7 @@ def service_start(request, pk):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# COMPLETE — deducts inventory + generates invoice
+# COMPLETE — deducts inventory + generates invoice with COGS/ROI
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 @transaction.atomic
@@ -204,17 +248,18 @@ def service_complete(request, pk):
 
     now = timezone.now()
     lines = list(svc.lines.select_related(
-        'item__default_unit', 'item__selling_unit', 'unit', 'location__warehouse'
+        'item__default_unit', 'item__selling_unit',
+        'unit', 'location__warehouse',
     ).all())
+    other_mats = list(svc.other_materials.all())
 
-    # ── Inventory deduction ────────────────────────────────────────────────
+    # ── Inventory deduction (Product Lines only) ───────────────────────────
     if lines:
         try:
             from inventory.models import StockMove, StockBalance, MoveType, MoveStatus
             from catalog.models import convert_to_base_unit
             from warehouses.models import Location
 
-            # Resolve default location for the service warehouse (used as fallback)
             default_location = None
             if svc.warehouse_id:
                 default_location = (
@@ -254,7 +299,6 @@ def service_complete(request, pk):
                 )
                 moves.append(move)
 
-                # Deduct stock balance (in stock_unit)
                 balance, _ = StockBalance.objects.select_for_update().get_or_create(
                     item=line.item,
                     location=location,
@@ -276,43 +320,95 @@ def service_complete(request, pk):
                 messages.warning(
                     request,
                     f'No location set for item(s): {", ".join(missing_location_items)}. '
-                    'Their stock was NOT deducted. Set a location on service lines or assign a warehouse.'
+                    'Their stock was NOT deducted. Set a location or assign a warehouse.'
                 )
 
         except ValueError as exc:
             messages.error(request, f'Stock error: {exc}')
             return redirect('service_detail', pk=pk)
 
+    # ── Compute COGS for invoice ───────────────────────────────────────────
+    try:
+        from catalog.utils import get_item_cogs_for_unit
+        _cogs_fn = get_item_cogs_for_unit
+    except ImportError:
+        _cogs_fn = None
+
+    total_cogs = Decimal('0')
+    for line in lines:
+        if _cogs_fn:
+            try:
+                cogs_pu = _cogs_fn(line.item, line.unit)
+            except Exception:
+                cogs_pu = line.item.cost_price or Decimal('0')
+        else:
+            cogs_pu = line.item.cost_price or Decimal('0')
+        total_cogs += cogs_pu * line.qty
+
+    # Other materials: their unit_price is treated as cost (no catalog reference)
+    for mat in other_mats:
+        total_cogs += mat.line_total
+
     # ── Generate Invoice ───────────────────────────────────────────────────
     from core.models import Invoice, InvoiceLine
     from core.views import _next_invoice_number
 
-    grand_total = svc.grand_total or Decimal('0')
+    subtotal = svc.subtotal
+    discount_amt = svc.discount_amount
+    grand_total = svc.grand_total
 
     inv = Invoice.objects.create(
         invoice_number=_next_invoice_number(),
         date=now.date(),
         customer_name=svc.customer_name,
         customer_address=svc.address,
-        subtotal=grand_total,
+        subtotal=subtotal,
+        discount_total=discount_amt,
         grand_total=grand_total,
+        grand_total_cogs=total_cogs,
         notes=f'Service: {svc.service_name}',
         created_by=request.user,
     )
 
-    if lines:
-        for line in lines:
-            InvoiceLine.objects.create(
-                invoice=inv,
-                item_code=line.item.code,
-                item_name=line.item.name,
-                qty=line.qty,
-                unit=line.unit.abbreviation,
-                unit_price=line.unit_price,
-                line_total=line.line_total,
-            )
-    else:
-        # No lines — create single summary line
+    # Product line items
+    for line in lines:
+        InvoiceLine.objects.create(
+            invoice=inv,
+            item_code=line.item.code,
+            item_name=line.item.name,
+            qty=line.qty,
+            unit=line.unit.abbreviation,
+            unit_price=line.unit_price,
+            line_total=line.line_total,
+        )
+
+    # Other material items
+    for mat in other_mats:
+        InvoiceLine.objects.create(
+            invoice=inv,
+            item_code='MAT',
+            item_name=mat.item_name,
+            qty=mat.qty,
+            unit='unit',
+            unit_price=mat.unit_price,
+            line_total=mat.line_total,
+        )
+
+    # Service fee line (if set)
+    fee = svc.service_fee_amount
+    if fee > 0:
+        InvoiceLine.objects.create(
+            invoice=inv,
+            item_code='SVC-FEE',
+            item_name='Service / Labor Fee',
+            qty=Decimal('1'),
+            unit='svc',
+            unit_price=fee,
+            line_total=fee,
+        )
+
+    # If nothing at all, create summary line
+    if not lines and not other_mats and fee == 0:
         InvoiceLine.objects.create(
             invoice=inv,
             item_code='SVC',

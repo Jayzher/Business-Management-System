@@ -1,0 +1,137 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}{{ txn.transaction_number }}{% endblock %}
+{% block page_title %}{{ txn.transaction_number }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'cashflow_list' %}">Cash Flow</a></li>
+<li class="breadcrumb-item active">{{ txn.transaction_number }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+  <!-- ── Left Column: Transaction Info ──────────────────────────── -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-money-bill-wave mr-1"></i> Transaction Details</h3>
+      </div>
+      <div class="card-body p-0">
+        <table class="table doc-detail-table mb-0">
+          <tr><th style="width:180px">Transaction #</th><td><strong>{{ txn.transaction_number }}</strong></td></tr>
+          <tr>
+            <th>Status</th>
+            <td>
+              {% if txn.status == 'PENDING' %}<span class="badge bg-warning text-dark">Pending</span>
+              {% elif txn.status == 'APPROVED' %}<span class="badge bg-success">Approved</span>
+              {% elif txn.status == 'REJECTED' %}<span class="badge bg-danger">Rejected</span>
+              {% else %}<span class="badge bg-secondary">Cancelled</span>{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th>Type</th>
+            <td>
+              {% if txn.flow_type == 'CASH_IN' %}<span class="badge bg-success"><i class="fas fa-arrow-down mr-1"></i>Cash In</span>
+              {% else %}<span class="badge bg-danger"><i class="fas fa-arrow-up mr-1"></i>Cash Out</span>{% endif %}
+            </td>
+          </tr>
+          <tr><th>Category</th><td><span class="badge bg-info">{{ txn.get_category_display }}</span></td></tr>
+          <tr><th>Amount</th><td><strong class="text-lg">&#8369; {{ txn.amount|floatformat:2|intcomma }}</strong></td></tr>
+          <tr><th>Transaction Date</th><td>{{ txn.transaction_date|date:"F d, Y" }}</td></tr>
+          <tr><th>Payment Method</th><td>{{ txn.get_payment_method_display }}</td></tr>
+          <tr><th>Reference #</th><td>{{ txn.reference_no|default:"-" }}</td></tr>
+          <tr><th>Reason</th><td>{{ txn.reason }}</td></tr>
+          <tr><th>Notes</th><td>{{ txn.notes|default:"-"|linebreaksbr }}</td></tr>
+          <tr><th>Created By</th><td>{{ txn.created_by.get_full_name|default:txn.created_by.username }}</td></tr>
+          <tr><th>Created At</th><td>{{ txn.created_at|date:"M d, Y H:i" }}</td></tr>
+          {% if txn.approved_by %}
+          <tr><th>Approved By</th><td>{{ txn.approved_by.get_full_name|default:txn.approved_by.username }}</td></tr>
+          <tr><th>Approved At</th><td>{{ txn.approved_at|date:"M d, Y H:i" }}</td></tr>
+          {% endif %}
+          {% if txn.rejected_by %}
+          <tr><th>Rejected By</th><td>{{ txn.rejected_by.get_full_name|default:txn.rejected_by.username }}</td></tr>
+          <tr><th>Rejected At</th><td>{{ txn.rejected_at|date:"M d, Y H:i" }}</td></tr>
+          <tr><th>Rejection Reason</th><td class="text-danger">{{ txn.rejection_reason }}</td></tr>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Activity Log ──────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-history mr-1"></i> Activity Log</h3>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-striped mb-0">
+          <thead><tr><th>Date</th><th>Action</th><th>By</th><th>Details</th></tr></thead>
+          <tbody>
+            {% for log in logs %}
+            <tr>
+              <td><small>{{ log.created_at|date:"M d, Y H:i" }}</small></td>
+              <td>
+                {% if log.action == 'CREATED' %}<span class="badge bg-primary">Created</span>
+                {% elif log.action == 'UPDATED' %}<span class="badge bg-info">Updated</span>
+                {% elif log.action == 'APPROVED' %}<span class="badge bg-success">Approved</span>
+                {% elif log.action == 'REJECTED' %}<span class="badge bg-danger">Rejected</span>
+                {% elif log.action == 'CANCELLED' %}<span class="badge bg-secondary">Cancelled</span>
+                {% elif log.action == 'DELETED' %}<span class="badge bg-dark">Deleted</span>
+                {% else %}<span class="badge bg-secondary">{{ log.get_action_display }}</span>{% endif %}
+              </td>
+              <td>{{ log.performed_by.get_short_name|default:log.performed_by.username }}</td>
+              <td><small>{{ log.details }}</small></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-center text-muted py-2">No log entries.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right Column: Actions ─────────────────────────────────── -->
+  <div class="col-lg-4">
+    <div class="card card-primary card-outline">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-bolt mr-1"></i> Actions</h3>
+      </div>
+      <div class="card-body">
+        {% if txn.status == 'PENDING' %}
+        <form method="post" action="{% url 'cashflow_approve' txn.pk %}" class="mb-2">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-success btn-block"><i class="fas fa-check mr-1"></i> Approve</button>
+        </form>
+        <form method="post" action="{% url 'cashflow_reject' txn.pk %}" class="mb-2" id="reject-form">
+          {% csrf_token %}
+          <div class="form-group mb-2">
+            {{ reject_form.rejection_reason }}
+          </div>
+          <button type="submit" class="btn btn-danger btn-block"><i class="fas fa-times mr-1"></i> Reject</button>
+        </form>
+        <hr>
+        <a href="#" data-modal-url="{% url 'cashflow_edit' txn.pk %}" class="btn btn-info btn-block mb-2"><i class="fas fa-edit mr-1"></i> Edit</a>
+        <a href="#" data-modal-url="{% url 'cashflow_delete' txn.pk %}" class="btn btn-outline-danger btn-block mb-2"><i class="fas fa-trash mr-1"></i> Delete</a>
+        {% endif %}
+
+        {% if txn.status == 'REJECTED' %}
+        <a href="#" data-modal-url="{% url 'cashflow_edit' txn.pk %}" class="btn btn-info btn-block mb-2"><i class="fas fa-edit mr-1"></i> Edit & Resubmit</a>
+        <a href="#" data-modal-url="{% url 'cashflow_delete' txn.pk %}" class="btn btn-outline-danger btn-block mb-2"><i class="fas fa-trash mr-1"></i> Delete</a>
+        {% endif %}
+
+        {% if txn.status != 'CANCELLED' %}
+        <form method="post" action="{% url 'cashflow_cancel' txn.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-secondary btn-block"
+                  onclick="return confirm('Cancel this transaction?');">
+            <i class="fas fa-ban mr-1"></i> Cancel Transaction
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      <div class="card-footer">
+        <a href="{% url 'cashflow_list' %}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left mr-1"></i> Back to List</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
