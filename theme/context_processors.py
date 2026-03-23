@@ -80,6 +80,15 @@ def sidebar_menu(request):
             ],
         },
         {
+            'label': 'Cash Flow',
+            'icon': 'fas fa-money-bill-wave',
+            'tour_id': 'nav-cashflow',
+            'children': [
+                {'label': 'Transactions', 'url': '/cashflow/', 'active_prefix': '/cashflow/', 'icon': 'fas fa-exchange-alt'},
+                {'label': 'Logs', 'url': '/cashflow/logs/', 'active_prefix': '/cashflow/logs', 'icon': 'fas fa-history'},
+            ],
+        },
+        {
             'label': 'Services',
             'icon': 'fas fa-tools',
             'tour_id': 'nav-services',
