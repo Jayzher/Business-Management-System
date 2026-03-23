@@ -7,10 +7,20 @@
 <li class="breadcrumb-item active">{% if is_create %}New{% else %}Edit{% endif %}</li>
 {% endblock %}
 
+{% block extra_css %}
+<style>
+  .svc-section-hdr { background:#f1f3f5; border-bottom:1px solid #dee2e6; }
+  .mat-table th, .mat-table td { vertical-align: middle; padding: .35rem .5rem; }
+  .mat-total-cell { font-weight: 600; }
+  #svc-totals-box { background:#f8f9fc; border:1px solid #dee2e6; border-radius:6px; }
+  #svc-totals-box td { padding:.3rem .6rem; }
+</style>
+{% endblock %}
+
 {% block content %}
-<form method="post" novalidate>
+<form method="post" novalidate id="svc-main-form">
   {% csrf_token %}
-  <div class="card wis-form-card">
+  <div class="card wis-form-card" style="max-width:100%;">
     <div class="card-header">
       <h3 class="card-title"><i class="fas fa-tools mr-2"></i>{{ title }}</h3>
     </div>
@@ -20,15 +30,15 @@
       <div class="alert alert-danger">{% for e in form.non_field_errors %}{{ e }}{% endfor %}</div>
       {% endif %}
 
-      <!-- Service Header Fields -->
-      <div class="card mb-3 border shadow-none" style="background:#fafbfc;">
-        <div class="card-header py-2" style="background:#f1f3f5; border-bottom:1px solid #dee2e6;">
+      <!-- ── Service Header Fields ─────────────────────────────────────── -->
+      <div class="card mb-3 border shadow-none">
+        <div class="card-header py-2 svc-section-hdr">
           <h3 class="card-title small font-weight-bold text-muted mb-0"><i class="fas fa-info-circle mr-1"></i>Service Details</h3>
         </div>
         <div class="card-body pb-0">
           <div class="row">
             {% for field in form %}
-            {% if field.name != 'completion_date' %}
+            {% if field.name not in 'completion_date,service_fee,discount_type,discount_value' %}
             <div class="col-md-6 mb-3">
               <label for="{{ field.id_for_label }}" class="font-weight-bold small">
                 {{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}
@@ -40,27 +50,24 @@
             {% endif %}
             {% endfor %}
             {% if not is_create %}
-            {% for field in form %}
-            {% if field.name == 'completion_date' %}
+            {% for field in form %}{% if field.name == 'completion_date' %}
             <div class="col-md-6 mb-3">
               <label for="{{ field.id_for_label }}" class="font-weight-bold small">{{ field.label }}</label>
               {{ field }}
-              {% if field.help_text %}<small class="form-text text-muted">{{ field.help_text }}</small>{% endif %}
               {% if field.errors %}<div class="text-danger small">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
             </div>
-            {% endif %}
-            {% endfor %}
+            {% endif %}{% endfor %}
             {% endif %}
           </div>
         </div>
       </div>
 
-      <!-- Product / Parts Lines -->
-      <div class="card mb-0 border shadow-none" style="background:#fafbfc;">
-        <div class="card-header py-2" style="background:#f1f3f5; border-bottom:1px solid #dee2e6;">
+      <!-- ── Product / Parts Lines ─────────────────────────────────────── -->
+      <div class="card mb-3 border shadow-none">
+        <div class="card-header py-2 svc-section-hdr">
           <h3 class="card-title small font-weight-bold text-muted mb-0">
-            <i class="fas fa-list mr-1"></i>Product / Parts Lines
-            <small class="font-weight-normal text-muted ml-1">(optional — deducted from stock on completion)</small>
+            <i class="fas fa-boxes mr-1 text-primary"></i>Product / Parts Lines
+            <small class="font-weight-normal text-muted ml-1">(deducted from inventory on completion)</small>
           </h3>
         </div>
         <div class="card-body p-3">
@@ -68,21 +75,243 @@
         </div>
       </div>
 
-    </div>
-    <div class="card-footer">
+      <!-- ── Other Materials Table ─────────────────────────────────────── -->
+      <div class="card mb-3 border shadow-none">
+        <div class="card-header py-2 svc-section-hdr d-flex justify-content-between align-items-center">
+          <h3 class="card-title small font-weight-bold text-muted mb-0">
+            <i class="fas fa-layer-group mr-1 text-warning"></i>Other Materials
+            <small class="font-weight-normal text-muted ml-1">(free-text supplies — NOT deducted from inventory)</small>
+          </h3>
+        </div>
+        <div class="card-body p-0">
+          {{ mat_formset.management_form }}
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered mat-table mb-0" id="mat-table">
+              <thead class="thead-light">
+                <tr>
+                  <th style="width:30%">Item Name <span class="text-danger">*</span></th>
+                  <th style="width:10%">Qty <span class="text-danger">*</span></th>
+                  <th style="width:14%">Unit Price <span class="text-danger">*</span></th>
+                  <th style="width:12%" class="text-right">Total Price</th>
+                  <th style="width:16%">Vendor</th>
+                  <th style="width:12%">Notes</th>
+                  <th style="width:6%"></th>
+                </tr>
+              </thead>
+              <tbody id="mat-tbody">
+                {% for mf in mat_formset %}
+                <tr class="mat-row{% if mf.instance.pk %} existing-mat{% endif %}">
+                  {% for hidden in mf.hidden_fields %}{{ hidden }}{% endfor %}
+                  <td>{{ mf.item_name }}{% if mf.item_name.errors %}<div class="text-danger small">{{ mf.item_name.errors.0 }}</div>{% endif %}</td>
+                  <td>{{ mf.qty }}{% if mf.qty.errors %}<div class="text-danger small">{{ mf.qty.errors.0 }}</div>{% endif %}</td>
+                  <td>{{ mf.unit_price }}{% if mf.unit_price.errors %}<div class="text-danger small">{{ mf.unit_price.errors.0 }}</div>{% endif %}</td>
+                  <td class="text-right mat-total-cell"><span class="mat-row-total">0.00</span></td>
+                  <td>{{ mf.vendor }}</td>
+                  <td>{{ mf.notes }}</td>
+                  <td class="text-center">
+                    <span style="display:none;">{{ mf.DELETE }}</span>
+                    <button type="button" class="btn btn-xs btn-outline-danger mat-delete-row" title="Remove">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="p-2">
+            <button type="button" class="btn btn-sm btn-outline-warning" id="mat-add-row">
+              <i class="fas fa-plus mr-1"></i>Add Other Material
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Pricing Summary ───────────────────────────────────────────── -->
+      <div class="card mb-0 border shadow-none">
+        <div class="card-header py-2 svc-section-hdr">
+          <h3 class="card-title small font-weight-bold text-muted mb-0">
+            <i class="fas fa-calculator mr-1 text-success"></i>Pricing Summary
+          </h3>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <!-- Service Fee -->
+            {% for field in form %}{% if field.name == 'service_fee' %}
+            <div class="col-md-4 mb-3">
+              <label for="{{ field.id_for_label }}" class="font-weight-bold small">
+                <i class="fas fa-wrench mr-1 text-secondary"></i>{{ field.label }}
+              </label>
+              <div class="input-group input-group-sm">
+                <div class="input-group-prepend"><span class="input-group-text">₱</span></div>
+                {{ field }}
+              </div>
+              {% if field.help_text %}<small class="form-text text-muted">{{ field.help_text }}</small>{% endif %}
+              {% if field.errors %}<div class="text-danger small">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+            </div>
+            {% endif %}{% endfor %}
+
+            <!-- Discount Type + Value -->
+            <div class="col-md-4 mb-3">
+              <label class="font-weight-bold small"><i class="fas fa-tag mr-1 text-danger"></i>Discount</label>
+              <div class="input-group input-group-sm">
+                {% for field in form %}{% if field.name == 'discount_type' %}{{ field }}{% endif %}{% endfor %}
+                {% for field in form %}{% if field.name == 'discount_value' %}{{ field }}{% endif %}{% endfor %}
+              </div>
+              <small class="form-text text-muted">Fixed ₱ or % of subtotal</small>
+            </div>
+
+            <!-- Live Totals -->
+            <div class="col-md-4 mb-3">
+              <label class="font-weight-bold small"><i class="fas fa-receipt mr-1 text-info"></i>Live Totals</label>
+              <table class="table table-sm table-borderless mb-0" id="svc-totals-box">
+                <tr><td class="text-muted small">Product Lines</td><td class="text-right small" id="tot-lines">0.00</td></tr>
+                <tr><td class="text-muted small">Other Materials</td><td class="text-right small" id="tot-mats">0.00</td></tr>
+                <tr><td class="text-muted small">Service Fee</td><td class="text-right small" id="tot-fee">0.00</td></tr>
+                <tr style="border-top:1px solid #dee2e6"><td class="text-muted small">Subtotal</td><td class="text-right small" id="tot-subtotal">0.00</td></tr>
+                <tr><td class="text-danger small">Discount</td><td class="text-right small text-danger" id="tot-discount">0.00</td></tr>
+                <tr style="border-top:2px solid #adb5bd"><td class="font-weight-bold small">Grand Total</td><td class="text-right font-weight-bold" id="tot-grand">0.00</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /card-body -->
+
+    <div class="card-footer d-flex gap-2">
       <button type="submit" class="btn btn-primary">
         <i class="fas fa-save mr-1"></i>Save
       </button>
       {% if is_create %}
-      <a href="{% url 'service_list' %}" class="btn btn-secondary">
-        <i class="fas fa-times mr-1"></i>Cancel
-      </a>
+      <a href="{% url 'service_list' %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i>Cancel</a>
       {% else %}
-      <a href="{% url 'service_detail' service.pk %}" class="btn btn-secondary">
-        <i class="fas fa-times mr-1"></i>Cancel
-      </a>
+      <a href="{% url 'service_detail' service.pk %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i>Cancel</a>
       {% endif %}
     </div>
   </div>
 </form>
+
+<!-- ── Other Materials empty row template ──────────────────────────────── -->
+<script type="text/template" id="mat-empty-row-tpl">
+<tr class="mat-row">
+  <td><input type="text" name="mats-__prefix__-item_name" class="form-control form-control-sm" placeholder="e.g., Copper wire"></td>
+  <td><input type="number" name="mats-__prefix__-qty" class="form-control form-control-sm mat-qty" step="0.01" min="0" placeholder="1"></td>
+  <td><input type="number" name="mats-__prefix__-unit_price" class="form-control form-control-sm mat-price" step="0.01" min="0" placeholder="0.00"></td>
+  <td class="text-right mat-total-cell"><span class="mat-row-total">0.00</span></td>
+  <td><input type="text" name="mats-__prefix__-vendor" class="form-control form-control-sm" placeholder="Vendor name"></td>
+  <td><input type="text" name="mats-__prefix__-notes" class="form-control form-control-sm" placeholder="Note"></td>
+  <td class="text-center"><button type="button" class="btn btn-xs btn-outline-danger mat-delete-row" title="Remove"><i class="fas fa-times"></i></button></td>
+</tr>
+</script>
+
+{% endblock %}
+
+{% block extra_js %}{{ block.super }}
+<script>
+(function () {
+  'use strict';
+
+  /* ── Other Materials helpers ──────────────────────────────────────────── */
+  function matUpdateRowTotal(row) {
+    var qty = parseFloat($(row).find('.mat-qty').val()) || 0;
+    var price = parseFloat($(row).find('.mat-price').val()) || 0;
+    var total = (qty * price).toFixed(2);
+    $(row).find('.mat-row-total').text(total);
+  }
+
+  function getMatTotal() {
+    var t = 0;
+    $('#mat-tbody .mat-row:visible').each(function () {
+      t += parseFloat($(this).find('.mat-row-total').text()) || 0;
+    });
+    return t;
+  }
+
+  /* ── Product line total helper (reads .so-line-total-badge or computes) ─ */
+  function getProdLineTotal() {
+    var t = 0;
+    $('#formset-body .formset-row:visible').each(function () {
+      var badge = $(this).find('.so-line-total-badge').text().replace(/[^0-9.]/g, '');
+      if (badge) {
+        t += parseFloat(badge) || 0;
+      } else {
+        var qty = parseFloat($(this).find('[name$="-qty"]').val()) || 0;
+        var price = parseFloat($(this).find('[name$="-unit_price"]').val()) || 0;
+        t += qty * price;
+      }
+    });
+    return t;
+  }
+
+  /* ── Grand total update ───────────────────────────────────────────────── */
+  function updateTotals() {
+    var lines = getProdLineTotal();
+    var mats = getMatTotal();
+    var fee = parseFloat($('#id_service_fee').val()) || 0;
+    var sub = lines + mats + fee;
+    var dtype = $('#id_discount_type').val();
+    var dval = parseFloat($('#id_discount_value').val()) || 0;
+    var disc = dtype === 'PERCENT' ? (sub * dval / 100) : dval;
+    disc = Math.min(disc, sub);
+    var grand = sub - disc;
+    $('#tot-lines').text(lines.toFixed(2));
+    $('#tot-mats').text(mats.toFixed(2));
+    $('#tot-fee').text(fee.toFixed(2));
+    $('#tot-subtotal').text(sub.toFixed(2));
+    $('#tot-discount').text(disc.toFixed(2));
+    $('#tot-grand').text(grand.toFixed(2));
+  }
+
+  /* ── Other Materials: add row ─────────────────────────────────────────── */
+  var matTotal = parseInt($('#id_mats-TOTAL_FORMS').val()) || 0;
+
+  $('#mat-add-row').on('click', function () {
+    var tpl = $('#mat-empty-row-tpl').html().replace(/__prefix__/g, matTotal);
+    var $row = $(tpl);
+    $('#mat-tbody').append($row);
+    matTotal++;
+    $('#id_mats-TOTAL_FORMS').val(matTotal);
+    updateTotals();
+  });
+
+  /* ── Other Materials: delete row ─────────────────────────────────────── */
+  $(document).on('click', '.mat-delete-row', function () {
+    var $row = $(this).closest('.mat-row');
+    var $del = $row.find('[name$="-DELETE"]');
+    if ($del.length) {
+      $del.prop('checked', true);
+      $row.hide();
+    } else {
+      $row.remove();
+    }
+    updateTotals();
+  });
+
+  /* ── Other Materials: recalc row total on input ───────────────────────── */
+  $(document).on('input change', '.mat-qty, .mat-price', function () {
+    matUpdateRowTotal($(this).closest('tr'));
+    updateTotals();
+  });
+
+  /* ── Recalc when product line inputs change ───────────────────────────── */
+  $(document).on('input change', '[name$="-qty"], [name$="-unit_price"]', function () {
+    updateTotals();
+  });
+
+  /* ── Discount + fee inputs ────────────────────────────────────────────── */
+  $('#id_service_fee, #id_discount_type, #id_discount_value').on('input change', updateTotals);
+
+  /* ── Init existing mat row totals ─────────────────────────────────────── */
+  $('#mat-tbody .mat-row').each(function () { matUpdateRowTotal(this); });
+
+  /* ── Initial totals ───────────────────────────────────────────────────── */
+  setTimeout(updateTotals, 400);
+
+  /* Re-run after formset adds rows (MutationObserver) */
+  var obs = new MutationObserver(function () { updateTotals(); });
+  var fb = document.getElementById('formset-body');
+  if (fb) obs.observe(fb, { childList: true, subtree: false });
+})();
+</script>
 {% endblock %}

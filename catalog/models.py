@@ -61,6 +61,13 @@ class UnitConversion(SoftDeleteModel):
     from_unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='conversions_from')
     to_unit = models.ForeignKey(Unit, on_delete=models.CASCADE, related_name='conversions_to')
     factor = models.DecimalField(max_digits=15, decimal_places=6)
+    conversion_price = models.DecimalField(
+        max_digits=15, decimal_places=4, null=True, blank=True,
+        help_text='Explicit selling price per 1 to_unit when using this conversion. '
+                  'If set, overrides the factor-based price calculation for selling price lookups. '
+                  'COGS always uses cost_price regardless of this field. '
+                  'Example: Roll→ft with factor=5 and conversion_price=30 means each ft sells for 30.',
+    )
     item = models.ForeignKey(
         'catalog.Item',
         on_delete=models.CASCADE,

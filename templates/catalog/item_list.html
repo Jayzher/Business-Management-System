@@ -390,20 +390,35 @@
     window.location.href = url.toString();
   }
 
-  /* ── Search (450 ms debounce) ─────────────────────────────────── */
+  /* ── Search (800 ms debounce, focus restored after reload) ───── */
   var _st;
   var si = document.getElementById('cat-search');
   if (si) {
     si.addEventListener('input', function () {
       clearTimeout(_st);
-      _st = setTimeout(function () { catNavigate({ q: si.value.trim() }); }, 450);
+      _st = setTimeout(function () {
+        sessionStorage.setItem('cat_search_focus', '1');
+        catNavigate({ q: si.value.trim() });
+      }, 800);
     });
     si.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { clearTimeout(_st); catNavigate({ q: si.value.trim() }); }
+      if (e.key === 'Enter') {
+        clearTimeout(_st);
+        sessionStorage.setItem('cat_search_focus', '1');
+        catNavigate({ q: si.value.trim() });
+      }
     });
   }
   var clr = document.getElementById('cat-clear-search');
   if (clr) clr.addEventListener('click', function () { catNavigate({ q: '' }); });
+
+  /* ── Restore search focus if page loaded via search debounce ──── */
+  if (si && sessionStorage.getItem('cat_search_focus') === '1') {
+    sessionStorage.removeItem('cat_search_focus');
+    si.focus();
+    var len = si.value.length;
+    si.setSelectionRange(len, len);
+  }
 
   /* ── Active filter badge removals ────────────────────────────── */
   var fc = document.getElementById('filter-clear-search');
@@ -420,12 +435,23 @@
   var typeSel = document.getElementById('cat-type');
   if (typeSel) typeSel.addEventListener('change', function () { catNavigate({ type: typeSel.value }); });
 
-  /* ── Grid Cols / Rows ─────────────────────────────────────────── */
+  /* ── Grid Cols / Rows — immediate CSS update + server navigate ── */
+  var grid = document.getElementById('catalog-grid');
+
   var colsSel = document.getElementById('cat-cols');
-  if (colsSel) colsSel.addEventListener('change', function () { catNavigate({ cols: colsSel.value }); });
+  if (colsSel) {
+    colsSel.addEventListener('change', function () {
+      if (grid) grid.style.setProperty('--cat-cols', colsSel.value);
+      catNavigate({ cols: colsSel.value });
+    });
+  }
 
   var rowsSel = document.getElementById('cat-rows');
-  if (rowsSel) rowsSel.addEventListener('change', function () { catNavigate({ rows: rowsSel.value }); });
+  if (rowsSel) {
+    rowsSel.addEventListener('change', function () {
+      catNavigate({ rows: rowsSel.value });
+    });
+  }
 
   /* ── Export: PDF — This Page ──────────────────────────────────── */
   var btnPdfPage = document.getElementById('export-pdf-page');
