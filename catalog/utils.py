@@ -200,3 +200,69 @@ def validate_unit_conversion_path(from_unit, to_unit, item=None) -> bool:
     
     factor = get_conversion_factor(from_unit, to_unit, item)
     return factor is not None
+
+
+def get_item_cogs_for_unit(item, selling_unit) -> Decimal:
+    """
+    Get the item's cost price adjusted for a specific selling unit.
+    
+    This is the inverse operation of selling price conversion - it calculates
+    the cost of goods sold when the item is sold in a different unit than
+    its stock unit.
+    
+    Args:
+        item: Item object
+        selling_unit: Unit the item is being sold in
+        
+    Returns:
+        Decimal cost price in the specified unit
+        
+    Example:
+        cost_price = $5 per Piece
+        stock_unit = Piece
+        selling_unit = Foot
+        1 Piece = 19.7 Feet
+        Result: $5 / 19.7 ≈ $0.254 per Foot
+    """
+    if not item or not selling_unit:
+        return Decimal('0')
+    
+    cost_price = item.cost_price or Decimal('0')
+    
+    # Get the stock unit for this item
+    base_unit = item.stock_unit
+    
+    # If selling_unit is the same as stock_unit, return as-is
+    if base_unit.pk == selling_unit.pk:
+        return Decimal(str(cost_price))
+    
+    # Otherwise, convert the cost price using the same logic as selling price
+    return convert_price_for_unit(cost_price, base_unit, selling_unit, item=item)
+
+
+def calculate_line_cogs_with_conversion(line_item, qty_ordered, selling_unit, item=None) -> Decimal:
+    """
+    Calculate COGS for a line with unit conversion applied.
+    
+    Args:
+        line_item: The item object
+        qty_ordered: Quantity ordered in the selling_unit
+        selling_unit: The unit the quantity is in
+        item: Optional item parameter (defaults to line_item)
+        
+    Returns:
+        Decimal COGS amount
+    """
+    if not line_item or not selling_unit:
+        return Decimal('0')
+    
+    if item is None:
+        item = line_item
+    
+    # Get the cost price adjusted for the selling unit
+    unit_cost = get_item_cogs_for_unit(item, selling_unit)
+    
+    # Multiply by quantity
+    cogs = unit_cost * Decimal(str(qty_ordered))
+    
+    return cogs
