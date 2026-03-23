@@ -184,7 +184,7 @@
         <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-warehouse mr-1" style="color:#6f42c1;"></i> Inventory</h6>
         <table class="table table-sm table-bordered mb-0">
           <tbody>
-            <tr><td class="fw-bold" style="width:55%;">Inventory Valuation <small class="text-muted">(&#931; qty_on_hand &times; item.cost_price)</small></td><td class="text-end font-monospace fw-bold">{{ dash_formulas.inventory_valuation|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold" style="width:55%;">Inventory Valuation <small class="text-muted">(&#931; (per-item total_on_hand &times; item.cost_price))</small></td><td class="text-end font-monospace fw-bold">{{ dash_formulas.inventory_valuation|floatformat:2|intcomma }}</td></tr>
           </tbody>
         </table>
       </div>

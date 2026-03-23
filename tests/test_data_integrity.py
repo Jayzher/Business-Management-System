@@ -182,6 +182,32 @@ class DataIntegrityTest(StaticLiveServerTestCase):
         )
         POSPayment.objects.create(sale=pos_sale, method='CASH', amount=POS_REV)
 
+        from core.models import Invoice
+        Invoice.objects.create(
+            invoice_number='DI-INV-001',
+            date=date.today(),
+            sales_order=so,
+            customer_name='DI Customer',
+            subtotal=SO_REV,
+            grand_total=SO_REV,
+            discount_total=Decimal('0'),
+            is_paid=True,
+            paid_date=date.today(),
+            created_by=admin,
+        )
+        Invoice.objects.create(
+            invoice_number='DI-INV-002',
+            date=date.today(),
+            pos_sale=pos_sale,
+            customer_name='DI Customer',
+            subtotal=POS_REV,
+            grand_total=POS_REV,
+            discount_total=Decimal('0'),
+            is_paid=True,
+            paid_date=date.today(),
+            created_by=admin,
+        )
+
         exp_cat, _ = ExpenseCategory.objects.get_or_create(
             name='DI OpEx', defaults={'code': 'DI-OPEX', 'is_cogs': False},
         )

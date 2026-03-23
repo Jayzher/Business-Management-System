@@ -592,6 +592,13 @@ def financial_statement_view(request):
     invoice_cogs_map = {inv.pk: compute_invoice_cogs(inv) for inv in invoice_rows}
     cogs_from_invoices = sum(invoice_cogs_map.values(), Decimal('0'))
 
+    so_invoice_revenue = sum(inv.grand_total for inv in invoice_rows if inv.sales_order_id)
+    pos_invoice_revenue = sum(inv.grand_total for inv in invoice_rows if inv.pos_sale_id)
+    svc_invoice_revenue = sum(
+        inv.grand_total for inv in invoice_rows
+        if not inv.sales_order_id and not inv.pos_sale_id
+    )
+
     net_revenue = invoice_revenue - discount
 
     # ── COGS from expense categories marked as COGS ────────────────────
@@ -708,6 +715,9 @@ def financial_statement_view(request):
 
     return render(request, 'reports/financial_statement.html', {
         'invoice_revenue': invoice_revenue,
+        'so_invoice_revenue': so_invoice_revenue,
+        'pos_invoice_revenue': pos_invoice_revenue,
+        'svc_invoice_revenue': svc_invoice_revenue,
         'discount': discount,
         'net_revenue': net_revenue,
         'cogs_from_invoices': cogs_from_invoices,

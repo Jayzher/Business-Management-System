@@ -1117,22 +1117,41 @@
       steps: function () {
         var s = [];
         var path = window.location.pathname;
+
+        /* Service Invoice List */
+        if (path === '/services/invoices/' || path.indexOf('/services/invoices') === 0) {
+          s.push({ popover: { title: '🧾 Service Invoices', description: 'Lists all invoices generated exclusively by completed customer services. Use the <strong>Paid/Unpaid filter</strong> to track outstanding balances.', position: 'center' } });
+          if (exists('select[name="paid"]')) s.push({ element: 'select[name="paid"]', popover: { title: '🔍 Payment Filter', description: 'Filter invoices by payment status — Paid, Unpaid, or All.', position: 'bottom' } });
+          if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Invoice Table', description: 'Shows invoice number, date, customer, linked service(s), status, grand total, and balance due. Click on an invoice or service badge to navigate directly.', position: 'top' } });
+          if (exists('.card-footer')) s.push({ element: '.card-footer', popover: { title: '↩ Back to Services', description: 'Return to the full Customer Services list.', position: 'top' } });
+          return s;
+        }
+
+        /* Service Detail / Edit */
         if (path.match(/\/services\/\d+\//)) {
           if (path.indexOf('/edit/') !== -1) {
             s.push({ popover: { title: '✏️ Edit Service', description: 'Update service details. The <strong>Completion Date</strong> field is only available on the edit form.', position: 'center' } });
             return s;
           }
-          s.push({ popover: { title: '🔧 Service Details', description: 'Full details of this customer service record — service info, product/parts lines, totals, and action buttons.', position: 'center' } });
-          if (exists('.table-bordered')) s.push({ element: '.table-bordered', popover: { title: '📄 Service Info', description: 'Shows service number, name, customer, dates, status, payment status, and linked invoice.', position: 'right' } });
-          if (exists('.table-hover')) s.push({ element: '.table-hover', popover: { title: '📦 Product Lines', description: 'Parts or items used in the service. Unit price is auto-filled from the Item catalog selling price.', position: 'top' } });
+          s.push({ popover: { title: '🔧 Service Details', description: 'Full details of this customer service job — info, parts used, and Profit & Loss summary. Complete the service to deduct inventory and generate an invoice automatically.', position: 'center' } });
+          if (exists('.doc-detail-table')) s.push({ element: '.doc-detail-table', popover: { title: '📄 Service Info', description: 'Service number, name, customer, dates, status, payment status, and linked invoice (shown after completion).', position: 'right' } });
+          if (exists('.detail-lines-table')) s.push({ element: '.detail-lines-table', popover: { title: '📦 Parts Used', description: 'Parts or items used in the service. Columns include <strong>Unit Price</strong> (selling), <strong>Cost (COGS)</strong> from the item catalog cost price, and <strong>Line Profit</strong> (revenue − cost per line).', position: 'top' } });
+          if (exists('.card-outline.card-info')) s.push({ element: '.card-outline.card-info', popover: { title: '📊 Profit & Loss Summary', description: '<strong>Revenue</strong> = service grand total<br><strong>COGS</strong> = sum of (cost price × qty) for all parts<br><strong>Gross Profit</strong> = Revenue − COGS<br>The margin % badge turns green above 20%, yellow above 10%.', position: 'left' } });
+          if (exists('.card-primary.card-outline')) s.push({ element: '.card-primary.card-outline', popover: { title: '⚡ Actions', description: '<strong>Complete Service</strong> deducts parts from inventory and creates an invoice. <strong>Mark In Progress</strong> updates the status. <strong>Cancel</strong> is irreversible.', position: 'left' } });
           return s;
         }
+
+        /* Service Create */
         if (path.indexOf('/create/') !== -1) {
-          s.push({ popover: { title: '➕ New Customer Service', description: 'Create a service job order. Fill in the service name, customer name (free text), date, and optionally add product/parts lines. Set the warehouse if parts will be deducted from inventory.', position: 'center' } });
+          s.push({ popover: { title: '➕ New Customer Service', description: 'Create a service job order. Fill in the service name, customer name (free text), date, and optionally add product/parts lines. Set the <strong>Warehouse</strong> so parts are deducted from inventory on completion.', position: 'center' } });
           return s;
         }
-        s.push({ popover: { title: '🔧 Customer Services', description: 'Track all customer service jobs. When a service is <strong>Completed</strong>, parts are deducted from inventory and an invoice is auto-generated.', position: 'center' } });
-        if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Services List', description: 'Shows service number, name, customer, date, status, payment status, and total. Click to view details.', position: 'top' } });
+
+        /* Service List */
+        s.push({ popover: { title: '🔧 Customer Services', description: 'Track all customer service jobs. When a service is <strong>Completed</strong>, parts are deducted from inventory using <em>Service Out</em> stock moves and an invoice is auto-generated.', position: 'center' } });
+        if (exists('select[name="status"]')) s.push({ element: 'select[name="status"]', popover: { title: '🔍 Status Filter', description: 'Filter services by status: Draft, In Progress, Completed, or Cancelled.', position: 'bottom' } });
+        if (exists('a[href="/services/invoices/"]')) s.push({ element: 'a[href="/services/invoices/"]', popover: { title: '🧾 Service Invoices', description: 'View all invoices generated by completed services in one place. Separate from the main invoice list.', position: 'bottom' } });
+        if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Services List', description: 'Shows service number, name, customer, date, status, payment status, and grand total. Click a service number to view full details with P&L.', position: 'top' } });
         return s;
       }
     },

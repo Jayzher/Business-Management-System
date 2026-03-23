@@ -294,6 +294,9 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         # Phase 14: Catalog Card Grid UI
         self._step_54_catalog_card_grid()
 
+        # Phase 15: Service P&L + Invoice List
+        self._step_55_service_pnl_and_invoice_list()
+
     # ═══════════════════════════════════════════════════════════════════
     # PHASE 1: Core CRUD Modules
     # ═══════════════════════════════════════════════════════════════════
@@ -945,9 +948,10 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
             time.sleep(0.4)
 
         # Verify progress indicator is shown
-        progress = self.browser.find_element(
-            By.CSS_SELECTOR, '.driver-popover-progress-text'
-        ).text
+        progress_el = self.wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, '.driver-popover-progress-text'))
+        )
+        progress = progress_el.text
         self.assertIn('of', progress, 'Progress text should show "Step X of Y"')
 
         # Close/skip the tour via the close button
@@ -2019,6 +2023,107 @@ class NewModulesFlowTest(StaticLiveServerTestCase):
         body = self.browser.page_source
         self.assertIn('Customer Service', body, 'Dictionary should mention Customer Service')
         self.assertIn('Service Completion', body, 'Dictionary should mention Service Completion')
+
+    # ═══════════════════════════════════════════════════════════════════
+    # PHASE 15: Service P&L and Invoice List
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _step_55_service_pnl_and_invoice_list(self):
+        """Verify service detail shows P&L section and service invoice list works."""
+        from services.models import CustomerService, ServiceLine
+        from core.models import Invoice
+        from decimal import Decimal
+        import datetime
+
+        # ── Set up: create a service with a line and invoice ──────────────
+        inv = Invoice.objects.create(
+            invoice_number='E2E-SVC-INV-001',
+            date=datetime.date.today(),
+            customer_name='E2E Service Customer',
+            subtotal=Decimal('400.00'),
+            grand_total=Decimal('400.00'),
+            created_by=self.admin,
+        )
+        svc = CustomerService.objects.create(
+            service_number='E2E-SVC-PNL-001',
+            service_name='E2E PNL Test Service',
+            customer_name='E2E Service Customer',
+            service_date=datetime.date.today(),
+            status='COMPLETED',
+            invoice=inv,
+            warehouse=self.wh,
+            created_by=self.admin,
+        )
+        ServiceLine.objects.create(
+            service=svc,
+            item=self.item,
+            location=self.loc,
+            qty=Decimal('2'),
+            unit=self.unit,
+            unit_price=Decimal('200.00'),
+        )
+
+        # ── 1. Service detail shows P&L summary section ───────────────────
+        self.browser.get(self.url(f'/services/{svc.pk}/'))
+        self.assert_no_errors()
+        body = self.browser.page_source
+        self.assertIn('Profit', body, 'Service detail should show Profit & Loss section')
+        self.assertIn('Revenue', body, 'Service detail should show Revenue')
+        self.assertIn('Cost of Goods Sold', body, 'Service detail should show COGS')
+        self.assertIn('Gross Profit', body, 'Service detail should show Gross Profit')
+
+        # ── 2. P&L section shows line-level COGS column ───────────────────
+        self.assertIn('Cost (COGS)', body, 'Parts table should have Cost (COGS) column header')
+        self.assertIn('Line Profit', body, 'Parts table should have Line Profit column header')
+
+        # ── 3. Service Invoice list page loads ────────────────────────────
+        self.browser.get(self.url('/services/invoices/'))
+        self.assert_no_errors()
+        body = self.browser.page_source
+        self.assertIn('Service Invoices', body, 'Service invoice list page title should appear')
+
+        # ── 4. Created invoice appears in service invoice list ────────────
+        self.assertIn('E2E-SVC-INV-001', body, 'Service invoice should appear in list')
+        self.assertIn('E2E Service Customer', body, 'Customer name should appear')
+
+        # ── 5. Non-service invoices should NOT appear ─────────────────────
+        # The regular invoices (non-service) from earlier steps should be absent
+        # We verify by checking the E2E service invoice IS there but list is filtered
+        invoice_rows = self.browser.find_elements(
+            By.CSS_SELECTOR, 'table tbody tr td a[href*="/core/invoices/"]'
+        )
+        # All listed invoices should have at least one service link in the row
+        for row_link in invoice_rows:
+            row = row_link.find_element(By.XPATH, '../..')
+            row_html = row.get_attribute('innerHTML')
+            # Each row should have a service badge
+            self.assertIn('/services/', row_html,
+                         'Every row in service invoice list should link to a service')
+
+        # ── 6. Service Invoices link in sidebar ───────────────────────────
+        sidebar_links = self.browser.find_elements(
+            By.CSS_SELECTOR, 'a[href="/services/invoices/"]'
+        )
+        self.assertGreater(len(sidebar_links), 0,
+                          'Sidebar should have Service Invoices link')
+
+        # ── 7. Service list page has "Service Invoices" button ────────────
+        self.browser.get(self.url('/services/'))
+        self.assert_no_errors()
+        body = self.browser.page_source
+        self.assertIn('Service Invoices', body, 'Service list should have Service Invoices button')
+
+        # ── 8. Tour guide fires on service detail (non-generic popover) ───
+        self.browser.get(self.url(f'/services/{svc.pk}/'))
+        time.sleep(0.5)
+        self._dismiss_tour()
+        guide_btn = self.wait.until(EC.presence_of_element_located((By.ID, 'wis-page-guide')))
+        self.browser.execute_script('arguments[0].click();', guide_btn)
+        time.sleep(1)
+        popovers = self.browser.find_elements(By.CSS_SELECTOR, '.driver-popover')
+        visible = [p for p in popovers if p.is_displayed()]
+        self.assertTrue(len(visible) > 0, 'Guide popover should appear on service detail')
+        self._dismiss_tour()
 
     # ═══════════════════════════════════════════════════════════════════
     # PHASE 14: Catalog Card Grid UI
