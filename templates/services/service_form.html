@@ -193,8 +193,8 @@
 </form>
 
 <!-- ── Other Materials empty row template ──────────────────────────────── -->
-<script type="text/template" id="mat-empty-row-tpl">
-<tr class="mat-row">
+<script>
+window.MATERIAL_ROW_TEMPLATE = `<tr class="mat-row">
   <td><input type="text" name="mats-__prefix__-item_name" class="form-control form-control-sm" placeholder="e.g., Copper wire"></td>
   <td><input type="number" name="mats-__prefix__-qty" class="form-control form-control-sm mat-qty" step="0.01" min="0" placeholder="1"></td>
   <td><input type="number" name="mats-__prefix__-unit_price" class="form-control form-control-sm mat-price" step="0.01" min="0" placeholder="0.00"></td>
@@ -202,14 +202,14 @@
   <td><input type="text" name="mats-__prefix__-vendor" class="form-control form-control-sm" placeholder="Vendor name"></td>
   <td><input type="text" name="mats-__prefix__-notes" class="form-control form-control-sm" placeholder="Note"></td>
   <td class="text-center"><button type="button" class="btn btn-xs btn-outline-danger mat-delete-row" title="Remove"><i class="fas fa-times"></i></button></td>
-</tr>
+</tr>`;
 </script>
 
 {% endblock %}
 
 {% block extra_js %}{{ block.super }}
 <script>
-(function () {
+jQuery(document).ready(function () {
   'use strict';
 
   /* ── Other Materials helpers ──────────────────────────────────────────── */
@@ -267,7 +267,7 @@
   var matTotal = parseInt($('#id_mats-TOTAL_FORMS').val()) || 0;
 
   $('#mat-add-row').on('click', function () {
-    var tpl = $('#mat-empty-row-tpl').html().replace(/__prefix__/g, matTotal);
+    var tpl = window.MATERIAL_ROW_TEMPLATE.replace(/__prefix__/g, matTotal);
     var $row = $(tpl);
     $('#mat-tbody').append($row);
     matTotal++;
@@ -302,6 +302,7 @@
   /* ── Discount + fee inputs ────────────────────────────────────────────── */
   $('#id_service_fee, #id_discount_type, #id_discount_value').on('input change', updateTotals);
 
+  
   /* ── Init existing mat row totals ─────────────────────────────────────── */
   $('#mat-tbody .mat-row').each(function () { matUpdateRowTotal(this); });
 
@@ -312,6 +313,6 @@
   var obs = new MutationObserver(function () { updateTotals(); });
   var fb = document.getElementById('formset-body');
   if (fb) obs.observe(fb, { childList: true, subtree: false });
-})();
+});
 </script>
 {% endblock %}
