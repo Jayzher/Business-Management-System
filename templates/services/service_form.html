@@ -189,130 +189,28 @@
       <a href="{% url 'service_detail' service.pk %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i>Cancel</a>
       {% endif %}
     </div>
+    <script type="text/template" id="mat-empty-row-tpl">
+      <tr class="mat-row">
+        <td><input type="text" name="mats-__prefix__-item_name" class="form-control form-control-sm" placeholder="e.g., Copper wire"></td>
+        <td><input type="number" name="mats-__prefix__-qty" class="form-control form-control-sm mat-qty" step="0.01" min="0" placeholder="1"></td>
+        <td><input type="number" name="mats-__prefix__-unit_price" class="form-control form-control-sm mat-price" step="0.01" min="0" placeholder="0.00"></td>
+        <td class="text-right mat-total-cell"><span class="mat-row-total">0.00</span></td>
+        <td><input type="text" name="mats-__prefix__-vendor" class="form-control form-control-sm" placeholder="Vendor name"></td>
+        <td><input type="text" name="mats-__prefix__-notes" class="form-control form-control-sm" placeholder="Note"></td>
+        <td class="text-center"><button type="button" class="btn btn-xs btn-outline-danger mat-delete-row" title="Remove"><i class="fas fa-times"></i></button></td>
+      </tr>
+    </script>
   </div>
 </form>
-
-<!-- ── Other Materials empty row template ──────────────────────────────── -->
-<script>
-window.MATERIAL_ROW_TEMPLATE = `<tr class="mat-row">
-  <td><input type="text" name="mats-__prefix__-item_name" class="form-control form-control-sm" placeholder="e.g., Copper wire"></td>
-  <td><input type="number" name="mats-__prefix__-qty" class="form-control form-control-sm mat-qty" step="0.01" min="0" placeholder="1"></td>
-  <td><input type="number" name="mats-__prefix__-unit_price" class="form-control form-control-sm mat-price" step="0.01" min="0" placeholder="0.00"></td>
-  <td class="text-right mat-total-cell"><span class="mat-row-total">0.00</span></td>
-  <td><input type="text" name="mats-__prefix__-vendor" class="form-control form-control-sm" placeholder="Vendor name"></td>
-  <td><input type="text" name="mats-__prefix__-notes" class="form-control form-control-sm" placeholder="Note"></td>
-  <td class="text-center"><button type="button" class="btn btn-xs btn-outline-danger mat-delete-row" title="Remove"><i class="fas fa-times"></i></button></td>
-</tr>`;
-</script>
 
 {% endblock %}
 
 {% block extra_js %}{{ block.super }}
 <script>
-jQuery(document).ready(function () {
-  'use strict';
-
-  /* ── Other Materials helpers ──────────────────────────────────────────── */
-  function matUpdateRowTotal(row) {
-    var qty = parseFloat($(row).find('.mat-qty').val()) || 0;
-    var price = parseFloat($(row).find('.mat-price').val()) || 0;
-    var total = (qty * price).toFixed(2);
-    $(row).find('.mat-row-total').text(total);
+$(function() {
+  if (window.WIS && WIS.initServiceOtherMaterials) {
+    WIS.initServiceOtherMaterials(document);
   }
-
-  function getMatTotal() {
-    var t = 0;
-    $('#mat-tbody .mat-row:visible').each(function () {
-      t += parseFloat($(this).find('.mat-row-total').text()) || 0;
-    });
-    return t;
-  }
-
-  /* ── Product line total helper (reads .so-line-total-badge or computes) ─ */
-  function getProdLineTotal() {
-    var t = 0;
-    $('#formset-body .formset-row:visible').each(function () {
-      var badge = $(this).find('.so-line-total-badge').text().replace(/[^0-9.]/g, '');
-      if (badge) {
-        t += parseFloat(badge) || 0;
-      } else {
-        var qty = parseFloat($(this).find('[name$="-qty"]').val()) || 0;
-        var price = parseFloat($(this).find('[name$="-unit_price"]').val()) || 0;
-        t += qty * price;
-      }
-    });
-    return t;
-  }
-
-  /* ── Grand total update ───────────────────────────────────────────────── */
-  function updateTotals() {
-    var lines = getProdLineTotal();
-    var mats = getMatTotal();
-    var fee = parseFloat($('#id_service_fee').val()) || 0;
-    var sub = lines + mats + fee;
-    var dtype = $('#id_discount_type').val();
-    var dval = parseFloat($('#id_discount_value').val()) || 0;
-    var disc = dtype === 'PERCENT' ? (sub * dval / 100) : dval;
-    disc = Math.min(disc, sub);
-    var grand = sub - disc;
-    $('#tot-lines').text(lines.toFixed(2));
-    $('#tot-mats').text(mats.toFixed(2));
-    $('#tot-fee').text(fee.toFixed(2));
-    $('#tot-subtotal').text(sub.toFixed(2));
-    $('#tot-discount').text(disc.toFixed(2));
-    $('#tot-grand').text(grand.toFixed(2));
-  }
-
-  /* ── Other Materials: add row ─────────────────────────────────────────── */
-  var matTotal = parseInt($('#id_mats-TOTAL_FORMS').val()) || 0;
-
-  $('#mat-add-row').on('click', function () {
-    var tpl = window.MATERIAL_ROW_TEMPLATE.replace(/__prefix__/g, matTotal);
-    var $row = $(tpl);
-    $('#mat-tbody').append($row);
-    matTotal++;
-    $('#id_mats-TOTAL_FORMS').val(matTotal);
-    updateTotals();
-  });
-
-  /* ── Other Materials: delete row ─────────────────────────────────────── */
-  $(document).on('click', '.mat-delete-row', function () {
-    var $row = $(this).closest('.mat-row');
-    var $del = $row.find('[name$="-DELETE"]');
-    if ($del.length) {
-      $del.prop('checked', true);
-      $row.hide();
-    } else {
-      $row.remove();
-    }
-    updateTotals();
-  });
-
-  /* ── Other Materials: recalc row total on input ───────────────────────── */
-  $(document).on('input change', '.mat-qty, .mat-price', function () {
-    matUpdateRowTotal($(this).closest('tr'));
-    updateTotals();
-  });
-
-  /* ── Recalc when product line inputs change ───────────────────────────── */
-  $(document).on('input change', '[name$="-qty"], [name$="-unit_price"]', function () {
-    updateTotals();
-  });
-
-  /* ── Discount + fee inputs ────────────────────────────────────────────── */
-  $('#id_service_fee, #id_discount_type, #id_discount_value').on('input change', updateTotals);
-
-  
-  /* ── Init existing mat row totals ─────────────────────────────────────── */
-  $('#mat-tbody .mat-row').each(function () { matUpdateRowTotal(this); });
-
-  /* ── Initial totals ───────────────────────────────────────────────────── */
-  setTimeout(updateTotals, 400);
-
-  /* Re-run after formset adds rows (MutationObserver) */
-  var obs = new MutationObserver(function () { updateTotals(); });
-  var fb = document.getElementById('formset-body');
-  if (fb) obs.observe(fb, { childList: true, subtree: false });
 });
 </script>
 {% endblock %}
