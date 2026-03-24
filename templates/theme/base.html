@@ -423,6 +423,7 @@ WIS.openModal = function(url, size) {
         form.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) { new bootstrap.Tooltip(el); });
         wisInitFormsetFlags();
         wisInitSelect2(form);
+        if (WIS.initServiceOtherMaterials) WIS.initServiceOtherMaterials(wisModalBody);
       }
     })
     .catch(function() { wisModalBody.innerHTML = '<div class="p-4 text-danger">Network error.</div>'; });
@@ -1707,6 +1708,109 @@ lightbox.addEventListener('click', function(e) { if (e.target === lightbox) wisC
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js"></script>
 <script src="{% static 'theme/js/tour.js' %}"></script>
+<script>
+window.WIS = window.WIS || {};
+WIS.initServiceOtherMaterials = function(root) {
+  var $root = $(root || document);
+  var $form = $root.is('form') ? $root : $root.find('#svc-main-form').first();
+  if (!$form.length) return;
+
+  var $tbody = $form.find('#mat-tbody');
+  var $totalForms = $form.find('#id_mats-TOTAL_FORMS');
+  var $addBtn = $form.find('#mat-add-row');
+  var $template = $form.find('#mat-empty-row-tpl');
+  if (!$tbody.length || !$totalForms.length || !$addBtn.length || !$template.length) return;
+  if ($form.data('service-other-materials-init')) {
+    WIS.updateServiceOtherMaterialsTotals($form);
+    return;
+  }
+  $form.data('service-other-materials-init', true);
+
+  function matUpdateRowTotal(row) {
+    var $row = $(row);
+    var qty = parseFloat($row.find('.mat-qty').val()) || 0;
+    var price = parseFloat($row.find('.mat-price').val()) || 0;
+    $row.find('.mat-row-total').text((qty * price).toFixed(2));
+  }
+
+  WIS.updateServiceOtherMaterialsTotals = function(targetRoot) {
+    var $scope = $(targetRoot || $form);
+    var $scopeForm = $scope.is('form') ? $scope : $scope.find('#svc-main-form').first();
+    if (!$scopeForm.length) return;
+
+    var mats = 0;
+    $scopeForm.find('#mat-tbody .mat-row:visible').each(function() {
+      mats += parseFloat($(this).find('.mat-row-total').text()) || 0;
+    });
+
+    var lines = 0;
+    $scopeForm.find('#formset-body .formset-row:visible').each(function() {
+      var badge = $(this).find('.so-line-total-badge').text().replace(/[^0-9.]/g, '');
+      if (badge) {
+        lines += parseFloat(badge) || 0;
+      } else {
+        var qty = parseFloat($(this).find('[name$="-qty"]').val()) || 0;
+        var price = parseFloat($(this).find('[name$="-unit_price"]').val()) || 0;
+        lines += qty * price;
+      }
+    });
+
+    var fee = parseFloat($scopeForm.find('#id_service_fee').val()) || 0;
+    var sub = lines + mats + fee;
+    var dtype = $scopeForm.find('#id_discount_type').val();
+    var dval = parseFloat($scopeForm.find('#id_discount_value').val()) || 0;
+    var disc = dtype === 'PERCENT' ? (sub * dval / 100) : dval;
+    disc = Math.min(disc, sub);
+    var grand = sub - disc;
+
+    $scopeForm.find('#tot-lines').text(lines.toFixed(2));
+    $scopeForm.find('#tot-mats').text(mats.toFixed(2));
+    $scopeForm.find('#tot-fee').text(fee.toFixed(2));
+    $scopeForm.find('#tot-subtotal').text(sub.toFixed(2));
+    $scopeForm.find('#tot-discount').text(disc.toFixed(2));
+    $scopeForm.find('#tot-grand').text(grand.toFixed(2));
+  };
+
+  $addBtn.on('click', function(e) {
+    e.preventDefault();
+    var index = parseInt($totalForms.val(), 10) || 0;
+    var tpl = $template.html().replace(/__prefix__/g, index);
+    var $row = $(tpl);
+    $tbody.append($row);
+    $totalForms.val(index + 1);
+    matUpdateRowTotal($row);
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  $form.on('click', '.mat-delete-row', function() {
+    var $row = $(this).closest('.mat-row');
+    var $del = $row.find('[name$="-DELETE"]');
+    if ($del.length) {
+      $del.prop('checked', true);
+      $row.hide();
+    } else {
+      $row.remove();
+    }
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  $form.on('input change', '.mat-qty, .mat-price', function() {
+    matUpdateRowTotal($(this).closest('.mat-row'));
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  $form.on('input change', '[name$="-qty"], [name$="-unit_price"]', function() {
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  $form.find('#id_service_fee, #id_discount_type, #id_discount_value').on('input change', function() {
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  $tbody.find('.mat-row').each(function() { matUpdateRowTotal(this); });
+  setTimeout(function() { WIS.updateServiceOtherMaterialsTotals($form); }, 0);
+};
+</script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>
