@@ -185,8 +185,8 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
         self.fill('customer_name', 'Test Customer')
         self.set_date('service_date', datetime.date.today().isoformat())
 
-        # Fill Service Fee
-        self.js_set('#id_service_fee', '500.00')
+        # Fill Quotation
+        self.js_set('#id_quotation', '800.00')
 
         # Fill Discount (Fixed ₱100)
         self.select_val('discount_type', 'FIXED')
@@ -245,8 +245,8 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
         self.browser.get(self.url('/services/create/'))
         self.assert_no_server_error()
 
-        # Set service fee
-        self.js_set('#id_service_fee', '1000')
+        # Set quotation (3000 - mats 1000 = sub 2000)
+        self.js_set('#id_quotation', '3000')
         time.sleep(0.1)
 
         # Set discount type = PERCENT, value = 10%
@@ -274,7 +274,7 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
         )
         time.sleep(0.6)
 
-        # Expected: lines=0, mats=1000, fee=1000 → sub=2000, disc=200(10%), grand=1800
+        # Expected: quot=3000, lines=0, mats=1000 → sub=2000, disc=200(10%), grand=1800
         grand_el = self.browser.find_element(By.ID, 'tot-grand')
         grand_text = grand_el.text.strip()
         self.assertEqual(grand_text, '1800.00',
@@ -290,8 +290,8 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
     # Step 3 — Service Fee Displayed on Detail Page
     # ══════════════════════════════════════════════════════════════════════════
 
-    def test_03_service_fee_and_discount_on_detail(self):
-        """Service detail page shows service fee, discount, and grand total breakdown."""
+    def test_03_quotation_and_discount_on_detail(self):
+        """Service detail page shows quotation, discount, and grand total breakdown."""
         from services.models import CustomerService, ServiceOtherMaterial
 
         svc = CustomerService.objects.create(
@@ -299,7 +299,7 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
             service_name='Detail Test Service',
             customer_name='Detail Customer',
             service_date=datetime.date.today(),
-            service_fee=Decimal('500.00'),
+            quotation=Decimal('1700.00'),
             discount_type='FIXED',
             discount_value=Decimal('100.00'),
             created_by=self.user,
@@ -322,14 +322,14 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
         self.assertIn('Resin Depot', src)
 
         # Pricing breakdown
-        self.assertIn('Service / Labor Fee', src)
+        self.assertIn('Quotation', src)
         self.assertIn('Pricing Breakdown', src)
-        self.assertIn('Subtotal', src)
+        self.assertIn('Net', src)
         self.assertIn('Discount', src)
         self.assertIn('Grand Total', src)
 
-        # Totals: mat(600) + fee(500) = sub 1100, disc 100 → grand 1000
-        self.assertIn('1,100', src)  # subtotal contains 1,100.00
+        # Totals: quot(1700) - mats(600) = net 1100, disc 100 → grand 1000
+        self.assertIn('1,100', src)  # net contains 1,100.00
         self.assertIn('1,000', src)  # grand total contains 1,000.00
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -346,7 +346,7 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
             customer_name='Comp Customer',
             service_date=datetime.date.today(),
             warehouse=self.wh,
-            service_fee=Decimal('300.00'),
+            quotation=Decimal('1400.00'),
             discount_type='FIXED',
             discount_value=Decimal('50.00'),
             created_by=self.user,
@@ -393,9 +393,7 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
 
         # ── Check invoice was created with correct totals ──────────────────
         inv = svc.invoice
-        # subtotal = lines(400) + mats(150) + fee(300) = 850
-        # discount = 50
-        # grand_total = 800
+        # quot(1400) - lines(400) - mats(150) = net 850, discount = 50, grand_total = 800
         self.assertEqual(inv.grand_total, Decimal('800.00'),
                          f'Expected grand_total 800.00, got {inv.grand_total}')
         self.assertEqual(inv.discount_total, Decimal('50.00'))
@@ -447,7 +445,7 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
             customer_name='ROI Test Customer',
             service_date=datetime.date.today(),
             status=ServiceStatus.COMPLETED,
-            service_fee=Decimal('500.00'),
+            quotation=Decimal('900.00'),
             invoice=inv,
             created_by=self.user,
         )
@@ -542,7 +540,7 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
         """Service with PERCENT discount shows correct grand total on detail."""
         from services.models import CustomerService, ServiceLine, ServiceOtherMaterial
 
-        # subtotal = lines(400) + mats(300) + fee(0) = 700
+        # quot(1400) - lines(400) - mats(300) = net 700
         # discount = 10% of 700 = 70
         # grand total = 630
         svc = CustomerService.objects.create(
@@ -550,6 +548,7 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
             service_name='Discount Test',
             customer_name='Disc Customer',
             service_date=datetime.date.today(),
+            quotation=Decimal('1400.00'),
             discount_type='PERCENT',
             discount_value=Decimal('10.00'),
             created_by=self.user,
@@ -592,7 +591,7 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
             customer_name='Full Invoice Cust',
             service_date=datetime.date.today(),
             warehouse=self.wh,
-            service_fee=Decimal('200.00'),
+            quotation=Decimal('500.00'),
             discount_type='FIXED',
             discount_value=Decimal('0.00'),
             created_by=self.user,
@@ -625,10 +624,10 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
         lines = list(inv.lines.all())
         item_codes = [l.item_code for l in lines]
 
-        # Should have product line (item code), material line (MAT), and fee line (SVC-FEE)
+        # Should have product line (item code), material line (MAT), and quotation line (SVC-QUOT)
         self.assertIn(self.item.code, item_codes, 'Product line should be in invoice')
         self.assertIn('MAT', item_codes, 'Other material line should be in invoice')
-        self.assertIn('SVC-FEE', item_codes, 'Service fee line should be in invoice')
+        self.assertIn('SVC-QUOT', item_codes, 'Quotation line should be in invoice')
 
         # grand_total_cogs = product line COGS (80×1=80) + mat cost (100×1=100) = 180
         self.assertEqual(inv.grand_total_cogs, Decimal('180.00'),
@@ -647,7 +646,7 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
             service_name='Model Test',
             customer_name='Model Cust',
             service_date=datetime.date.today(),
-            service_fee=Decimal('500.00'),
+            quotation=Decimal('1700.00'),
             discount_type='PERCENT',
             discount_value=Decimal('20.00'),
             created_by=self.user,
@@ -672,9 +671,9 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
         self.assertEqual(svc.product_lines_total, Decimal('400.00'))
         # other_materials = 4×50 = 200
         self.assertEqual(svc.other_materials_total, Decimal('200.00'))
-        # service_fee = 500
-        self.assertEqual(svc.service_fee_amount, Decimal('500.00'))
-        # subtotal = 400 + 200 + 500 = 1100
+        # quotation = 1700
+        self.assertEqual(svc.quotation_amount, Decimal('1700.00'))
+        # subtotal = 1700 - 400 - 200 = 1100
         self.assertEqual(svc.subtotal, Decimal('1100.00'))
         # discount = 20% of 1100 = 220
         self.assertEqual(svc.discount_amount, Decimal('220.00'))
@@ -694,12 +693,12 @@ class EnhancedServicesE2ETest(StaticLiveServerTestCase):
             service_name='Fixed Discount Test',
             customer_name='FD Cust',
             service_date=datetime.date.today(),
-            service_fee=Decimal('1000.00'),
+            quotation=Decimal('1000.00'),
             discount_type='FIXED',
             discount_value=Decimal('150.00'),
             created_by=self.user,
         )
-        # subtotal = 1000, discount = 150, grand = 850
+        # quot=1000 - lines=0 - mats=0 = subtotal 1000, discount = 150, grand = 850
         self.assertEqual(svc.subtotal, Decimal('1000.00'))
         self.assertEqual(svc.discount_amount, Decimal('150.00'))
         self.assertEqual(svc.grand_total, Decimal('850.00'))

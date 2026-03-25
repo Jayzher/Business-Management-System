@@ -1407,6 +1407,7 @@ $(document).on('click', 'form[data-so-form="1"] .so-bundle-preview-btn', functio
     title: 'Bundle Items',
     html: '<div class="text-center py-4"><div class="spinner-border text-primary"></div><div class="mt-2 text-muted small">Loading bundle items...</div></div>',
     width: 1000,
+    position: 'center-start',
     showConfirmButton: false,
     showCloseButton: true,
     customClass: { popup: 'text-start' }
@@ -1733,6 +1734,43 @@ WIS.initServiceOtherMaterials = function(root) {
     $row.find('.mat-row-total').text((qty * price).toFixed(2));
   }
 
+  /* ── Bundle helpers ── */
+  var $bundleTotalForms = $form.find('#id_bundles-TOTAL_FORMS');
+  var $bundleTemplate   = $form.find('#svc-bundle-empty-row');
+  var $bundleBody       = $form.find('#bundle-formset-body');
+  var apiBase           = $form.data('bundle-api') || '/pricing/api/price-lists/';
+
+  function svcBundleUpdateRow($row) {
+    var unitPrice = parseFloat($row.data('bundle-unit-price')) || 0;
+    var qty       = parseFloat($row.find('.svc-bundle-qty').val()) || 1;
+    var total     = unitPrice * qty;
+    $row.find('.svc-bundle-unit-badge').text(unitPrice > 0 ? '₱' + unitPrice.toFixed(2) + '/set' : '');
+    $row.find('.svc-bundle-total-badge').text(total > 0 ? '₱' + total.toFixed(2) : '');
+    $row.data('bundle-total', total);
+    WIS.updateServiceOtherMaterialsTotals($form);
+  }
+
+  function svcBundleFetchPrice($row) {
+    var plId = $row.find('.svc-bundle-pricelist').val();
+    if (!plId) {
+      $row.removeData('bundle-unit-price bundle-total');
+      $row.find('.svc-bundle-unit-badge, .svc-bundle-total-badge').text('');
+      WIS.updateServiceOtherMaterialsTotals($form);
+      return;
+    }
+    $.getJSON(apiBase + plId + '/items/', function(data) {
+      var unitPrice = 0;
+      if (data && data.items) {
+        $.each(data.items, function(i, it) { unitPrice += parseFloat(it.price) || 0; });
+      }
+      $row.data('bundle-unit-price', unitPrice);
+      svcBundleUpdateRow($row);
+    }).fail(function() {
+      $row.data('bundle-unit-price', 0);
+      svcBundleUpdateRow($row);
+    });
+  }
+
   WIS.updateServiceOtherMaterialsTotals = function(targetRoot) {
     var $scope = $(targetRoot || $form);
     var $scopeForm = $scope.is('form') ? $scope : $scope.find('#svc-main-form').first();
@@ -1755,21 +1793,193 @@ WIS.initServiceOtherMaterials = function(root) {
       }
     });
 
-    var fee = parseFloat($scopeForm.find('#id_service_fee').val()) || 0;
-    var sub = lines + mats + fee;
+    var bundles = 0;
+    var bundleCount = 0;
+    $scopeForm.find('#bundle-formset-body .bundle-card').each(function() {
+      var $r = $(this);
+      if ($r.find('[name$="-DELETE"]').is(':checked')) return;
+      var bt = parseFloat($r.data('bundle-total')) || 0;
+      bundles += bt;
+      if (bt > 0 || $r.find('.svc-bundle-pricelist').val()) bundleCount++;
+    });
+
+    var quot = parseFloat($scopeForm.find('#id_quotation').val()) || 0;
+    var sub  = quot - lines - mats - bundles;
     var dtype = $scopeForm.find('#id_discount_type').val();
-    var dval = parseFloat($scopeForm.find('#id_discount_value').val()) || 0;
-    var disc = dtype === 'PERCENT' ? (sub * dval / 100) : dval;
-    disc = Math.min(disc, sub);
+    var dval  = parseFloat($scopeForm.find('#id_discount_value').val()) || 0;
+    var disc  = dtype === 'PERCENT' ? (sub * dval / 100) : dval;
+    disc = Math.min(Math.max(disc, 0), sub);
     var grand = sub - disc;
 
+    $scopeForm.find('#tot-quotation').text(quot.toFixed(2));
     $scopeForm.find('#tot-lines').text(lines.toFixed(2));
     $scopeForm.find('#tot-mats').text(mats.toFixed(2));
-    $scopeForm.find('#tot-fee').text(fee.toFixed(2));
+    $scopeForm.find('#tot-bundles').text(bundles.toFixed(2));
     $scopeForm.find('#tot-subtotal').text(sub.toFixed(2));
     $scopeForm.find('#tot-discount').text(disc.toFixed(2));
     $scopeForm.find('#tot-grand').text(grand.toFixed(2));
+    $scopeForm.find('#svc-bundle-count').text(bundleCount || '');
   };
+
+  /* ── Add bundle row ── */
+  $form.find('#svc-add-bundle-row').on('click', function(e) {
+    e.preventDefault();
+    var index = parseInt($bundleTotalForms.val(), 10) || 0;
+    var tpl = $bundleTemplate.html().replace(/__prefix__/g, index);
+    var $row = $(tpl);
+    $bundleBody.append($row);
+    $bundleTotalForms.val(index + 1);
+    WIS.updateServiceOtherMaterialsTotals($form);
+    wisInitSelect2($row[0]);
+  });
+
+  /* ── Price list change → fetch bundle price ── */
+  $form.on('change', '.svc-bundle-pricelist', function() {
+    svcBundleFetchPrice($(this).closest('.bundle-card'));
+  });
+
+  /* ── Qty change → recalc total ── */
+  $form.on('input change', '.svc-bundle-qty', function() {
+    svcBundleUpdateRow($(this).closest('.bundle-card'));
+  });
+
+  /* ── Items modal ── */
+  $form.on('click', '.svc-bundle-items-btn', function(e) {
+    e.stopPropagation(); // Prevent event bubbling
+    var $row   = $(this).closest('.bundle-card');
+    var plId   = $row.find('.svc-bundle-pricelist').val();
+    var plName = $row.find('.svc-bundle-pricelist option:selected').text() || 'Bundle Items';
+    var $modal = $('#svc-bundle-items-modal');
+    $modal.find('#svc-bundle-modal-name').text(plName);
+    var $body = $modal.find('#svc-bundle-modal-body');
+    
+    // Bootstrap 5 modal initialization
+    var modal = new bootstrap.Modal($modal[0], {
+      backdrop: 'static',
+      keyboard: true
+    });
+    
+    modal.show();
+    if (!plId) {
+      $body.html('<p class="text-muted p-4 text-center">No bundle selected.</p>');
+      return;
+    }
+    $body.html('<div class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin fa-2x"></i></div>');
+    $.getJSON(apiBase + plId + '/items/', function(data) {
+      if (data && data.items && data.items.length) {
+        var html = '<table class="table table-sm table-bordered table-striped mb-0">';
+        html += '<thead class="thead-light"><tr><th scope="col" style="width:40px;">#</th><th scope="col">Item</th><th scope="col" style="width:80px;">Unit</th><th scope="col" class="text-right" style="width:120px;">Price / set</th></tr></thead><tbody>';
+        var total = 0;
+        $.each(data.items, function(i, it) {
+          var p = parseFloat(it.price) || 0;
+          total += p;
+          html += '<tr><td class="text-muted">' + (i + 1) + '</td>';
+          html += '<td>' + (it.item_name || '') + '</td>';
+          html += '<td>' + (it.unit_abbr || '') + '</td>';
+          html += '<td class="text-right">₱' + p.toFixed(2) + '</td></tr>';
+        });
+        html += '<tr class="table-primary font-weight-bold"><td colspan="3">Bundle Unit Price (1 set)</td>';
+        html += '<td class="text-right">₱' + total.toFixed(2) + '</td></tr></tbody></table>';
+        html += '<div class="text-start mt-3">';
+        html += '<div class="small text-muted">Qty: ' + qty + '</div>';
+        html += '<div class="small text-muted">Unit Price / Set: ₱' + total.toFixed(2) + '</div>';
+        html += '<div class="fw-bold text-danger">Bundle Total: ₱' + (total * qty).toFixed(2) + '</div>';
+        html += '</div>';
+
+        $body.html(html);
+      } else {
+        $body.html('<p class="text-muted p-4 text-center">No items found in this bundle.</p>');
+      }
+    }).fail(function() {
+      $body.html('<p class="text-danger p-4 text-center">Failed to load bundle items.</p>');
+    });
+  });
+  
+  // Prevent modal close events from bubbling up (Bootstrap 5)
+  $('#svc-bundle-items-modal').on('hide.bs.modal', function(e) {
+    e.stopPropagation();
+  });
+  
+  $('#svc-bundle-items-modal').on('hidden.bs.modal', function(e) {
+    e.stopPropagation();
+  });
+
+  $(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
+    e.preventDefault();
+    var $btn = $(this);
+    var api = $btn.data('api');
+    var bundleName = $btn.data('bundle-name') || 'Bundle Items';
+    var qty = parseFloat($btn.data('bundle-qty')) || 1;
+
+    Swal.fire({
+      title: bundleName,
+      html: '<div class="text-center py-4"><div class="spinner-border text-primary"></div><div class="mt-2 text-muted small">Loading bundle items...</div></div>',
+      width: 900,
+      position: 'center-start',
+      showConfirmButton: false,
+      showCloseButton: true,
+      customClass: { popup: 'text-start' }
+    });
+
+    $.getJSON(api, function(data) {
+      if (!data || !data.items || !data.items.length) {
+        Swal.update({
+          title: bundleName,
+          html: '<div class="text-center py-5 text-muted"><i class="fas fa-box-open fa-2x mb-2"></i><div>No items in this bundle.</div></div>',
+          showConfirmButton: true,
+          confirmButtonText: 'Close'
+        });
+        return;
+      }
+
+      var total = 0;
+      var html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">';
+      html += '<thead class="thead-light"><tr><th style="width:40px;">#</th><th>Item</th><th style="width:90px;">Unit</th><th class="text-right" style="width:130px;">Price / set</th></tr></thead><tbody>';
+      $.each(data.items, function(i, it) {
+        var price = parseFloat(it.price) || 0;
+        total += price;
+        html += '<tr>';
+        html += '<td class="text-muted">' + (i + 1) + '</td>';
+        html += '<td>' + (it.item_name || '') + '</td>';
+        html += '<td>' + (it.unit_abbr || '') + '</td>';
+        html += '<td class="text-right">₱' + price.toFixed(2) + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+      html += '<div class="text-end mt-3">';
+      html += '<div class="small text-muted">Qty: ' + qty + '</div>';
+      html += '<div class="small text-muted">Unit Price / Set: ₱' + total.toFixed(2) + '</div>';
+      html += '<div class="fw-bold text-danger">Bundle Total: ₱' + (total * qty).toFixed(2) + '</div>';
+      html += '</div>';
+
+      Swal.update({
+        title: bundleName,
+        html: html,
+        showConfirmButton: true,
+        confirmButtonText: 'Close'
+      });
+    }).fail(function() {
+      Swal.update({
+        title: bundleName,
+        html: '<div class="text-danger py-5 text-center"><i class="fas fa-exclamation-triangle mr-1"></i>Failed to load bundle items.</div>',
+        showConfirmButton: true,
+        confirmButtonText: 'Close'
+      });
+    });
+  });
+
+  /* ── Remove bundle row ── */
+  $form.on('click', '.svc-bundle-remove-btn', function() {
+    var $row = $(this).closest('.bundle-card');
+    var $del = $row.find('[name$="-DELETE"]');
+    if ($del.length) { $del.prop('checked', true); $row.hide(); }
+    else { $row.remove(); }
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  /* ── Init existing bundle rows on page load ── */
+  $bundleBody.find('.bundle-card').each(function() { svcBundleFetchPrice($(this)); });
+
 
   $addBtn.on('click', function(e) {
     e.preventDefault();
@@ -1803,13 +2013,77 @@ WIS.initServiceOtherMaterials = function(root) {
     WIS.updateServiceOtherMaterialsTotals($form);
   });
 
-  $form.find('#id_service_fee, #id_discount_type, #id_discount_value').on('input change', function() {
+  $form.find('#id_quotation, #id_discount_type, #id_discount_value').on('input change', function() {
     WIS.updateServiceOtherMaterialsTotals($form);
   });
 
   $tbody.find('.mat-row').each(function() { matUpdateRowTotal(this); });
   setTimeout(function() { WIS.updateServiceOtherMaterialsTotals($form); }, 0);
 };
+
+$(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
+  e.preventDefault();
+  var $btn = $(this);
+  var api = $btn.data('api');
+  var bundleName = $btn.data('bundle-name') || 'Bundle Items';
+  var qty = parseFloat($btn.data('bundle-qty')) || 1;
+
+  Swal.fire({
+    title: bundleName,
+    html: '<div class="py-4"><div class="spinner-border text-primary"></div><div class="mt-2 text-muted small">Loading bundle items...</div></div>',
+    width: 900,
+    position: 'center',
+    showConfirmButton: false,
+    showCloseButton: true,
+    customClass: { popup: 'text-start' }
+  });
+
+  $.getJSON(api, function(data) {
+    if (!data || !data.items || !data.items.length) {
+      Swal.update({
+        title: bundleName,
+        html: '<div class="py-5 text-muted"><i class="fas fa-box-open fa-2x mb-2"></i><div>No items in this bundle.</div></div>',
+        showConfirmButton: true,
+        confirmButtonText: 'Close'
+      });
+      return;
+    }
+
+    var total = 0;
+    var html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">';
+    html += '<thead class="thead-light"><tr><th style="width:40px;">#</th><th>Item</th><th style="width:90px;">Unit</th><th class="text-right" style="width:130px;">Price / set</th></tr></thead><tbody>';
+    $.each(data.items, function(i, it) {
+      var price = parseFloat(it.price) || 0;
+      total += price;
+      html += '<tr>';
+      html += '<td class="text-muted">' + (i + 1) + '</td>';
+      html += '<td>' + (it.item_name || '') + '</td>';
+      html += '<td>' + (it.unit_abbr || '') + '</td>';
+      html += '<td class="text-right">₱' + price.toFixed(2) + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<div class="mt-3 text-start">';
+    html += '<div class="small text-muted">Qty: ' + qty + '</div>';
+    html += '<div class="small text-muted">Unit Price / Set: ₱' + total.toFixed(2) + '</div>';
+    html += '<div class="fw-bold text-danger">Bundle Total: ₱' + (total * qty).toFixed(2) + '</div>';
+    html += '</div>';
+
+    Swal.update({
+      title: bundleName,
+      html: html,
+      showConfirmButton: true,
+      confirmButtonText: 'Close'
+    });
+  }).fail(function() {
+    Swal.update({
+      title: bundleName,
+      html: '<div class="text-danger py-5 text-center"><i class="fas fa-exclamation-triangle mr-1"></i>Failed to load bundle items.</div>',
+      showConfirmButton: true,
+      confirmButtonText: 'Close'
+    });
+  });
+});
 </script>
 {% block extra_js %}{% endblock %}
 </body>

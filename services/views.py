@@ -3,12 +3,13 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
-from services.models import CustomerService, ServiceLine, ServiceOtherMaterial, ServiceStatus
+from services.models import CustomerService, ServiceLine, ServiceOtherMaterial, ServiceBundle, ServiceStatus, ServicePaymentStatus
 from services.forms import (
     CustomerServiceForm, CustomerServiceEditForm,
-    ServiceLineFormSet, ServiceOtherMaterialFormSet,
+    ServiceLineFormSet, ServiceOtherMaterialFormSet, ServiceBundleFormSet,
 )
 
 
@@ -73,23 +74,20 @@ def service_list(request):
 @login_required
 def service_detail(request, pk):
     svc = get_object_or_404(
-        CustomerService.objects.select_related('invoice', 'warehouse', 'created_by', 'posted_by')
+        CustomerService.objects.select_related('warehouse', 'created_by', 'posted_by', 'invoice')
         .prefetch_related(
-            'lines__item__default_unit', 'lines__item__selling_unit',
-            'lines__unit', 'lines__location',
+            'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location',
             'other_materials',
+            Prefetch('bundles', queryset=ServiceBundle.objects.select_related('price_list').prefetch_related('price_list__items')),
         ),
         pk=pk,
     )
 
-    # ── Product Line P&L (with unit conversion for COGS) ─────────────────
     try:
-        from catalog.utils import get_item_cogs_for_unit
-        _cogs_fn = get_item_cogs_for_unit
+        from catalog.models import get_cost_for_unit as _cogs_fn
     except ImportError:
         _cogs_fn = None
 
-    line_cogs = Decimal('0')
     line_pnl = []
     for line in svc.lines.all():
         if _cogs_fn:
@@ -107,30 +105,11 @@ def service_detail(request, pk):
             'selling': line.line_total,
             'profit': line.line_total - cost,
         })
-        line_cogs += cost
-
-    # ── Other Materials (treat unit_price as both revenue & cost basis) ───
-    mat_total_cost = sum(
-        (mat.line_total for mat in svc.other_materials.all()), Decimal('0')
-    )
-
-    revenue = svc.grand_total
-    total_cogs = line_cogs + mat_total_cost
-    gross_profit = revenue - total_cogs
-    gross_margin = (gross_profit / revenue * 100) if revenue > 0 else Decimal('0')
-    roi = (gross_profit / total_cogs * 100) if total_cogs > 0 else Decimal('0')
 
     return render(request, 'services/service_detail.html', {
         'service': svc,
         'line_pnl': line_pnl,
         'other_materials': svc.other_materials.all(),
-        'service_cogs': line_cogs,
-        'mat_total_cost': mat_total_cost,
-        'total_cogs': total_cogs,
-        'service_revenue': revenue,
-        'gross_profit': gross_profit,
-        'gross_margin': gross_margin,
-        'roi': roi,
     })
 
 
@@ -143,25 +122,30 @@ def service_create(request):
         form = CustomerServiceForm(request.POST)
         formset = ServiceLineFormSet(request.POST, prefix='lines')
         mat_formset = ServiceOtherMaterialFormSet(request.POST, prefix='mats')
+        bundle_formset = ServiceBundleFormSet(request.POST, prefix='bundles')
         if form.is_valid():
             svc = form.save(commit=False)
             svc.created_by = request.user
             svc.save()
             formset = ServiceLineFormSet(request.POST, instance=svc, prefix='lines')
             mat_formset = ServiceOtherMaterialFormSet(request.POST, instance=svc, prefix='mats')
-            if formset.is_valid() and mat_formset.is_valid():
+            bundle_formset = ServiceBundleFormSet(request.POST, instance=svc, prefix='bundles')
+            if formset.is_valid() and mat_formset.is_valid() and bundle_formset.is_valid():
                 formset.save()
                 mat_formset.save()
+                bundle_formset.save()
                 messages.success(request, f'Service {svc.service_number} created.')
                 return redirect('service_detail', pk=svc.pk)
     else:
         form = CustomerServiceForm()
         formset = ServiceLineFormSet(prefix='lines')
         mat_formset = ServiceOtherMaterialFormSet(prefix='mats')
+        bundle_formset = ServiceBundleFormSet(prefix='bundles')
     return render(request, 'services/service_form.html', {
         'form': form,
         'formset': formset,
         'mat_formset': mat_formset,
+        'bundle_formset': bundle_formset,
         'title': 'New Customer Service',
         'is_create': True,
     })
@@ -180,20 +164,24 @@ def service_edit(request, pk):
         form = CustomerServiceEditForm(request.POST, instance=svc)
         formset = ServiceLineFormSet(request.POST, instance=svc, prefix='lines')
         mat_formset = ServiceOtherMaterialFormSet(request.POST, instance=svc, prefix='mats')
-        if form.is_valid() and formset.is_valid() and mat_formset.is_valid():
+        bundle_formset = ServiceBundleFormSet(request.POST, instance=svc, prefix='bundles')
+        if form.is_valid() and formset.is_valid() and mat_formset.is_valid() and bundle_formset.is_valid():
             form.save()
             formset.save()
             mat_formset.save()
+            bundle_formset.save()
             messages.success(request, f'Service {svc.service_number} updated.')
             return redirect('service_detail', pk=svc.pk)
     else:
         form = CustomerServiceEditForm(instance=svc)
         formset = ServiceLineFormSet(instance=svc, prefix='lines')
         mat_formset = ServiceOtherMaterialFormSet(instance=svc, prefix='mats')
+        bundle_formset = ServiceBundleFormSet(instance=svc, prefix='bundles')
     return render(request, 'services/service_form.html', {
         'form': form,
         'formset': formset,
         'mat_formset': mat_formset,
+        'bundle_formset': bundle_formset,
         'title': f'Edit Service: {svc.service_number}',
         'service': svc,
         'is_create': False,
@@ -230,8 +218,6 @@ def service_start(request, pk):
         else:
             messages.error(request, 'Only DRAFT services can be started.')
     return redirect('service_detail', pk=pk)
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # COMPLETE — deducts inventory + generates invoice with COGS/ROI
 # ═══════════════════════════════════════════════════════════════════════════
@@ -252,9 +238,10 @@ def service_complete(request, pk):
         'unit', 'location__warehouse',
     ).all())
     other_mats = list(svc.other_materials.all())
+    bundles = list(svc.bundles.select_related('price_list').prefetch_related('price_list__items__item', 'price_list__items__unit').all())
 
-    # ── Inventory deduction (Product Lines only) ───────────────────────────
-    if lines:
+    # ── Inventory deduction (Product Lines + Bundles) ──────────────────────
+    if lines or bundles:
         try:
             from inventory.models import StockMove, StockBalance, MoveType, MoveStatus
             from catalog.models import convert_to_base_unit
@@ -271,20 +258,14 @@ def service_complete(request, pk):
 
             missing_location_items = []
             moves = []
-            for line in lines:
-                location = line.location or default_location
-                if location is None:
-                    missing_location_items.append(line.item.code)
-                    continue
 
-                base_qty = convert_to_base_unit(
-                    line.qty, line.unit, line.item.stock_unit, item=line.item
-                )
+            def deduct_item(item, sale_unit, qty, location):
+                base_qty = convert_to_base_unit(qty, sale_unit, item.stock_unit, item=item)
                 move = StockMove(
                     move_type=MoveType.SERVICE_OUT,
-                    item=line.item,
+                    item=item,
                     qty=base_qty,
-                    unit=line.item.stock_unit,
+                    unit=item.stock_unit,
                     from_location=location,
                     to_location=None,
                     reference_type='CustomerService',
@@ -300,7 +281,7 @@ def service_complete(request, pk):
                 moves.append(move)
 
                 balance, _ = StockBalance.objects.select_for_update().get_or_create(
-                    item=line.item,
+                    item=item,
                     location=location,
                     defaults={'qty_on_hand': Decimal('0'), 'qty_reserved': Decimal('0')},
                 )
@@ -308,10 +289,28 @@ def service_complete(request, pk):
                 wh = location.warehouse
                 if not wh.allow_negative_stock and balance.qty_on_hand < 0:
                     raise ValueError(
-                        f"Insufficient stock for {line.item.code} at {location}. "
+                        f"Insufficient stock for {item.code} at {location}. "
                         f"Available: {balance.qty_on_hand + base_qty}, Requested: {base_qty}"
                     )
                 balance.save()
+
+            for line in lines:
+                location = line.location or default_location
+                if location is None:
+                    missing_location_items.append(line.item.code)
+                    continue
+                deduct_item(line.item, line.unit, line.qty, location)
+
+            for bundle in bundles:
+                for pli in bundle.price_list.items.select_related('item', 'unit').all():
+                    location = default_location
+                    if location is None:
+                        missing_location_items.append(pli.item.code)
+                        continue
+                    bundle_qty = (bundle.qty or Decimal('0')) * (pli.min_qty or Decimal('0'))
+                    if bundle_qty <= 0:
+                        continue
+                    deduct_item(pli.item, pli.unit, bundle_qty, location)
 
             if moves:
                 StockMove.objects.bulk_create(moves)
@@ -319,7 +318,7 @@ def service_complete(request, pk):
             if missing_location_items:
                 messages.warning(
                     request,
-                    f'No location set for item(s): {", ".join(missing_location_items)}. '
+                    f'No location set for item(s): {", ".join(sorted(set(missing_location_items)))}. '
                     'Their stock was NOT deducted. Set a location or assign a warehouse.'
                 )
 
@@ -345,17 +344,32 @@ def service_complete(request, pk):
             cogs_pu = line.item.cost_price or Decimal('0')
         total_cogs += cogs_pu * line.qty
 
+    for bundle in bundles:
+        for pli in bundle.price_list.items.select_related('item', 'unit').all():
+            if _cogs_fn:
+                try:
+                    bundle_cogs_pu = _cogs_fn(pli.item, pli.unit)
+                except Exception:
+                    bundle_cogs_pu = pli.item.cost_price or Decimal('0')
+            else:
+                bundle_cogs_pu = pli.item.cost_price or Decimal('0')
+            bundle_qty = (bundle.qty or Decimal('0')) * (pli.min_qty or Decimal('0'))
+            total_cogs += bundle_cogs_pu * bundle_qty
+
     # Other materials: their unit_price is treated as cost (no catalog reference)
     for mat in other_mats:
         total_cogs += mat.line_total
 
     # ── Generate Invoice ───────────────────────────────────────────────────
-    from core.models import Invoice, InvoiceLine
+    from core.models import Invoice, InvoiceLine, InvoicePayment, PaymentMethod
     from core.views import _next_invoice_number
 
     subtotal = svc.subtotal
     discount_amt = svc.discount_amount
     grand_total = svc.grand_total
+    partial_paid = svc.partial_payment_amount_value
+    if partial_paid > grand_total:
+        partial_paid = grand_total
 
     inv = Invoice.objects.create(
         invoice_number=_next_invoice_number(),
@@ -369,6 +383,26 @@ def service_complete(request, pk):
         notes=f'Service: {svc.service_name}',
         created_by=request.user,
     )
+
+    if svc.payment_status == ServicePaymentStatus.PAID and grand_total > 0:
+        partial_paid = grand_total
+
+    if partial_paid > 0:
+        InvoicePayment.objects.create(
+            invoice=inv,
+            date=now.date(),
+            method=PaymentMethod.CASH,
+            amount=partial_paid,
+            reference_no='',
+            notes=f'Initial payment recorded from service {svc.service_number}',
+            created_by=request.user,
+        )
+
+    if partial_paid >= grand_total and grand_total > 0:
+        inv.is_paid = True
+        inv.paid_at = now
+        inv.paid_date = now.date()
+        inv.save(update_fields=['is_paid', 'paid_at', 'paid_date', 'updated_at'])
 
     # Product line items
     for line in lines:
@@ -394,13 +428,13 @@ def service_complete(request, pk):
             line_total=mat.line_total,
         )
 
-    # Service fee line (if set)
-    fee = svc.service_fee_amount
+    # Quotation line (if set)
+    fee = svc.quotation_amount
     if fee > 0:
         InvoiceLine.objects.create(
             invoice=inv,
-            item_code='SVC-FEE',
-            item_name='Service / Labor Fee',
+            item_code='SVC-QUOT',
+            item_name='Service Quotation',
             qty=Decimal('1'),
             unit='svc',
             unit_price=fee,
@@ -408,7 +442,7 @@ def service_complete(request, pk):
         )
 
     # If nothing at all, create summary line
-    if not lines and not other_mats and fee == 0:
+    if not lines and not other_mats and svc.quotation_amount == 0:
         InvoiceLine.objects.create(
             invoice=inv,
             item_code='SVC',
@@ -431,10 +465,21 @@ def service_complete(request, pk):
         'completion_date', 'updated_at',
     ])
 
-    messages.success(
-        request,
-        f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated.'
-    )
+    if partial_paid > 0 and partial_paid < grand_total:
+        messages.success(
+            request,
+            f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated with partial payment of ₱{partial_paid:,.2f}.'
+        )
+    elif partial_paid >= grand_total and grand_total > 0:
+        messages.success(
+            request,
+            f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated and marked fully paid.'
+        )
+    else:
+        messages.success(
+            request,
+            f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated.'
+        )
     return redirect('service_detail', pk=pk)
 
 
