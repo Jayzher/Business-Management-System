@@ -45,15 +45,20 @@ class CustomerService(models.Model):
         default=ServicePaymentStatus.UNPAID,
         db_index=True,
     )
+    partial_payment_amount = models.DecimalField(
+        max_digits=15, decimal_places=2,
+        null=True, blank=True, default=Decimal('0'),
+        help_text='Amount already paid by the customer when payment status is Partially Paid.',
+    )
     amount = models.DecimalField(
         max_digits=15, decimal_places=2,
         null=True, blank=True,
         help_text='Legacy manual override — use service_fee instead.',
     )
-    service_fee = models.DecimalField(
+    quotation = models.DecimalField(
         max_digits=15, decimal_places=2,
         null=True, blank=True, default=None,
-        help_text='Service / labor charge added on top of product & material lines.',
+        help_text='Total amount quoted to the customer for this service.',
     )
     discount_type = models.CharField(
         max_length=10,
@@ -115,13 +120,17 @@ class CustomerService(models.Model):
         return self.product_lines_total
 
     @property
-    def service_fee_amount(self):
-        return self.service_fee or Decimal('0')
+    def quotation_amount(self):
+        return self.quotation or Decimal('0')
+
+    @property
+    def bundles_total(self):
+        return sum((b.bundle_total for b in self.bundles.all()), Decimal('0'))
 
     @property
     def subtotal(self):
-        """Sum of product lines + other materials + service fee (before discount)."""
-        return self.product_lines_total + self.other_materials_total + self.service_fee_amount
+        """Quotation minus product-line, other-material, and bundle costs (before discount)."""
+        return self.quotation_amount - self.product_lines_total - self.other_materials_total - self.bundles_total
 
     @property
     def discount_amount(self):
@@ -134,6 +143,14 @@ class CustomerService(models.Model):
     @property
     def grand_total(self):
         return self.subtotal - self.discount_amount
+
+    @property
+    def partial_payment_amount_value(self):
+        return self.partial_payment_amount or Decimal('0')
+
+    @property
+    def remaining_balance(self):
+        return max(self.grand_total - self.partial_payment_amount_value, Decimal('0'))
 
 
 class ServiceLine(models.Model):
@@ -156,7 +173,7 @@ class ServiceLine(models.Model):
 
     @property
     def line_total(self):
-        return self.qty * self.unit_price
+        return (self.qty or 0) * (self.unit_price or 0)
 
     def __str__(self):
         return f"SvcLine: {self.item.code} x{self.qty}"
@@ -178,7 +195,39 @@ class ServiceOtherMaterial(models.Model):
 
     @property
     def line_total(self):
-        return self.qty * self.unit_price
+        return (self.qty or 0) * (self.unit_price or 0)
 
     def __str__(self):
         return f"OtherMat: {self.item_name} x{self.qty}"
+
+
+class ServiceBundle(models.Model):
+    """A PriceList bundle applied to a Customer Service as a COGS cost.
+    qty = how many full sets of this bundle are used."""
+    service = models.ForeignKey(
+        CustomerService, on_delete=models.CASCADE, related_name='bundles',
+    )
+    price_list = models.ForeignKey(
+        'pricing.PriceList', on_delete=models.PROTECT, related_name='service_bundle_lines',
+    )
+    qty = models.DecimalField(
+        max_digits=10, decimal_places=2, default=1,
+        help_text='Number of full bundle sets.',
+    )
+
+    @property
+    def bundle_unit_price(self):
+        """Sum of all PriceListItem prices in this bundle (one set)."""
+        if not self.price_list_id:
+            return Decimal('0')
+        return sum(
+            ((pli.price or Decimal('0')) for pli in self.price_list.items.all()),
+            Decimal('0'),
+        )
+
+    @property
+    def bundle_total(self):
+        return self.bundle_unit_price * (self.qty or Decimal('0'))
+
+    def __str__(self):
+        return f"Bundle: {self.price_list.name} ×{self.qty}"

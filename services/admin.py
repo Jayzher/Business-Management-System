@@ -1,5 +1,5 @@
 from django.contrib import admin
-from services.models import CustomerService, ServiceLine
+from services.models import CustomerService, ServiceLine, ServiceOtherMaterial, ServiceBundle
 
 
 class ServiceLineInline(admin.TabularInline):
@@ -8,13 +8,25 @@ class ServiceLineInline(admin.TabularInline):
     readonly_fields = ('line_total',)
 
 
+class ServiceOtherMaterialInline(admin.TabularInline):
+    model = ServiceOtherMaterial
+    extra = 0
+    readonly_fields = ('line_total',)
+
+
+class ServiceBundleInline(admin.TabularInline):
+    model = ServiceBundle
+    extra = 0
+    readonly_fields = ('bundle_unit_price', 'bundle_total')
+
+
 @admin.register(CustomerService)
 class CustomerServiceAdmin(admin.ModelAdmin):
     list_display = (
         'service_number', 'service_name', 'customer_name',
-        'service_date', 'status', 'payment_status', 'grand_total',
+        'service_date', 'status', 'payment_status', 'partial_payment_amount', 'grand_total',
     )
     list_filter = ('status', 'payment_status')
     search_fields = ('service_number', 'service_name', 'customer_name')
     readonly_fields = ('created_at', 'updated_at', 'posted_at', 'grand_total')
-    inlines = [ServiceLineInline]
+    inlines = [ServiceLineInline, ServiceOtherMaterialInline, ServiceBundleInline]

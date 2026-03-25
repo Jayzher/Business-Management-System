@@ -1,6 +1,6 @@
 from django import forms
 from django.forms import inlineformset_factory
-from services.models import CustomerService, ServiceLine, ServiceOtherMaterial
+from services.models import CustomerService, ServiceLine, ServiceOtherMaterial, ServiceBundle, ServicePaymentStatus
 
 _SM = 'form-control form-control-sm'
 _NUM = {'class': _SM, 'step': '0.01', 'min': '0'}
@@ -11,8 +11,8 @@ class CustomerServiceForm(forms.ModelForm):
         model = CustomerService
         fields = [
             'service_number', 'service_name', 'customer_name',
-            'service_date', 'address', 'payment_status',
-            'service_fee', 'discount_type', 'discount_value',
+            'service_date', 'address', 'payment_status', 'partial_payment_amount',
+            'quotation', 'discount_type', 'discount_value',
             'warehouse', 'notes',
         ]
         widgets = {
@@ -21,8 +21,9 @@ class CustomerServiceForm(forms.ModelForm):
             'customer_name': forms.TextInput(attrs={'class': _SM, 'placeholder': 'Customer full name'}),
             'service_date': forms.DateInput(attrs={'class': _SM, 'type': 'date'}),
             'address': forms.Textarea(attrs={'class': _SM, 'rows': 2, 'placeholder': 'Service address'}),
-            'payment_status': forms.Select(attrs={'class': _SM}),
-            'service_fee': forms.NumberInput(attrs={**_NUM, 'placeholder': '0.00', 'id': 'id_service_fee'}),
+            'payment_status': forms.Select(attrs={'class': _SM, 'id': 'id_payment_status'}),
+            'partial_payment_amount': forms.NumberInput(attrs={**_NUM, 'placeholder': '0.00', 'id': 'id_partial_payment_amount'}),
+            'quotation': forms.NumberInput(attrs={**_NUM, 'placeholder': '0.00', 'id': 'id_quotation'}),
             'discount_type': forms.Select(attrs={'class': _SM, 'id': 'id_discount_type'}),
             'discount_value': forms.NumberInput(attrs={**_NUM, 'placeholder': '0.00', 'id': 'id_discount_value'}),
             'warehouse': forms.Select(attrs={'class': _SM}),
@@ -35,7 +36,8 @@ class CustomerServiceForm(forms.ModelForm):
             'service_date': 'Date the service is scheduled or performed.',
             'address': 'Service location address.',
             'payment_status': 'Current payment status.',
-            'service_fee': 'Labor / service charge (separate from product lines).',
+            'partial_payment_amount': 'Required when payment status is Partially Paid.',
+            'quotation': 'Total amount quoted to the customer for this service.',
             'discount_type': 'How the discount is applied.',
             'discount_value': 'Discount amount or percentage.',
             'warehouse': 'Warehouse to deduct parts from on completion.',
@@ -44,9 +46,30 @@ class CustomerServiceForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['service_fee'].required = False
+        self.fields['quotation'].required = False
         self.fields['warehouse'].required = False
         self.fields['discount_value'].required = False
+        self.fields['partial_payment_amount'].required = False
+
+    def clean(self):
+        cleaned_data = super().clean()
+        payment_status = cleaned_data.get('payment_status')
+        partial_payment_amount = cleaned_data.get('partial_payment_amount')
+        quotation = cleaned_data.get('quotation') or 0
+
+        if payment_status == ServicePaymentStatus.PARTIAL:
+            if partial_payment_amount in (None, ''):
+                self.add_error('partial_payment_amount', 'Enter the partial payment amount.')
+            elif partial_payment_amount <= 0:
+                self.add_error('partial_payment_amount', 'Partial payment amount must be greater than 0.')
+            elif quotation and partial_payment_amount > quotation:
+                self.add_error('partial_payment_amount', 'Partial payment amount cannot exceed the quotation amount.')
+        elif payment_status == ServicePaymentStatus.PAID:
+            cleaned_data['partial_payment_amount'] = quotation
+        else:
+            cleaned_data['partial_payment_amount'] = 0
+
+        return cleaned_data
 
 
 class CustomerServiceEditForm(CustomerServiceForm):
@@ -85,8 +108,8 @@ class ServiceLineForm(forms.ModelForm):
             'item': forms.Select(attrs={'class': f'{_SM} svc-line-item'}),
             'location': forms.Select(attrs={'class': _SM}),
             'qty': forms.NumberInput(attrs={**_NUM, 'placeholder': 'e.g., 2'}),
-            'unit': forms.Select(attrs={'class': _SM}),
-            'unit_price': forms.NumberInput(attrs={**_NUM, 'placeholder': 'Selling price (auto-filled)'}),
+            'unit': forms.Select(attrs={'class': f'{_SM} svc-line-unit bg-light', 'style': 'pointer-events:none;', 'tabindex': '-1', 'aria-readonly': 'true'}),
+            'unit_price': forms.NumberInput(attrs={**_NUM, 'class': f'{_SM} svc-line-price bg-light', 'placeholder': 'Selling price (auto-filled)', 'readonly': 'readonly'}),
             'notes': forms.TextInput(attrs={'class': _SM, 'placeholder': 'Optional note'}),
         }
         help_texts = {
@@ -130,4 +153,27 @@ ServiceOtherMaterialFormSet = inlineformset_factory(
     CustomerService, ServiceOtherMaterial,
     form=ServiceOtherMaterialForm,
     extra=1, can_delete=True,
+)
+
+
+class ServiceBundleForm(forms.ModelForm):
+    class Meta:
+        model = ServiceBundle
+        fields = ['price_list', 'qty']
+        widgets = {
+            'price_list': forms.Select(attrs={
+                'class': f'{_SM} svc-bundle-pricelist',
+            }),
+            'qty': forms.NumberInput(attrs={
+                'class': f'{_SM} svc-bundle-qty',
+                'step': '1', 'min': '1', 'placeholder': '1',
+                'style': 'width:70px;',
+            }),
+        }
+
+
+ServiceBundleFormSet = inlineformset_factory(
+    CustomerService, ServiceBundle,
+    form=ServiceBundleForm,
+    extra=0, can_delete=True,
 )
