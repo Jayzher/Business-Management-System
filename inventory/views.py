@@ -252,6 +252,9 @@ def item_inventory_view(request):
         on_hand = t['total_on_hand']
         reserved = t['total_reserved']
         available = on_hand - reserved
+        # Per-row value shows the real (possibly negative) amount so the user
+        # can spot over-dispatched items.  Only positive stock contributes to
+        # the grand total — negative stock is excluded (no negative inventory).
         value = on_hand * (item.cost_price or Decimal('0'))
         rows.append({
             'item': item,
@@ -261,7 +264,8 @@ def item_inventory_view(request):
             'value': value,
         })
         grand_on_hand += on_hand
-        grand_value += value
+        if on_hand > Decimal('0'):
+            grand_value += value
 
     return render(request, 'inventory/item_inventory.html', {
         'rows': rows,

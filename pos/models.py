@@ -188,6 +188,24 @@ class POSRefund(TimeStampedModel):
         return f"{self.refund_no} ({self.status})"
 
 
+class POSSaleBundleLine(models.Model):
+    """Bundle line on a POS sale — expands into per-item stock moves on posting."""
+    sale = models.ForeignKey(POSSale, on_delete=models.CASCADE, related_name='bundle_lines')
+    price_list = models.ForeignKey(
+        'pricing.PriceList', on_delete=models.PROTECT,
+        related_name='pos_sale_bundle_lines',
+    )
+    qty_sets = models.DecimalField(max_digits=15, decimal_places=4, default=1)
+    unit_price = models.DecimalField(max_digits=15, decimal_places=4, default=0)  # price per set
+    line_total = models.DecimalField(max_digits=15, decimal_places=4, default=0)  # qty_sets × unit_price
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return f"Bundle {self.price_list.name} ×{self.qty_sets} (Sale: {self.sale.sale_no})"
+
+
 class POSRefundLine(models.Model):
     """POS refund line item."""
     refund = models.ForeignKey(POSRefund, on_delete=models.CASCADE, related_name='lines')

@@ -27,11 +27,11 @@ The command does two independent phases:
     (their reversal moves cancel out).  At the end, bulk-updates StockBalance.
 
 Usage:
-    python manage.py resync_inventory                  # dry-run by default
-    python manage.py resync_inventory --apply          # commit changes
-    python manage.py resync_inventory --phase 1        # moves only (dry-run)
-    python manage.py resync_inventory --phase 2 --apply
-    python manage.py resync_inventory --apply --quiet  # no per-row output
+    python manage.py resync_inventory                  # applies changes by default
+    python manage.py resync_inventory --dry-run        # preview without saving
+    python manage.py resync_inventory --phase 1        # moves only (applies)
+    python manage.py resync_inventory --phase 2 --dry-run
+    python manage.py resync_inventory --quiet          # no per-row output
 """
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
@@ -121,6 +121,102 @@ def _deduplicate_moves(dry_run, warn_fn):
             removed += 1
 
     return removed, len(dupes)
+
+
+def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
+    """
+    Delete POSTED StockMoves whose source document no longer exists in the DB.
+
+    For each known reference_type, collects all reference_ids present in
+    StockMove, then queries the corresponding model to find which IDs are
+    missing.  Any StockMove pointing to a missing document is an orphan and
+    is deleted so that Phase 2 balance recalculation isn't corrupted by
+    moves that were never reversed when their document was hard-deleted.
+    Returns (deleted_count, orphaned_groups).
+    """
+    from procurement.models import GoodsReceipt, PurchaseReturn
+    from sales.models import DeliveryNote, SalesPickup, SalesReturn
+    from inventory.models import StockTransfer, StockAdjustment, DamagedReport, InventoryToSupplyTransfer
+    from pos.models import POSSale, POSRefund
+    from services.models import CustomerService
+
+    model_map = {
+        'GoodsReceipt': GoodsReceipt,
+        'DeliveryNote': DeliveryNote,
+        'SalesPickup': SalesPickup,
+        'StockTransfer': StockTransfer,
+        'StockAdjustment': StockAdjustment,
+        'DamagedReport': DamagedReport,
+        'POSSale': POSSale,
+        'POSRefund': POSRefund,
+        'InventoryToSupplyTransfer': InventoryToSupplyTransfer,
+        'PurchaseReturn': PurchaseReturn,
+        'SalesReturn': SalesReturn,
+        'CustomerService': CustomerService,
+    }
+
+    total_deleted = 0
+    orphaned_groups = 0
+
+    # Also warn about completely unknown reference_types
+    known_types = set(model_map.keys())
+    unknown_type_moves = (
+        StockMove.objects
+        .filter(status=MoveStatus.POSTED)
+        .exclude(reference_type__in=known_types)
+        .exclude(reference_type='')
+        .values_list('reference_type', flat=True)
+        .distinct()
+    )
+    for utype in unknown_type_moves:
+        warn_fn(f'    [ORPHAN] Unknown reference_type="{utype}" — cannot verify; skipping.')
+
+    for ref_type, Model in model_map.items():
+        # Collect all reference_ids used by POSTED moves of this type
+        # (exclude NULL reference_id — those are special system/manual moves)
+        move_ref_ids = set(
+            StockMove.objects
+            .filter(status=MoveStatus.POSTED, reference_type=ref_type)
+            .exclude(reference_id__isnull=True)
+            .values_list('reference_id', flat=True)
+            .distinct()
+        )
+        if not move_ref_ids:
+            continue
+
+        # Find which of those IDs actually still exist in the source model
+        existing_ids = set(
+            Model.objects.filter(pk__in=move_ref_ids).values_list('pk', flat=True)
+        )
+        orphaned_ids = move_ref_ids - existing_ids
+
+        if not orphaned_ids:
+            continue
+
+        orphaned_qs = StockMove.objects.filter(
+            status=MoveStatus.POSTED,
+            reference_type=ref_type,
+            reference_id__in=orphaned_ids,
+        )
+
+        for m in orphaned_qs.select_related('item').order_by('id')[:200]:  # log up to 200
+            info_fn(
+                f'    [ORPHAN] Move#{m.pk} ref={ref_type}#{m.reference_id} '
+                f'item={m.item.code} qty={m.qty} '
+                f'(source document deleted)'
+            )
+
+        count = orphaned_qs.count()
+        if count > 200:
+            info_fn(f'    [ORPHAN] ... and {count - 200} more orphaned moves for {ref_type}')
+
+        if not dry_run:
+            orphaned_qs.delete()
+
+        total_deleted += count
+        orphaned_groups += len(orphaned_ids)
+
+    return total_deleted, orphaned_groups
 
 
 # ── Phase 1 helpers ──────────────────────────────────────────────────────────
@@ -342,6 +438,46 @@ def _iter_expected_moves(warn_fn):
                     'created_by': getattr(doc, 'created_by', None),
                     'posted_by': _document_posted_by(doc),
                     'posted_at': _document_posted_at(doc),
+                }
+
+    # ── POS bundle component moves (not represented by POSSaleLine) ──────────
+    for sale in POSSale.objects.filter(status=SaleStatus.POSTED).prefetch_related(
+        'bundle_lines__price_list__items__item__default_unit',
+        'bundle_lines__price_list__items__item__selling_unit',
+        'bundle_lines__price_list__items__item__stock_unit',
+        'bundle_lines__price_list__items__unit',
+    ).select_related('location'):
+        for bundle_line in sale.bundle_lines.all():
+            for pli in bundle_line.price_list.items.all():
+                item = pli.item
+                qty = pli.min_qty * bundle_line.qty_sets
+                if qty <= Decimal('0'):
+                    continue
+                target_unit = _inventory_unit(item)
+                base_qty = _safe_convert(
+                    qty, pli.unit, target_unit,
+                    f"POSSale#{sale.pk} bundle={bundle_line.price_list.name} item={item.code}",
+                    warn_fn, item=item,
+                )
+                if base_qty <= Decimal('0'):
+                    continue
+                yield {
+                    'reference_type': 'POSSale',
+                    'reference_id': sale.pk,
+                    'reference_number': sale.sale_no,
+                    'move_type': MoveType.POS_SALE,
+                    'item': item,
+                    'item_id': item.pk,
+                    'qty': base_qty,
+                    'unit': target_unit,
+                    'from_location_id': sale.location_id,
+                    'to_location_id': None,
+                    'batch_number': '',
+                    'serial_number': '',
+                    'notes': f'Bundle: {bundle_line.price_list.name}',
+                    'created_by': getattr(sale, 'created_by', None),
+                    'posted_by': _document_posted_by(sale),
+                    'posted_at': _document_posted_at(sale),
                 }
 
 
@@ -597,6 +733,9 @@ REFERENCE_TYPE_LOOKUPS = {
 # ── Phase 2 helpers ──────────────────────────────────────────────────────────
 
 def _accumulate(bucket, item_id, location_id, delta):
+    # Skip entries with no valid location or item – they cannot become a StockBalance row
+    if item_id is None or location_id is None:
+        return
     bucket[(item_id, location_id)] += delta
 
 
@@ -680,14 +819,31 @@ def _build_balance_from_documents(warn_fn):
 
     # ── POSSale ──────────────────────────────────────────────────────────────
     for sale in POSSale.objects.filter(status=SaleStatus.POSTED).prefetch_related(
-        'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
-    ):
+        'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location',
+        'bundle_lines__price_list__items__item__default_unit',
+        'bundle_lines__price_list__items__item__selling_unit',
+        'bundle_lines__price_list__items__item__stock_unit',
+        'bundle_lines__price_list__items__unit',
+    ).select_related('location'):
         for line in sale.lines.all():
             loc_id = line.location_id or sale.location_id
             target_unit = _inventory_unit(line.item)
             q = _safe_convert(line.qty, line.unit, target_unit,
                               f"POSSale#{sale.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, loc_id, -q)
+
+        # Bundle component deductions — each bundle set consumes its component items
+        for bundle_line in sale.bundle_lines.all():
+            for pli in bundle_line.price_list.items.all():
+                item = pli.item
+                qty = pli.min_qty * bundle_line.qty_sets
+                if qty <= Decimal('0'):
+                    continue
+                target_unit = _inventory_unit(item)
+                q = _safe_convert(qty, pli.unit, target_unit,
+                                  f"POSSale#{sale.pk} bundle={bundle_line.price_list.name} item={item.code}",
+                                  warn_fn, item=item)
+                _accumulate(bal, item.pk, sale.location_id, -q)
 
     # ── POSRefund ────────────────────────────────────────────────────────────
     for refund in POSRefund.objects.filter(status=RefundStatus.POSTED).prefetch_related(
@@ -749,16 +905,19 @@ def _build_balance_from_documents(warn_fn):
 
 class Command(BaseCommand):
     help = (
-        'Re-sync StockBalance and StockMove records to correct unit-conversion '
-        'errors. Use --apply to commit; default is dry-run.'
+        'Re-sync StockBalance and StockMove records from scratch. '
+        'Phase 0: delete orphaned moves + deduplicate. '
+        'Phase 1: fix move qtys and backfill missing moves. '
+        'Phase 2: rebuild StockBalance from all posted documents. '
+        'Applies changes by default; use --dry-run to preview without saving.'
     )
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--apply',
+            '--dry-run',
             action='store_true',
             default=False,
-            help='Commit changes to the database (default: dry-run).',
+            help='Preview changes without writing to the database.',
         )
         parser.add_argument(
             '--phase',
@@ -797,7 +956,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self._quiet = options['quiet']
-        dry_run = not options['apply']
+        dry_run = options['dry_run']
         phase = options['phase']
 
         mode = 'DRY-RUN' if dry_run else 'APPLYING'
@@ -807,7 +966,7 @@ class Command(BaseCommand):
 
         if dry_run:
             self.stdout.write(self.style.WARNING(
-                '  No changes will be saved.  Re-run with --apply to commit.\n'
+                '  No changes will be saved.  Re-run without --dry-run to commit.\n'
             ))
 
         if phase in ('0', 'all'):
@@ -821,10 +980,23 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS('\n=== Done ===\n'))
 
-    # ── Phase 0: deduplicate StockMoves ──────────────────────────────────────
+    # ── Phase 0: clean up StockMoves ─────────────────────────────────────────
 
     def _run_phase0(self, dry_run):
-        self.stdout.write('\n--- Phase 0: Deduplicating StockMoves ---')
+        # Step 0a: remove orphaned moves (document deleted, move not cleaned up)
+        self.stdout.write('\n--- Phase 0a: Removing orphaned StockMoves ---')
+        deleted, orph_groups = _delete_orphaned_moves(dry_run, self._warn, self._info)
+        mode = '(dry-run) would delete' if dry_run else 'Deleted'
+        self.stdout.write(self.style.SUCCESS(
+            f'  {mode} {deleted} orphaned move(s) across {orph_groups} missing document(s).'
+        ))
+        if dry_run and deleted:
+            self.stdout.write(self.style.WARNING(
+                '  Re-run without --dry-run to commit deletions.'
+            ))
+
+        # Step 0b: remove exact duplicate moves
+        self.stdout.write('\n--- Phase 0b: Deduplicating StockMoves ---')
         removed, groups = _deduplicate_moves(dry_run, self._warn)
         mode = '(dry-run) would remove' if dry_run else 'Removed'
         self.stdout.write(self.style.SUCCESS(
@@ -832,7 +1004,7 @@ class Command(BaseCommand):
         ))
         if dry_run and removed:
             self.stdout.write(self.style.WARNING(
-                '  Re-run with --apply to commit removals.'
+                '  Re-run without --dry-run to commit removals.'
             ))
 
     # ── Phase 1: fix StockMove.qty ───────────────────────────────────────────
@@ -925,17 +1097,19 @@ class Command(BaseCommand):
 
         self.stdout.write(f'  Computed {len(correct_bal)} (item, location) buckets.')
 
-        # Compare with existing StockBalance
+        # Load all existing balances into a dict for comparison
         existing = {
             (b.item_id, b.location_id): b
             for b in StockBalance.objects.all()
         }
 
-        # Identify all keys to process
-        all_keys = set(correct_bal.keys()) | set(existing.keys())
+        # All keys to reconcile — None item/location can't map to a DB row so skip them
+        all_keys = {
+            k for k in (set(correct_bal.keys()) | set(existing.keys()))
+            if k[0] is not None and k[1] is not None
+        }
 
-        creates, updates, zeros_preserved = [], [], 0
-        report_lines = []
+        to_create, to_update, unchanged = [], [], 0
 
         for key in all_keys:
             item_id, loc_id = key
@@ -943,48 +1117,45 @@ class Command(BaseCommand):
             bal_obj = existing.get(key)
 
             if bal_obj is None:
-                if new_qty != 0:
-                    creates.append(StockBalance(
-                        item_id=item_id,
-                        location_id=loc_id,
-                        qty_on_hand=new_qty,
-                        qty_reserved=Decimal('0'),
-                    ))
-                    report_lines.append(f'    CREATE item={item_id} loc={loc_id} qty={new_qty}')
+                # Missing balance row — create it (even if qty is zero/negative,
+                # so the record exists and future real-time updates work correctly)
+                to_create.append(StockBalance(
+                    item_id=item_id,
+                    location_id=loc_id,
+                    qty_on_hand=new_qty,
+                    qty_reserved=Decimal('0'),
+                ))
+                self._info(f'    CREATE item={item_id} loc={loc_id} qty={new_qty}')
             else:
                 old_qty = bal_obj.qty_on_hand
                 if old_qty != new_qty:
-                    report_lines.append(
+                    self._info(
                         f'    UPDATE item={item_id} loc={loc_id} '
                         f'{old_qty} -> {new_qty}'
                     )
-                    updates.append((bal_obj, new_qty))
+                    bal_obj.qty_on_hand = new_qty
+                    to_update.append(bal_obj)
                 else:
-                    zeros_preserved += 1
-
-        for line in report_lines:
-            self._info(line)
+                    unchanged += 1
 
         self.stdout.write(
-            f'\n  Creates: {len(creates)}  Updates: {len(updates)}  '
-            f'Unchanged: {zeros_preserved}'
+            f'\n  Creates: {len(to_create)}  Updates: {len(to_update)}  '
+            f'Unchanged: {unchanged}'
         )
 
         if not dry_run:
             with transaction.atomic():
-                # Apply creates
-                if creates:
-                    StockBalance.objects.bulk_create(creates)
-                # Apply updates
-                for bal_obj, new_qty in updates:
-                    bal_obj.qty_on_hand = new_qty
-                    bal_obj.save(update_fields=['qty_on_hand', 'updated_at'])
+                if to_create:
+                    StockBalance.objects.bulk_create(to_create)
+                if to_update:
+                    StockBalance.objects.bulk_update(to_update, ['qty_on_hand'])
+
             self.stdout.write(self.style.SUCCESS(
-                f'  Committed: {len(creates)} created, {len(updates)} updated.'
+                f'  Committed: {len(to_create)} created, {len(to_update)} updated.'
             ))
         else:
             self.stdout.write(self.style.WARNING(
-                '  (dry-run) No changes written.  Re-run with --apply to commit.'
+                '  (dry-run) No changes written.  Re-run without --dry-run to commit.'
             ))
 
     # ── Phase 3: Data integrity audit ────────────────────────────────────────
