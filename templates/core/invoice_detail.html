@@ -111,6 +111,44 @@
               <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
             </tr>
             {% endfor %}
+            {% for bundle in so_bundles %}
+            {# ── Bundle header row ── #}
+            <tr class="table-info">
+              <td>{{ invoice.lines.count|add:forloop.counter }}</td>
+              <td><span class="badge bg-primary text-white">BUNDLE</span></td>
+              <td>
+                <strong>{{ bundle.price_list.name }}</strong>
+                {% if bundle.notes %}<br><small class="text-muted">{{ bundle.notes }}</small>{% endif %}
+                {# Collapsed sub-item list #}
+                <a class="ml-1 small" data-toggle="collapse"
+                   href="#bundle-items-{{ forloop.counter }}"
+                   role="button" aria-expanded="false">
+                  <i class="fas fa-chevron-down"></i> items
+                </a>
+                <div class="collapse mt-1" id="bundle-items-{{ forloop.counter }}">
+                  <table class="table table-sm table-borderless mb-0">
+                    <thead><tr><th class="py-0">Code</th><th class="py-0">Item</th><th class="text-right py-0">Qty</th><th class="py-0">Unit</th><th class="text-right py-0">Price</th></tr></thead>
+                    <tbody>
+                    {% for pli in bundle.price_list.items.all %}
+                    <tr>
+                      <td class="py-0 text-muted small">{{ pli.item.code }}</td>
+                      <td class="py-0 small">{{ pli.item.name }}</td>
+                      <td class="text-right py-0 small">{{ pli.min_qty|floatformat:2 }}</td>
+                      <td class="py-0 small">{{ pli.unit.abbreviation }}</td>
+                      <td class="text-right py-0 small">{{ pli.price|floatformat:2|intcomma }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </td>
+              <td class="text-right">{{ bundle.qty_multiplier|floatformat:2 }}</td>
+              <td class="text-muted small">bundle</td>
+              <td class="text-right">{{ bundle.bundle_subtotal|floatformat:2|intcomma }}</td>
+              <td class="text-right">{{ bundle.bundle_discount_amount|floatformat:2|intcomma }}</td>
+              <td class="text-right"><strong>{{ bundle.bundle_total|floatformat:2|intcomma }}</strong></td>
+            </tr>
+            {% endfor %}
           </tbody>
           <tfoot>
             <tr><td colspan="7" class="text-right"><strong>Subtotal</strong></td><td class="text-right">&#8369; {{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>

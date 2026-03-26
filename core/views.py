@@ -330,6 +330,17 @@ def invoice_detail(request, pk):
     total_paid = sum(p.amount for p in payments)
     balance_due = max(inv.grand_total - total_paid, 0)
     today_date = timezone.now().date()
+
+    # Bundles (price list lines) attached to the linked Sales Order
+    so_bundles = []
+    if inv.sales_order_id:
+        so_bundles = list(
+            inv.sales_order.price_list_lines
+            .select_related('price_list')
+            .prefetch_related('price_list__items__item', 'price_list__items__unit')
+            .all()
+        )
+
     return render(request, 'core/invoice_detail.html', {
         'invoice': inv,
         'profile': profile,
@@ -337,6 +348,7 @@ def invoice_detail(request, pk):
         'balance_due': balance_due,
         'payments_with_balance': payments_with_balance,
         'today_date': today_date,
+        'so_bundles': so_bundles,
     })
 
 
