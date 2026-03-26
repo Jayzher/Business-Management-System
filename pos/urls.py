@@ -18,6 +18,10 @@ urlpatterns = [
     path('terminal/sale/<int:sale_id>/add-line/', views.terminal_add_line, name='pos_terminal_add_line'),
     path('terminal/line/<int:line_id>/remove/', views.terminal_remove_line, name='pos_terminal_remove_line'),
     path('terminal/line/<int:line_id>/update-qty/', views.terminal_update_qty, name='pos_terminal_update_qty'),
+    path('terminal/sale/<int:sale_id>/add-bundle/', views.terminal_add_bundle, name='pos_terminal_add_bundle'),
+    path('terminal/bundle-line/<int:bundle_line_id>/update-qty/', views.terminal_update_bundle_qty, name='pos_terminal_update_bundle_qty'),
+    path('terminal/bundle-line/<int:bundle_line_id>/remove/', views.terminal_remove_bundle, name='pos_terminal_remove_bundle'),
+    path('terminal/sale/<int:sale_id>/validate-bundle/<int:price_list_id>/', views.terminal_validate_bundle_stock, name='pos_terminal_validate_bundle'),
     path('terminal/sale/<int:sale_id>/checkout/', views.terminal_checkout, name='pos_terminal_checkout'),
     # Receipts
     path('receipts/', views.receipt_list_view, name='pos_receipt_list'),

@@ -2,15 +2,15 @@
 Tests for inventory/management/commands/resync_inventory.py
 
 Scenarios covered:
-  1.  Phase 2 dry-run: StockBalance unchanged.
-  2.  Phase 2 --apply: single-item GRN → correct balance from document line.
-  3.  Phase 2 --apply: GRN in boxes (1 box=20 pcs), stock balance = 60 pcs.
-  4.  Phase 2 --apply: GRN then DN in boxes → net balance correct.
-  5.  Phase 2 --apply: POS sale in boxes → balance deducted correctly.
-  6.  Phase 2 --apply: Stock Transfer (box → same item pcs) → from/to locations correct.
-  7.  Phase 2 --apply: damaged report in boxes → balance deducted.
-  8.  Phase 2 --apply: multiple docs, cumulative balance is accurate.
-  9.  Phase 1 --apply: existing StockMove with wrong qty gets corrected.
+  1.  Phase 2 --dry-run: StockBalance unchanged.
+  2.  Phase 2: single-item GRN → correct balance from document line.
+  3.  Phase 2: GRN in boxes (1 box=20 pcs), stock balance = 60 pcs.
+  4.  Phase 2: GRN then DN in boxes → net balance correct.
+  5.  Phase 2: POS sale in boxes → balance deducted correctly.
+  6.  Phase 2: Stock Transfer (box → same item pcs) → from/to locations correct.
+  7.  Phase 2: damaged report in boxes → balance deducted.
+  8.  Phase 2: multiple docs, cumulative balance is accurate.
+  9.  Phase 1: existing StockMove with wrong qty gets corrected.
   10. Full cycle: wrong move + wrong balance → both corrected.
 """
 import datetime
@@ -138,7 +138,7 @@ class ResyncDryRunTest(TestCase):
         _make_posted_grn(self, Decimal('3'), self.box)  # correct would be 60 pcs
         _set_balance(self.item, self.loc1, Decimal('999'))  # intentionally wrong
 
-        _call_resync('--phase', '2')   # no --apply
+        _call_resync('--phase', '2', '--dry-run')   # preview only
 
         self.assertEqual(_get_balance(self.item, self.loc1), Decimal('999'))
 
@@ -152,7 +152,7 @@ class ResyncPhase2BasicTest(TestCase):
 
     def test_grn_same_unit_sets_correct_balance(self):
         _make_posted_grn(self, Decimal('50'), self.pcs)
-        _call_resync('--phase', '2', '--apply')
+        _call_resync('--phase', '2')
         self.assertEqual(_get_balance(self.item, self.loc1), Decimal('50'))
 
 
@@ -165,7 +165,7 @@ class ResyncPhase2BoxConversionTest(TestCase):
 
     def test_grn_3_boxes_gives_60_pcs(self):
         _make_posted_grn(self, Decimal('3'), self.box)  # 3 × 20 = 60
-        _call_resync('--phase', '2', '--apply')
+        _call_resync('--phase', '2')
         self.assertEqual(_get_balance(self.item, self.loc1), Decimal('60'))
 
 
@@ -179,7 +179,7 @@ class ResyncPhase2GRNthenDNTest(TestCase):
     def test_grn_minus_dn_in_boxes(self):
         _make_posted_grn(self, Decimal('5'), self.box)  # +100 pcs
         _make_posted_dn(self, Decimal('2'), self.box)   # -40 pcs
-        _call_resync('--phase', '2', '--apply')
+        _call_resync('--phase', '2')
         self.assertEqual(_get_balance(self.item, self.loc1), Decimal('60'))
 
 
@@ -215,7 +215,7 @@ class ResyncPhase2POSSaleTest(TestCase):
         _set_balance(self.item, self.loc1, Decimal('100'))
         # Resync recalculates from documents only — POS sale = -2 boxes = -40 pcs
         # Since there's no GRN in this test, net from documents = -40
-        _call_resync('--phase', '2', '--apply')
+        _call_resync('--phase', '2')
         self.assertEqual(_get_balance(self.item, self.loc1), Decimal('-40'))
 
 
@@ -240,7 +240,7 @@ class ResyncPhase2TransferTest(TestCase):
         )
 
     def test_transfer_2_boxes_moves_40_pcs(self):
-        _call_resync('--phase', '2', '--apply')
+        _call_resync('--phase', '2')
         # loc1: -40, loc2: +40
         self.assertEqual(_get_balance(self.item, self.loc1), Decimal('-40'))
         self.assertEqual(_get_balance(self.item, self.loc2), Decimal('40'))
@@ -265,7 +265,7 @@ class ResyncPhase2DamagedTest(TestCase):
         )
 
     def test_damaged_1_box_deducts_20_pcs(self):
-        _call_resync('--phase', '2', '--apply')
+        _call_resync('--phase', '2')
         self.assertEqual(_get_balance(self.item, self.loc1), Decimal('-20'))
 
 
@@ -293,7 +293,7 @@ class ResyncPhase2CumulativeTest(TestCase):
             report=dr, item=self.item, location=self.loc1,
             qty=Decimal('1'), unit=self.box,
         )
-        _call_resync('--phase', '2', '--apply')
+        _call_resync('--phase', '2')
         # 100 - 20 - 20 = 60
         self.assertEqual(_get_balance(self.item, self.loc1), Decimal('60'))
 
@@ -345,7 +345,7 @@ class ResyncPhase1FixMovesTest(TestCase):
         move.unit = self.box
         move.save(update_fields=['qty', 'unit_id'])
 
-        _call_resync('--phase', '1', '--apply')
+        _call_resync('--phase', '1')
 
         move.refresh_from_db()
         self.assertEqual(move.qty, Decimal('60'))
@@ -383,7 +383,7 @@ class ResyncPhase1BackfillPONoGRNLinkTest(TestCase):
         self.assertEqual(PurchaseOrder.objects.count(), 0)
         self.assertIsNone(grn.purchase_order_id)
 
-        _call_resync('--phase', '1', '--apply')
+        _call_resync('--phase', '1')
 
         grn.refresh_from_db()
         self.assertIsNotNone(grn.purchase_order_id)
@@ -444,7 +444,7 @@ class ResyncFullCycleTest(TestCase):
         move.save(update_fields=['qty', 'unit_id'])
         _set_balance(self.item, self.loc1, Decimal('4'))  # wrong raw balance
 
-        _call_resync('--apply')   # both phases
+        _call_resync()   # both phases
 
         # Move corrected by Phase 1
         move.refresh_from_db()
@@ -465,10 +465,10 @@ class ResyncIdempotentTest(TestCase):
     def test_idempotent(self):
         _make_posted_grn(self, Decimal('3'), self.box)   # 60 pcs
 
-        _call_resync('--phase', '2', '--apply')
+        _call_resync('--phase', '2')
         bal_first = _get_balance(self.item, self.loc1)
 
-        _call_resync('--phase', '2', '--apply')
+        _call_resync('--phase', '2')
         bal_second = _get_balance(self.item, self.loc1)
 
         self.assertEqual(bal_first, Decimal('60'))

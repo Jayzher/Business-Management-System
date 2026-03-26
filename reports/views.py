@@ -122,7 +122,14 @@ def stock_on_hand_view(request):
         qs = qs.filter(location__warehouse_id=warehouse_id)
     qs = qs.order_by('item__code', 'location__warehouse__code')
 
-    total_value = qs.aggregate(
+    # Total value is calculated over ALL balances (including negative stock) so
+    # over-dispatched items correctly reduce the total inventory value.
+    all_bal_qs = StockBalance.objects.annotate(
+        line_value=F('qty_on_hand') * Coalesce(F('item__cost_price'), Decimal('0'), output_field=DecimalField()),
+    )
+    if warehouse_id:
+        all_bal_qs = all_bal_qs.filter(location__warehouse_id=warehouse_id)
+    total_value = all_bal_qs.aggregate(
         val=Coalesce(
             Sum('line_value', output_field=DecimalField()),
             Decimal('0'), output_field=DecimalField(),

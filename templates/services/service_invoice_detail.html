@@ -2,7 +2,11 @@
 {% load humanize %}
 {% block title %}Invoice INV-{{ invoice.invoice_number }}{% endblock %}
 {% block page_title %}Invoice INV-{{ invoice.invoice_number }}{% endblock %}
-{% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'invoice_list' %}">Invoices</a></li><li class="breadcrumb-item active">INV-{{ invoice.invoice_number }}</li>{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'service_list' %}">Services</a></li>
+<li class="breadcrumb-item"><a href="{% url 'service_invoice_list' %}">Service Invoices</a></li>
+<li class="breadcrumb-item active">INV-{{ invoice.invoice_number }}</li>
+{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -17,12 +21,13 @@
 
 {% block content %}
 <div class="row">
-  <!-- ── Left: Invoice Body ─────────────────────────────────────────────── -->
+  <!-- ── Left: Invoice Body ──────────────────────────────────────────────── -->
   <div class="col-lg-8">
     <div class="card card-outline card-primary">
       <div class="card-header d-flex justify-content-between align-items-center">
         <h3 class="card-title mb-0">
           <i class="fas fa-file-invoice mr-1"></i> Invoice Details
+          {% if service %}<small class="ml-1 text-muted">— <i class="fas fa-tools mr-1"></i>{{ service.service_number }}</small>{% endif %}
           {% if invoice.payment_status == 'PAID' %}
             <span class="badge badge-paid ml-2">PAID</span>
           {% elif invoice.payment_status == 'PARTIAL' %}
@@ -33,30 +38,30 @@
         </h3>
         <div>
           <a href="{% url 'invoice_print' invoice.pk %}" class="btn btn-sm btn-outline-primary" target="_blank"><i class="fas fa-print mr-1"></i> Print</a>
+          {% if service %}
+          <a href="{% url 'service_detail' service.pk %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-tools mr-1"></i> View Service</a>
+          {% endif %}
           {% if not invoice.is_paid %}
           <form method="post" action="{% url 'invoice_mark_paid' invoice.pk %}" class="d-inline">
             {% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'service_invoice_detail' invoice.pk %}">
             <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Mark this invoice as fully paid?')"><i class="fas fa-check-circle mr-1"></i> Mark Paid</button>
           </form>
           {% endif %}
-          <a href="{% url 'invoice_list' %}" class="btn btn-sm btn-secondary"><i class="fas fa-arrow-left mr-1"></i> Back</a>
+          <a href="{% url 'service_invoice_list' %}" class="btn btn-sm btn-secondary"><i class="fas fa-arrow-left mr-1"></i> Back</a>
         </div>
       </div>
 
       {% if invoice.grand_total > 0 %}
       <div class="px-3 pt-2 pb-1">
-        {% with pct=total_paid|floatformat:2 %}
         <div class="d-flex justify-content-between small mb-1">
           <span class="text-muted">Payment Progress</span>
           <span>&#8369;{{ total_paid|floatformat:2|intcomma }} / &#8369;{{ invoice.grand_total|floatformat:2|intcomma }}</span>
         </div>
-        {% endwith %}
         <div class="progress payment-progress mb-2">
-          {% with pct=total_paid %}
           <div class="progress-bar {% if invoice.is_paid %}bg-success{% elif total_paid > 0 %}bg-warning{% else %}bg-danger{% endif %}"
                role="progressbar"
                style="width:{% if invoice.grand_total > 0 %}{% widthratio total_paid invoice.grand_total 100 %}{% else %}0{% endif %}%"></div>
-          {% endwith %}
         </div>
         {% if not invoice.is_paid and balance_due > 0 %}
         <p class="small text-danger mb-1"><strong>Balance Due: &#8369;{{ balance_due|floatformat:2|intcomma }}</strong></p>
@@ -81,8 +86,11 @@
             <p class="mb-0"><strong>INV-{{ invoice.invoice_number }}</strong></p>
             <p class="mb-0">Date: {{ invoice.date|date:"M d, Y" }}</p>
             {% if invoice.due_date %}<p class="mb-0">Due: {{ invoice.due_date|date:"M d, Y" }}</p>{% endif %}
-            {% if invoice.sales_order %}<p class="mb-0">SO: <a href="{% url 'sales_order_detail' invoice.sales_order.pk %}">{{ invoice.sales_order.document_number }}</a></p>{% endif %}
-            {% if invoice.pos_sale %}<p class="mb-0">POS: {{ invoice.pos_sale.sale_no }}</p>{% endif %}
+            {% if service %}
+            <p class="mb-0">
+              Service: <a href="{% url 'service_detail' service.pk %}" class="text-purple font-weight-bold">{{ service.service_number }}</a>
+            </p>
+            {% endif %}
           </div>
         </div>
         <div class="row mb-4">
@@ -96,9 +104,19 @@
 
         <table class="table table-bordered">
           <thead class="table-light">
-            <tr><th>#</th><th>Code</th><th>Description</th><th class="text-right">Qty</th><th>Unit</th><th class="text-right">Price</th><th class="text-right">Disc.</th><th class="text-right">Total</th></tr>
+            <tr>
+              <th>#</th>
+              <th>Code</th>
+              <th>Description</th>
+              <th class="text-right">Qty</th>
+              <th>Unit</th>
+              <th class="text-right">Price</th>
+              <th class="text-right">Disc.</th>
+              <th class="text-right">Total</th>
+            </tr>
           </thead>
           <tbody>
+            {# ── Regular invoice lines (product, material, quotation) ── #}
             {% for line in invoice.lines.all %}
             <tr>
               <td>{{ forloop.counter }}</td>
@@ -111,38 +129,9 @@
               <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
             </tr>
             {% endfor %}
-            {% for bundle in so_bundles %}
-            {# ── Bundle header row ── #}
-            <tr class="table-active" style="background:#dbeeff;">
-              <td class="align-middle">{{ invoice.lines.count|add:forloop.counter }}</td>
-              <td class="align-middle"><span class="badge badge-primary">BUNDLE</span></td>
-              <td class="align-middle">
-                <strong><i class="fas fa-layer-group mr-1 text-primary"></i>{{ bundle.price_list.name }}</strong>
-                {% if bundle.notes %}<br><small class="text-muted">{{ bundle.notes }}</small>{% endif %}
-              </td>
-              <td class="text-right align-middle">{{ bundle.qty_multiplier|floatformat:2 }}</td>
-              <td class="align-middle text-muted">bundle</td>
-              <td class="text-right align-middle">{{ bundle.bundle_subtotal|floatformat:2|intcomma }}</td>
-              <td class="text-right align-middle">{{ bundle.bundle_discount_amount|floatformat:2|intcomma }}</td>
-              <td class="text-right align-middle"><strong>{{ bundle.bundle_total|floatformat:2|intcomma }}</strong></td>
-            </tr>
-            {# ── Bundle sub-item rows ── #}
-            {% for pli in bundle.price_list.items.all %}
-            <tr style="background:#f0f7ff;">
-              <td class="text-muted small pl-4">↳</td>
-              <td class="small text-muted">{{ pli.item.code }}</td>
-              <td class="small pl-4">{{ pli.item.name }}</td>
-              <td class="text-right small">{{ pli.min_qty|floatformat:2 }}</td>
-              <td class="small">{{ pli.unit.abbreviation }}</td>
-              <td class="text-right small">{{ pli.price|floatformat:2|intcomma }}</td>
-              <td class="text-right small text-muted">—</td>
-              <td class="text-right small">{{ pli.price|floatformat:2|intcomma }}</td>
-            </tr>
-            {% endfor %}
-            {% endfor %}
           </tbody>
           <tfoot>
-            <tr><td colspan="7" class="text-right"><strong>Subtotal</strong></td><td class="text-right">&#8369; {{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
+            {% comment %} <tr><td colspan="7" class="text-right"><strong>Subtotal</strong></td><td class="text-right">&#8369; {{ invoice.subtotal|floatformat:2|intcomma }}</td></tr> {% endcomment %}
             {% if invoice.discount_total %}<tr><td colspan="7" class="text-right">Discount</td><td class="text-right text-danger">(&#8369; {{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
             {% if invoice.tax_total %}<tr><td colspan="7" class="text-right">Tax</td><td class="text-right">&#8369; {{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
             <tr class="table-primary"><td colspan="7" class="text-right"><strong>Grand Total</strong></td><td class="text-right"><strong>&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
@@ -177,7 +166,6 @@
             </tr>
           </thead>
           <tbody>
-            {% with running=invoice.grand_total %}
             {% for p in payments_with_balance %}
             <tr class="payment-row">
               <td>
@@ -198,6 +186,7 @@
                 <form method="post" action="{% url 'invoice_delete_payment' invoice.pk p.pk %}" class="d-inline"
                       onsubmit="return confirm('Delete this payment record?')">
                   {% csrf_token %}
+                  <input type="hidden" name="next" value="{% url 'service_invoice_detail' invoice.pk %}">
                   <button type="submit" class="btn btn-xs btn-outline-danger" title="Delete payment">
                     <i class="fas fa-trash-alt"></i>
                   </button>
@@ -207,7 +196,6 @@
             {% empty %}
             <tr><td colspan="5" class="text-center text-muted py-3">No payments recorded yet.</td></tr>
             {% endfor %}
-            {% endwith %}
           </tbody>
           {% if invoice.payments.exists %}
           <tfoot class="table-light">
@@ -229,6 +217,7 @@
       <div class="card-body">
         <form method="post" action="{% url 'invoice_add_payment' invoice.pk %}">
           {% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'service_invoice_detail' invoice.pk %}">
           <div class="mb-2">
             <label class="form-label small fw-bold">Payment Date</label>
             <input type="date" name="payment_date" class="form-control form-control-sm" value="{{ today_date }}">
@@ -268,92 +257,26 @@
       </div>
     </div>
     {% endif %}
-
-    <!-- Invoice Summary Card -->
-    <div class="card card-outline card-secondary">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle mr-1"></i> Summary</h3></div>
-      <div class="card-body p-2">
-        <table class="table table-sm mb-0">
-          <tr><td>Invoice Date</td><td class="text-right">{{ invoice.date|date:"M d, Y" }}</td></tr>
-          {% if invoice.due_date %}<tr><td>Due Date</td><td class="text-right {% if not invoice.is_paid and invoice.due_date < today_date %}text-danger{% endif %}">{{ invoice.due_date|date:"M d, Y" }}</td></tr>{% endif %}
-          <tr><td>Grand Total</td><td class="text-right"><strong>&#8369;{{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
-          <tr><td>Total Paid</td><td class="text-right text-success">&#8369; {{ total_paid|floatformat:2|intcomma }}</td></tr>
-          {% if not invoice.is_paid %}
-          <tr><td>Balance Due</td><td class="text-right text-danger"><strong>&#8369; {{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
-          {% else %}
-          <tr><td>Paid On</td><td class="text-right">{{ invoice.paid_date|date:"M d, Y"|default:"—" }}</td></tr>
-          {% endif %}
-          <tr>
-            <td>Status</td>
-            <td class="text-right">
-              {% if invoice.payment_status == 'PAID' %}
-                <span class="badge badge-paid">PAID</span>
-              {% elif invoice.payment_status == 'PARTIAL' %}
-                <span class="badge badge-partial">PARTIAL</span>
-              {% else %}
-                <span class="badge badge-unpaid">UNPAID</span>
-              {% endif %}
-            </td>
-          </tr>
-        </table>
-      </div>
-    </div>
-
-    <!-- ROI / PNL Card (service invoices only) -->
-    {% if invoice.grand_total_cogs > 0 %}
-    {% with net_profit=invoice.grand_total|add:"-"|add:invoice.grand_total_cogs %}
-    <div class="card card-outline card-info" id="svc-roi-pnl-card">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-line mr-1 text-info"></i> ROI &amp; PNL</h3></div>
-      <div class="card-body p-2">
-        <table class="table table-sm mb-0">
-          <tr>
-            <td>Revenue</td>
-            <td class="text-right text-success font-weight-bold">&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</td>
-          </tr>
-          <tr>
-            <td>Total COGS</td>
-            <td class="text-right text-danger">&#8369; {{ invoice.grand_total_cogs|floatformat:2|intcomma }}</td>
-          </tr>
-          <tr class="{% if invoice.grand_total > invoice.grand_total_cogs %}table-success{% else %}table-danger{% endif %}">
-            <td><strong>Gross Profit (PNL)</strong></td>
-            <td class="text-right font-weight-bold" id="inv-pnl-value">
-              &#8369; {% widthratio invoice.grand_total 1 1 as rev %}
-              {{ invoice.grand_total|floatformat:2|intcomma }}
-            </td>
-          </tr>
-          <tr class="table-info">
-            <td><strong>ROI</strong></td>
-            <td class="text-right font-weight-bold" id="inv-roi-value">—</td>
-          </tr>
-        </table>
-        <div class="mt-2">
-          {% for svc in invoice.customer_services.all %}
-          <a href="{% url 'service_detail' svc.pk %}" class="btn btn-xs btn-outline-primary btn-block mb-1">
-            <i class="fas fa-tools mr-1"></i> View Service {{ svc.service_number }}
-          </a>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-    {% endwith %}
-    {% endif %}
-
   </div>
 </div>
 
 {% if invoice.grand_total_cogs > 0 %}
 <script>
 (function () {
-  var rev = parseFloat('{{ invoice.grand_total|floatformat:4 }}') || 0;
-  var cogs = parseFloat('{{ invoice.grand_total_cogs|floatformat:4 }}') || 0;
-  var pnl = rev - cogs;
-  var roi = cogs > 0 ? (pnl / cogs * 100) : 0;
+  var rev  = parseFloat('{{ invoice.grand_total|floatformat:4 }}') || 0;  var cogs = parseFloat('{{ invoice.grand_total_cogs|floatformat:4 }}') || 0;
+  var pnl  = rev - cogs;
+  var roi  = cogs > 0 ? (pnl / cogs * 100) : 0;
   document.getElementById('inv-pnl-value').innerHTML =
     '&#8369; ' + pnl.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) +
     ' <small class="text-muted">(' + (rev > 0 ? (pnl/rev*100).toFixed(1) : '0.0') + '% margin)</small>';
   document.getElementById('inv-roi-value').innerHTML =
-    roi.toFixed(1) + '% <small class="text-muted">(Profit ÷ COGS × 100)</small>';
+    roi.toFixed(1) + '% <small class="text-muted">(Profit \u00f7 COGS \u00d7 100)</small>';
 })();
 </script>
 {% endif %}
+
+<script>
+$(function () { $('[data-tooltip="tooltip"]').tooltip({ placement: 'top' }); });
+</script>
+
 {% endblock %}

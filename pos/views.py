@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from pos.models import (
-    POSRegister, POSShift, POSSale, POSSaleLine,
+    POSRegister, POSShift, POSSale, POSSaleLine, POSSaleBundleLine,
     POSPayment, POSRefund, POSRefundLine, CashEntry,
     ShiftStatus, SaleStatus, PaymentMethod,
 )
@@ -213,9 +213,12 @@ def api_shift_summary(request, pk):
 # ── Helper ─────────────────────────────────────────────────────────────────
 
 def _recalculate_sale_totals(sale):
-    """Recalculate sale subtotal, discount_total, tax_total, grand_total from lines."""
+    """Recalculate sale subtotal, discount_total, tax_total, grand_total from lines + bundle lines."""
     lines = sale.lines.all()
-    subtotal = sum(l.qty * l.unit_price for l in lines)
+    bundle_lines = sale.bundle_lines.all()
+    item_subtotal = sum(l.qty * l.unit_price for l in lines)
+    bundle_subtotal = sum(bl.line_total for bl in bundle_lines)
+    subtotal = item_subtotal + bundle_subtotal
     discount_total = sum(l.discount_amount for l in lines)
     tax_total = sum((l.qty * l.unit_price - l.discount_amount) * l.tax_rate / 100 for l in lines)
     grand_total = subtotal - discount_total + tax_total
@@ -335,19 +338,43 @@ def shift_summary_view(request, pk):
 @login_required
 def terminal_view(request, shift_id):
     """Main POS terminal checkout page."""
-    shift = get_object_or_404(POSShift.objects.select_related('register'), pk=shift_id)
+    shift = get_object_or_404(POSShift.objects.select_related('register__warehouse'), pk=shift_id)
     if shift.status != ShiftStatus.OPEN:
         messages.error(request, 'This shift is closed.')
         return redirect('pos_shift_list')
 
     register = shift.register
     # Get or create a DRAFT sale for this shift
-    sale = POSSale.objects.filter(shift=shift, status=SaleStatus.DRAFT).first()
+    sale = POSSale.objects.filter(shift=shift, status=SaleStatus.DRAFT).prefetch_related(
+        'lines', 'bundle_lines__price_list',
+    ).first()
+
+    # Build list of available bundles (all active price lists with at least one item)
+    from pricing.models import PriceList, PriceListItem
+    from django.db.models import Prefetch
+    bundles_qs = (
+        PriceList.objects
+        .filter(items__is_active=True)
+        .distinct()
+        .prefetch_related(
+            Prefetch('items', queryset=PriceListItem.objects.filter(is_active=True))
+        )
+        .order_by('name')
+    )
+    available_bundles = []
+    for pl in bundles_qs:
+        unit_price = sum(pli.price for pli in pl.items.all())
+        available_bundles.append({
+            'id': pl.pk,
+            'name': pl.name,
+            'unit_price': unit_price,
+        })
 
     return render(request, 'pos/terminal.html', {
         'shift': shift,
         'register': register,
         'sale': sale,
+        'available_bundles': available_bundles,
     })
 
 
@@ -561,6 +588,152 @@ def terminal_update_qty(request, line_id):
         'discount_total': str(sale.discount_total),
         'tax_total': str(sale.tax_total),
         'grand_total': str(sale.grand_total),
+    })
+
+
+@login_required
+@require_POST
+def terminal_add_bundle(request, sale_id):
+    """Add a bundle (PriceList) to a DRAFT sale."""
+    sale = get_object_or_404(POSSale, pk=sale_id)
+    if sale.status != SaleStatus.DRAFT:
+        return JsonResponse({'error': 'Sale is not in DRAFT.'}, status=400)
+
+    from pricing.models import PriceList
+    price_list_id = request.POST.get('price_list_id')
+    qty_sets = Decimal(request.POST.get('qty_sets', '1'))
+    if qty_sets <= 0:
+        qty_sets = Decimal('1')
+
+    pl = get_object_or_404(PriceList.objects.prefetch_related('items'), pk=price_list_id)
+    unit_price = sum(pli.price for pli in pl.items.all())
+    line_total = unit_price * qty_sets
+
+    bundle_line = POSSaleBundleLine.objects.create(
+        sale=sale,
+        price_list=pl,
+        qty_sets=qty_sets,
+        unit_price=unit_price,
+        line_total=line_total,
+    )
+    _recalculate_sale_totals(sale)
+    sale.refresh_from_db()
+
+    return JsonResponse({
+        'bundle_line_id': bundle_line.pk,
+        'price_list_name': pl.name,
+        'qty_sets': str(qty_sets),
+        'unit_price': str(unit_price),
+        'line_total': str(line_total),
+        'subtotal': str(sale.subtotal),
+        'discount_total': str(sale.discount_total),
+        'tax_total': str(sale.tax_total),
+        'grand_total': str(sale.grand_total),
+    })
+
+
+@login_required
+@require_POST
+def terminal_update_bundle_qty(request, bundle_line_id):
+    """Update qty_sets on a DRAFT sale bundle line."""
+    bundle_line = get_object_or_404(POSSaleBundleLine, pk=bundle_line_id)
+    sale = bundle_line.sale
+    if sale.status != SaleStatus.DRAFT:
+        return JsonResponse({'error': 'Sale is not in DRAFT.'}, status=400)
+
+    new_qty = Decimal(request.POST.get('qty_sets', '1'))
+    if new_qty < 1:
+        new_qty = Decimal('1')
+
+    bundle_line.qty_sets = new_qty
+    bundle_line.line_total = bundle_line.unit_price * new_qty
+    bundle_line.save(update_fields=['qty_sets', 'line_total'])
+
+    _recalculate_sale_totals(sale)
+    sale.refresh_from_db()
+
+    return JsonResponse({
+        'bundle_line_id': bundle_line.pk,
+        'qty_sets': str(bundle_line.qty_sets),
+        'unit_price': str(bundle_line.unit_price),
+        'line_total': str(bundle_line.line_total),
+        'subtotal': str(sale.subtotal),
+        'discount_total': str(sale.discount_total),
+        'tax_total': str(sale.tax_total),
+        'grand_total': str(sale.grand_total),
+    })
+
+
+@login_required
+@require_POST
+def terminal_remove_bundle(request, bundle_line_id):
+    """Remove a bundle line from a DRAFT sale."""
+    bundle_line = get_object_or_404(POSSaleBundleLine, pk=bundle_line_id)
+    sale = bundle_line.sale
+    if sale.status != SaleStatus.DRAFT:
+        return JsonResponse({'error': 'Sale is not in DRAFT.'}, status=400)
+
+    bundle_line.delete()
+    _recalculate_sale_totals(sale)
+    sale.refresh_from_db()
+
+    return JsonResponse({
+        'subtotal': str(sale.subtotal),
+        'discount_total': str(sale.discount_total),
+        'tax_total': str(sale.tax_total),
+        'grand_total': str(sale.grand_total),
+    })
+
+
+@login_required
+def terminal_validate_bundle_stock(request, sale_id, price_list_id):
+    """Validate that all items in a bundle have sufficient stock. Returns JSON."""
+    from decimal import Decimal as D
+    from django.db.models import Sum
+    from pricing.models import PriceList
+    from inventory.models import StockBalance
+    from catalog.models import convert_to_base_unit
+
+    sale = get_object_or_404(POSSale.objects.select_related('warehouse'), pk=sale_id)
+    pl = get_object_or_404(PriceList.objects.prefetch_related('items__item__stock_unit', 'items__unit'), pk=price_list_id)
+    qty_sets = D(request.GET.get('qty', '1'))
+
+    warehouse = sale.warehouse
+    item_results = []
+    stock_ok = True
+
+    for pli in pl.items.all():
+        item = pli.item
+        qty_needed = pli.min_qty * qty_sets
+        try:
+            base_qty = convert_to_base_unit(qty_needed, pli.unit, item.stock_unit, item=item)
+        except Exception:
+            base_qty = qty_needed
+
+        agg = StockBalance.objects.filter(
+            item=item,
+            location__warehouse=warehouse,
+        ).aggregate(
+            total_on_hand=Sum('qty_on_hand'),
+            total_reserved=Sum('qty_reserved'),
+        )
+        available = (agg['total_on_hand'] or D('0')) - (agg['total_reserved'] or D('0'))
+        item_ok = available >= base_qty
+        if not item_ok:
+            stock_ok = False
+
+        item_results.append({
+            'code': item.code,
+            'name': item.name,
+            'needed': str(base_qty),
+            'available': str(available),
+            'ok': item_ok,
+        })
+
+    return JsonResponse({
+        'stock_ok': stock_ok,
+        'allow_negative_stock': warehouse.allow_negative_stock,
+        'items': item_results,
     })
 
 
