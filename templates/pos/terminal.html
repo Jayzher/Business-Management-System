@@ -33,6 +33,10 @@
   .qty-control { display: inline-flex; align-items: center; gap: 2px; }
   .qty-control .btn { padding: 0 .4rem; line-height: 1.4; font-size: .85rem; }
   .qty-control .qty-val { min-width: 36px; text-align: center; font-weight: 600; font-size: .95rem; }
+  /* Bundle rows */
+  #bundle-cart-section thead { background: #e8f4fd; }
+  .bundle-row td { background: #f0f8ff; }
+  .bundle-badge { font-size: .7rem; vertical-align: middle; }
 </style>
 {% endblock %}
 
@@ -88,6 +92,39 @@
             {% endif %}
           </tbody>
         </table>
+
+        <!-- Bundle rows section -->
+        <div id="bundle-cart-section" {% if not sale or not sale.bundle_lines.all %}style="display:none;"{% endif %}>
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr class="bg-light">
+                <th colspan="6" class="py-1 px-3" style="font-size:.82rem; color:#555;">
+                  <i class="fas fa-cubes mr-1 text-primary"></i> Bundles
+                </th>
+              </tr>
+            </thead>
+            <tbody id="bundle-cart-body">
+              {% if sale %}
+              {% for bl in sale.bundle_lines.all %}
+              <tr class="bundle-row" data-bundle-line-id="{{ bl.pk }}" data-price-list-id="{{ bl.price_list.pk }}">
+                <td><i class="fas fa-layer-group text-primary bundle-badge mr-1"></i>{{ bl.price_list.name }}</td>
+                <td><span class="badge bg-info">BUNDLE</span></td>
+                <td class="text-center">
+                  <div class="qty-control">
+                    <button class="btn btn-sm btn-outline-secondary btn-bundle-qty-minus" data-bundle-line-id="{{ bl.pk }}" data-price-list-id="{{ bl.price_list.pk }}"><i class="fas fa-minus"></i></button>
+                    <span class="bundle-qty-val">{{ bl.qty_sets|floatformat:0 }}</span>
+                    <button class="btn btn-sm btn-outline-secondary btn-bundle-qty-plus" data-bundle-line-id="{{ bl.pk }}" data-price-list-id="{{ bl.price_list.pk }}"><i class="fas fa-plus"></i></button>
+                  </div>
+                </td>
+                <td class="bundle-unit-price text-muted"><small><i class="fas fa-lock fa-xs mr-1"></i></small>{{ bl.unit_price }}</td>
+                <td class="bundle-line-total">{{ bl.line_total }}</td>
+                <td><button class="btn btn-sm btn-outline-danger btn-remove-bundle" data-bundle-line-id="{{ bl.pk }}"><i class="fas fa-times"></i></button></td>
+              </tr>
+              {% endfor %}
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
       </div>
       <div class="card-footer">
         <table class="table table-borderless mb-0">
@@ -136,6 +173,72 @@
         <kbd>Esc</kbd> Clear search &nbsp;
         <kbd>&#8593;&#8595;</kbd> Navigate results &nbsp;
         <kbd>Enter</kbd> Add to cart
+      </div>
+    </div>
+
+    <!-- Bundle selector -->
+    {% if available_bundles %}
+    <div class="card card-outline card-primary mt-2">
+      <div class="card-header py-2">
+        <h3 class="card-title"><i class="fas fa-cubes mr-1 text-primary"></i> Add Bundle</h3>
+        <div class="card-tools"><button type="button" class="btn btn-tool btn-sm" data-card-widget="collapse"><i class="fas fa-minus"></i></button></div>
+      </div>
+      <div class="card-body p-2">
+        <div class="form-group mb-2">
+          <select class="form-control form-control-sm" id="bundle-select">
+            <option value="">— Select bundle —</option>
+            {% for bundle in available_bundles %}
+            <option value="{{ bundle.id }}" data-price="{{ bundle.unit_price }}">{{ bundle.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="row no-gutters align-items-center mb-2">
+          <div class="col-5 pr-1">
+            <label class="small mb-0">Sets</label>
+            <input type="number" class="form-control form-control-sm" id="bundle-qty-input" value="1" min="1" step="1">
+          </div>
+          <div class="col-7 pl-1">
+            <label class="small mb-0">Price/set</label>
+            <input type="text" class="form-control form-control-sm" id="bundle-price-display" readonly placeholder="—" style="background:#f8f9fa;">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm btn-block w-100" id="btn-add-bundle" disabled>
+          <i class="fas fa-plus mr-1"></i> Add Bundle to Cart
+        </button>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Stock Warning Modal -->
+<div class="modal fade" id="stockWarningModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-warning">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title"><i class="fas fa-exclamation-triangle mr-1"></i> Stock Warning</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">One or more items in the bundle may not have sufficient stock:</p>
+        <table class="table table-sm table-bordered mb-0" id="stock-warning-table">
+          <thead class="thead-light">
+            <tr><th>Item</th><th>Needed</th><th>Available</th><th>Status</th></tr>
+          </thead>
+          <tbody id="stock-warning-body"></tbody>
+        </table>
+        <p class="mt-3 mb-0 text-muted" style="font-size:.82rem;">
+          <i class="fas fa-info-circle mr-1"></i>
+          <em>*Only works if the Inventory Allows Negative Stocks.</em>
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="btn-stock-warning-close">
+          <i class="fas fa-times mr-1"></i> Close
+        </button>
+        <button type="button" class="btn btn-warning" id="btn-stock-warning-proceed">
+          <i class="fas fa-forward mr-1"></i> Proceed Anyway
+        </button>
       </div>
     </div>
   </div>
@@ -216,6 +319,8 @@ const REGISTER_ID = {{ register.pk }};
 let currentSaleId = {{ sale.pk|default:"null" }};
 let currentSaleNo = '{{ sale.sale_no|default:"" }}';
 let searchResultIndex = -1;
+// Bundle: pending action to execute after warning confirmation
+let pendingBundleAction = null;
 
 // ── Toast helper ──
 function showToast(message, type) {
@@ -238,6 +343,8 @@ function startNewSale() {
     currentSaleNo = data.sale_no;
     $('#sale-no-badge').text(data.sale_no);
     $('#cart-body').empty();
+    $('#bundle-cart-body').empty();
+    $('#bundle-cart-section').hide();
     updateTotals('0.00','0.00','0.00','0.00');
     $('#btn-checkout').prop('disabled', false);
     $('#product-search').val('').focus();
@@ -454,6 +561,167 @@ $(document).on('click', '.btn-remove-line', function() {
     $row.fadeOut(200, function(){ $(this).remove(); });
     updateTotals(data.subtotal, data.discount_total, data.tax_total, data.grand_total);
     showToast('Line removed', 'info');
+  });
+});
+
+// ── Bundle selector ──
+function getBundleUnitPrice() {
+  const $opt = $('#bundle-select option:selected');
+  return parseFloat($opt.data('price')) || 0;
+}
+
+$('#bundle-select').on('change', function() {
+  const price = getBundleUnitPrice();
+  if (price > 0) {
+    $('#bundle-price-display').val(price.toFixed(2));
+    $('#btn-add-bundle').prop('disabled', !currentSaleId);
+  } else {
+    $('#bundle-price-display').val('');
+    $('#btn-add-bundle').prop('disabled', true);
+  }
+});
+
+$('#bundle-qty-input').on('input', function() {
+  const price = getBundleUnitPrice();
+  if (price > 0) {
+    $('#bundle-price-display').val(price.toFixed(2));
+  }
+});
+
+// ── Stock warning modal helpers ──
+function showStockWarning(items, onProceed) {
+  const $body = $('#stock-warning-body').empty();
+  items.forEach(function(it) {
+    const status = it.ok
+      ? '<span class="badge bg-success">OK</span>'
+      : '<span class="badge bg-danger">Low</span>';
+    $body.append(`<tr${it.ok ? '' : ' class="table-warning"'}>
+      <td><strong>${it.code}</strong> — ${it.name}</td>
+      <td>${parseFloat(it.needed).toFixed(4)}</td>
+      <td>${parseFloat(it.available).toFixed(4)}</td>
+      <td>${status}</td>
+    </tr>`);
+  });
+  pendingBundleAction = onProceed;
+  new bootstrap.Modal('#stockWarningModal').show();
+}
+
+$('#btn-stock-warning-proceed').on('click', function() {
+  bootstrap.Modal.getInstance(document.getElementById('stockWarningModal')).hide();
+  if (typeof pendingBundleAction === 'function') {
+    pendingBundleAction();
+    pendingBundleAction = null;
+  }
+});
+
+$('#stockWarningModal').on('hidden.bs.modal', function() {
+  pendingBundleAction = null;
+});
+
+// Validate stock then call callback (or proceed directly if stock ok)
+function validateBundleStockThen(priceListId, qtySets, callback) {
+  $.getJSON(`/pos/terminal/sale/${currentSaleId}/validate-bundle/${priceListId}/?qty=${qtySets}`, function(data) {
+    if (!data.stock_ok) {
+      showStockWarning(data.items, callback);
+    } else {
+      callback();
+    }
+  }).fail(function() {
+    // If validation fails, proceed anyway (validation is best-effort)
+    callback();
+  });
+}
+
+// ── Add bundle to cart ──
+$('#btn-add-bundle').on('click', function() {
+  if (!currentSaleId) { showToast('Start a new sale first (F4)', 'warning'); return; }
+  const plId = $('#bundle-select').val();
+  if (!plId) { showToast('Select a bundle first', 'warning'); return; }
+  const qtySets = parseInt($('#bundle-qty-input').val()) || 1;
+
+  const doAdd = function() {
+    $.post(`/pos/terminal/sale/${currentSaleId}/add-bundle/`, {
+      csrfmiddlewaretoken: CSRF,
+      price_list_id: plId,
+      qty_sets: qtySets,
+    }, function(data) {
+      const $row = $(`
+        <tr class="bundle-row" data-bundle-line-id="${data.bundle_line_id}" data-price-list-id="${plId}">
+          <td><i class="fas fa-layer-group text-primary bundle-badge mr-1"></i>${data.price_list_name}</td>
+          <td><span class="badge bg-info">BUNDLE</span></td>
+          <td class="text-center">
+            <div class="qty-control">
+              <button class="btn btn-sm btn-outline-secondary btn-bundle-qty-minus" data-bundle-line-id="${data.bundle_line_id}" data-price-list-id="${plId}"><i class="fas fa-minus"></i></button>
+              <span class="bundle-qty-val">${parseInt(data.qty_sets)}</span>
+              <button class="btn btn-sm btn-outline-secondary btn-bundle-qty-plus" data-bundle-line-id="${data.bundle_line_id}" data-price-list-id="${plId}"><i class="fas fa-plus"></i></button>
+            </div>
+          </td>
+          <td class="bundle-unit-price text-muted"><small><i class="fas fa-lock fa-xs mr-1"></i></small>${parseFloat(data.unit_price).toFixed(2)}</td>
+          <td class="bundle-line-total">${parseFloat(data.line_total).toFixed(2)}</td>
+          <td><button class="btn btn-sm btn-outline-danger btn-remove-bundle" data-bundle-line-id="${data.bundle_line_id}"><i class="fas fa-times"></i></button></td>
+        </tr>
+      `);
+      $('#bundle-cart-body').append($row);
+      $('#bundle-cart-section').show();
+      updateTotals(data.subtotal, data.discount_total, data.tax_total, data.grand_total);
+      $('#bundle-select').val('');
+      $('#bundle-price-display').val('');
+      $('#bundle-qty-input').val('1');
+      $('#btn-add-bundle').prop('disabled', true);
+      showToast(data.price_list_name + ' bundle added', 'success');
+    }).fail(function(xhr) {
+      showToast(xhr.responseJSON?.error || 'Failed to add bundle', 'error');
+    });
+  };
+
+  validateBundleStockThen(plId, qtySets, doAdd);
+});
+
+// ── Bundle qty +/- ──
+function updateBundleQty(bundleLineId, priceListId, newQty) {
+  const doUpdate = function() {
+    $.post(`/pos/terminal/bundle-line/${bundleLineId}/update-qty/`, {
+      csrfmiddlewaretoken: CSRF,
+      qty_sets: newQty,
+    }, function(data) {
+      const $row = $(`tr[data-bundle-line-id="${bundleLineId}"]`);
+      $row.find('.bundle-qty-val').text(parseInt(data.qty_sets));
+      $row.find('.bundle-line-total').text(parseFloat(data.line_total).toFixed(2));
+      updateTotals(data.subtotal, data.discount_total, data.tax_total, data.grand_total);
+    }).fail(function(xhr) {
+      showToast(xhr.responseJSON?.error || 'Failed to update bundle qty', 'error');
+    });
+  };
+
+  validateBundleStockThen(priceListId, newQty, doUpdate);
+}
+
+$(document).on('click', '.btn-bundle-qty-plus', function() {
+  const bundleLineId = $(this).data('bundle-line-id');
+  const priceListId = $(this).data('price-list-id');
+  const $row = $(`tr[data-bundle-line-id="${bundleLineId}"]`);
+  const newQty = parseInt($row.find('.bundle-qty-val').text()) + 1;
+  updateBundleQty(bundleLineId, priceListId, newQty);
+});
+
+$(document).on('click', '.btn-bundle-qty-minus', function() {
+  const bundleLineId = $(this).data('bundle-line-id');
+  const priceListId = $(this).data('price-list-id');
+  const $row = $(`tr[data-bundle-line-id="${bundleLineId}"]`);
+  const currentQty = parseInt($row.find('.bundle-qty-val').text());
+  if (currentQty <= 1) { showToast('Minimum quantity is 1', 'warning'); return; }
+  updateBundleQty(bundleLineId, priceListId, currentQty - 1);
+});
+
+// ── Remove bundle line ──
+$(document).on('click', '.btn-remove-bundle', function() {
+  const bundleLineId = $(this).data('bundle-line-id');
+  const $row = $(`tr[data-bundle-line-id="${bundleLineId}"]`);
+  $.post(`/pos/terminal/bundle-line/${bundleLineId}/remove/`, {csrfmiddlewaretoken: CSRF}, function(data) {
+    $row.fadeOut(200, function(){ $(this).remove(); });
+    if ($('#bundle-cart-body tr').length === 0) $('#bundle-cart-section').hide();
+    updateTotals(data.subtotal, data.discount_total, data.tax_total, data.grand_total);
+    showToast('Bundle removed', 'info');
   });
 });
 

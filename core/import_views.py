@@ -13,6 +13,7 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction, IntegrityError
+from django.utils import timezone
 
 from core.import_utils import (
     parse_csv_upload, normalize_header, safe_decimal, safe_date,
@@ -578,9 +579,13 @@ def procurement_import(request):
         })
 
     from catalog.models import Item, Unit as CatalogUnit
-    from procurement.models import GoodsReceipt, GoodsReceiptLine
+    from procurement.models import (
+        GoodsReceipt, GoodsReceiptLine,
+        PurchaseOrder, PurchaseOrderLine,
+    )
     from partners.models import Supplier
     from warehouses.models import Warehouse, Location
+    from core.models import DocumentStatus
     from inventory.services import post_goods_receipt, generate_document_number
 
     result = ImportResult()
@@ -730,10 +735,47 @@ def procurement_import(request):
                 if not grn_lines_data:
                     continue
 
-                # Create GRN header
+                # ── Step 1: Create a Purchase Order (APPROVED) ──────────────
+                # Every import stock-in must originate from a PO so that
+                # qty_received tracking, cost averaging, and audit trails work
+                # correctly. We create the PO as APPROVED (already authorised)
+                # since the goods are being received immediately.
+                po = PurchaseOrder.objects.create(
+                    document_number=generate_document_number('PO', PurchaseOrder),
+                    supplier=supplier,
+                    warehouse=warehouse,
+                    order_date=date_val,
+                    expected_date=date_val,
+                    status=DocumentStatus.APPROVED,
+                    notes=f'Auto-generated from CSV import on {date_val}',
+                    created_by=request.user,
+                    approved_by=request.user,
+                    approved_at=timezone.now(),
+                )
+
+                # Create PO lines — one per unique item (merge duplicates by sum)
+                po_line_map = {}  # item.pk -> PurchaseOrderLine
+                for line_data in grn_lines_data:
+                    item_pk = line_data['item'].pk
+                    if item_pk in po_line_map:
+                        existing = po_line_map[item_pk]
+                        existing.qty_ordered += line_data['qty']
+                        existing.save(update_fields=['qty_ordered'])
+                    else:
+                        po_line = PurchaseOrderLine.objects.create(
+                            purchase_order=po,
+                            item=line_data['item'],
+                            qty_ordered=line_data['qty'],
+                            qty_received=Decimal('0'),
+                            unit=line_data['unit'],
+                            unit_price=line_data['unit_cost'],
+                        )
+                        po_line_map[item_pk] = po_line
+
+                # ── Step 2: Create GRN linked to the PO ─────────────────────
                 grn = GoodsReceipt.objects.create(
                     document_number=generate_document_number('GRN', GoodsReceipt),
-                    purchase_order=None,
+                    purchase_order=po,
                     supplier=supplier,
                     warehouse=warehouse,
                     receipt_date=date_val,
@@ -752,7 +794,10 @@ def procurement_import(request):
                         notes=line_data['notes'],
                     )
 
-                # Post the GRN — creates StockMoves and updates StockBalances
+                # ── Step 3: Post the GRN ─────────────────────────────────────
+                # post_goods_receipt will: create StockMoves, update
+                # StockBalances, update po_line.qty_received, and recalculate
+                # item.cost_price via weighted average using po_line.unit_price.
                 post_goods_receipt(grn, request.user)
                 result.created += len(grn_lines_data)
 
