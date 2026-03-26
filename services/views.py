@@ -53,6 +53,95 @@ def service_invoice_list(request):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# SERVICE BUNDLE ITEMS (modal partial)
+# ═══════════════════════════════════════════════════════════════════════════
+@login_required
+def service_bundle_items(request, bundle_pk):
+    """Partial view loaded via data-modal-url to show bundle items."""
+    from .models import ServiceBundle
+    from django.shortcuts import get_object_or_404
+    bundle = get_object_or_404(
+        ServiceBundle.objects.select_related('price_list')
+        .prefetch_related('price_list__items__item', 'price_list__items__unit'),
+        pk=bundle_pk,
+    )
+    return render(request, 'services/service_bundle_items_modal.html', {'bundle': bundle})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SERVICE INVOICE DETAIL
+# ═══════════════════════════════════════════════════════════════════════════
+@login_required
+def service_invoice_detail(request, pk):
+    """Invoice detail page for service invoices."""
+    from core.models import Invoice
+    from django.shortcuts import get_object_or_404
+    from core.models import BusinessProfile
+
+    inv = get_object_or_404(
+        Invoice.objects.prefetch_related('lines', 'payments', 'customer_services'),
+        pk=pk,
+    )
+    profile = BusinessProfile.get_instance()
+    today_date = timezone.now().date()
+
+    svc = inv.customer_services.first()
+
+    # ── Ensure the invoice grand_total reflects the service quotation ──
+    # Invoices created before this fix may have the old net-profit figure stored.
+    # Recompute and patch the DB record if needed.
+    if svc and svc.quotation_amount > 0:
+        val = svc.discount_value or Decimal('0')
+        if svc.discount_type == 'PERCENT':
+            discount_amt = (svc.quotation_amount * val / Decimal('100')).quantize(Decimal('0.01'))
+        else:
+            discount_amt = val
+        correct_grand_total = max(svc.quotation_amount - discount_amt, Decimal('0'))
+        correct_subtotal = svc.quotation_amount
+        correct_discount = discount_amt
+
+        if inv.grand_total != correct_grand_total or inv.subtotal != correct_subtotal:
+            inv.subtotal = correct_subtotal
+            inv.discount_total = correct_discount
+            inv.grand_total = correct_grand_total
+            inv.save(update_fields=['subtotal', 'discount_total', 'grand_total', 'updated_at'])
+
+            # Also fix the invoice lines: replace everything with one quotation line
+            from core.models import InvoiceLine
+            inv.lines.all().delete()
+            InvoiceLine.objects.create(
+                invoice=inv,
+                item_code='SVC-QUOT',
+                item_name=svc.service_name or 'Service',
+                qty=Decimal('1'),
+                unit='svc',
+                unit_price=svc.quotation_amount,
+                line_total=svc.quotation_amount,
+            )
+
+    # Running balance for payment history
+    payments = list(inv.payments.order_by('date', 'created_at'))
+    running = inv.grand_total
+    payments_with_balance = []
+    for p in payments:
+        running -= p.amount
+        p.balance_after = max(running, 0)
+        payments_with_balance.append(p)
+    total_paid = sum(p.amount for p in payments)
+    balance_due = max(inv.grand_total - total_paid, Decimal('0'))
+
+    return render(request, 'services/service_invoice_detail.html', {
+        'invoice': inv,
+        'profile': profile,
+        'total_paid': total_paid,
+        'balance_due': balance_due,
+        'payments_with_balance': payments_with_balance,
+        'today_date': today_date,
+        'service': svc,
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # LIST
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
@@ -364,9 +453,22 @@ def service_complete(request, pk):
     from core.models import Invoice, InvoiceLine, InvoicePayment, PaymentMethod
     from core.views import _next_invoice_number
 
-    subtotal = svc.subtotal
-    discount_amt = svc.discount_amount
-    grand_total = svc.grand_total
+    # Invoice amounts are what the CUSTOMER pays — the quoted price (not the net profit).
+    if svc.quotation_amount > 0:
+        # Customer pays the quotation. Discount is applied to the quotation.
+        val = svc.discount_value or Decimal('0')
+        if svc.discount_type == 'PERCENT':
+            discount_amt = (svc.quotation_amount * val / Decimal('100')).quantize(Decimal('0.01'))
+        else:
+            discount_amt = val
+        subtotal = svc.quotation_amount
+        grand_total = max(subtotal - discount_amt, Decimal('0'))
+    else:
+        # No quotation — charge whatever the individual lines total
+        subtotal = svc.product_lines_total + svc.other_materials_total + svc.bundles_total
+        discount_amt = svc.discount_amount
+        grand_total = max(subtotal - discount_amt, Decimal('0'))
+
     partial_paid = svc.partial_payment_amount_value
     if partial_paid > grand_total:
         partial_paid = grand_total
@@ -404,54 +506,53 @@ def service_complete(request, pk):
         inv.paid_date = now.date()
         inv.save(update_fields=['is_paid', 'paid_at', 'paid_date', 'updated_at'])
 
-    # Product line items
-    for line in lines:
-        InvoiceLine.objects.create(
-            invoice=inv,
-            item_code=line.item.code,
-            item_name=line.item.name,
-            qty=line.qty,
-            unit=line.unit.abbreviation,
-            unit_price=line.unit_price,
-            line_total=line.line_total,
-        )
-
-    # Other material items
-    for mat in other_mats:
-        InvoiceLine.objects.create(
-            invoice=inv,
-            item_code='MAT',
-            item_name=mat.item_name,
-            qty=mat.qty,
-            unit='unit',
-            unit_price=mat.unit_price,
-            line_total=mat.line_total,
-        )
-
-    # Quotation line (if set)
-    fee = svc.quotation_amount
-    if fee > 0:
+    # ── Invoice lines (what the customer sees) ────────────────────────────
+    # If there's a quotation, the customer is billed for the quoted amount only.
+    # Material/part costs are internal COGS and do not appear as customer line items.
+    if svc.quotation_amount > 0:
         InvoiceLine.objects.create(
             invoice=inv,
             item_code='SVC-QUOT',
-            item_name='Service Quotation',
+            item_name=svc.service_name or 'Service',
             qty=Decimal('1'),
             unit='svc',
-            unit_price=fee,
-            line_total=fee,
+            unit_price=svc.quotation_amount,
+            line_total=svc.quotation_amount,
         )
+    else:
+        # No quotation — show individual product/material lines
+        for line in lines:
+            InvoiceLine.objects.create(
+                invoice=inv,
+                item_code=line.item.code,
+                item_name=line.item.name,
+                qty=line.qty,
+                unit=line.unit.abbreviation,
+                unit_price=line.unit_price,
+                line_total=line.line_total,
+            )
 
-    # If nothing at all, create summary line
-    if not lines and not other_mats and svc.quotation_amount == 0:
-        InvoiceLine.objects.create(
-            invoice=inv,
-            item_code='SVC',
-            item_name=svc.service_name,
-            qty=Decimal('1'),
-            unit='svc',
-            unit_price=grand_total,
-            line_total=grand_total,
-        )
+        for mat in other_mats:
+            InvoiceLine.objects.create(
+                invoice=inv,
+                item_code='MAT',
+                item_name=mat.item_name,
+                qty=mat.qty,
+                unit='unit',
+                unit_price=mat.unit_price,
+                line_total=mat.line_total,
+            )
+
+        if not lines and not other_mats:
+            InvoiceLine.objects.create(
+                invoice=inv,
+                item_code='SVC',
+                item_name=svc.service_name,
+                qty=Decimal('1'),
+                unit='svc',
+                unit_price=grand_total,
+                line_total=grand_total,
+            )
 
     # ── Mark service completed ─────────────────────────────────────────────
     svc.status = ServiceStatus.COMPLETED

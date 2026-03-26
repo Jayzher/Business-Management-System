@@ -10,7 +10,7 @@ from inventory.models import StockMove, StockBalance, MoveType, MoveStatus
 from inventory.services import _update_balance, _create_audit
 from catalog.models import convert_to_base_unit
 from pos.models import (
-    POSSale, POSSaleLine, POSPayment,
+    POSSale, POSSaleLine, POSSaleBundleLine, POSPayment,
     POSRefund, POSRefundLine,
     POSShift, ShiftStatus, SaleStatus, RefundStatus,
     PaymentMethod, CashEntry, CashEntryType,
@@ -165,6 +165,50 @@ def post_pos_sale(sale_id, user):
         # Update balance
         balance.qty_on_hand -= base_qty
         balance.save()
+
+    # Expand bundle lines into per-item stock moves
+    for bundle_line in sale.bundle_lines.select_related('price_list').prefetch_related(
+        'price_list__items__item__stock_unit', 'price_list__items__unit',
+    ).all():
+        for pli in bundle_line.price_list.items.all():
+            item = pli.item
+            qty = pli.min_qty * bundle_line.qty_sets
+            if qty <= 0:
+                continue
+            base_qty = convert_to_base_unit(qty, pli.unit, item.stock_unit, item=item)
+
+            loc = sale.location
+            balance, _ = StockBalance.objects.select_for_update().get_or_create(
+                item=item, location=loc,
+                defaults={'qty_on_hand': Decimal('0'), 'qty_reserved': Decimal('0')},
+            )
+            available = balance.qty_on_hand - balance.qty_reserved
+            if base_qty > available and not warehouse.allow_negative_stock:
+                raise ValueError(
+                    f"[Bundle: {bundle_line.price_list.name}] Insufficient stock for {item.code} at {loc}. "
+                    f"Available: {available}, Requested: {base_qty} {item.stock_unit.abbreviation}"
+                )
+
+            move = StockMove(
+                move_type=MoveType.POS_SALE,
+                item=item,
+                qty=base_qty,
+                unit=item.stock_unit,
+                from_location=loc,
+                to_location=None,
+                reference_type='POSSale',
+                reference_id=sale.pk,
+                reference_number=sale.sale_no,
+                batch_number='',
+                serial_number='',
+                status=MoveStatus.POSTED,
+                created_by=user,
+                posted_by=user,
+                posted_at=now,
+            )
+            moves.append(move)
+            balance.qty_on_hand -= base_qty
+            balance.save()
 
     StockMove.objects.bulk_create(moves)
 

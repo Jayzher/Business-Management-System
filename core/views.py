@@ -214,8 +214,16 @@ def invoice_list(request):
     from django.db.models import Sum, Count, DecimalField
     from django.db.models.functions import Coalesce
     from decimal import Decimal
-    invoices = Invoice.objects.select_related('created_by')[:200]
-    invoice_summary = Invoice.objects.aggregate(
+    # Exclude invoices that belong to a CustomerService (those live in services/)
+    service_invoice_ids = Invoice.objects.filter(
+        customer_services__isnull=False
+    ).values_list('id', flat=True)
+    invoices = Invoice.objects.exclude(
+        pk__in=service_invoice_ids
+    ).select_related('created_by')[:200]
+    invoice_summary = Invoice.objects.exclude(
+        pk__in=service_invoice_ids
+    ).aggregate(
         count=Count('id'),
         total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
     )
@@ -292,14 +300,18 @@ def invoice_from_so(request, so_id):
     if existing:
         return redirect('invoice_detail', pk=existing.pk)
 
+    lines_total = sum(l.line_total for l in so.lines.all())
+    bundles_total = sum(b.bundle_total for b in so.price_list_lines.all())
+    grand_total = lines_total + bundles_total
+
     inv = Invoice.objects.create(
         invoice_number=_next_invoice_number(),
         date=timezone.now().date(),
         sales_order=so,
         customer_name=so.customer.name if so.customer else '',
         customer_address=so.customer.address if so.customer else '',
-        subtotal=sum(l.line_total for l in so.lines.all()),
-        grand_total=sum(l.line_total for l in so.lines.all()),
+        subtotal=lines_total,
+        grand_total=grand_total,
         created_by=request.user,
     )
     for line in so.lines.select_related('item', 'unit'):
@@ -363,6 +375,11 @@ def invoice_print(request, pk):
 def invoice_add_payment(request, pk):
     """Add a payment to an invoice. If fully paid, mark invoice as paid and auto-post linked SO."""
     inv = get_object_or_404(Invoice, pk=pk)
+    next_url = request.POST.get('next') or request.GET.get('next') or ''
+    def _redirect():
+        if next_url:
+            return redirect(next_url)
+        return redirect('invoice_detail', pk=pk)
     if request.method == 'POST':
         from core.models import InvoicePayment, PaymentMethod as PM
         from decimal import Decimal
@@ -427,13 +444,14 @@ def invoice_add_payment(request, pk):
                     so.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
                     messages.info(request, f'Sales Order {so.document_number} auto-posted (invoice paid).')
 
-    return redirect('invoice_detail', pk=pk)
+    return _redirect()
 
 
 @login_required
 def invoice_mark_paid(request, pk):
     """Manually mark an invoice as fully paid (records a single full-amount payment if none exist)."""
     inv = get_object_or_404(Invoice, pk=pk)
+    next_url = request.POST.get('next') or request.GET.get('next') or ''
     if request.method == 'POST':
         if not inv.is_paid:
             from core.models import InvoicePayment, PaymentMethod as PM
@@ -469,6 +487,8 @@ def invoice_mark_paid(request, pk):
                     messages.info(request, f'Sales Order {so.document_number} auto-posted.')
         else:
             messages.info(request, 'Invoice is already paid.')
+    if next_url:
+        return redirect(next_url)
     return redirect('invoice_detail', pk=pk)
 
 
@@ -476,6 +496,7 @@ def invoice_mark_paid(request, pk):
 def invoice_delete_payment(request, pk, payment_pk):
     """Delete a single payment record from an invoice (re-opens invoice if was paid)."""
     inv = get_object_or_404(Invoice, pk=pk)
+    next_url = request.POST.get('next') or request.GET.get('next') or ''
     from core.models import InvoicePayment
     payment = get_object_or_404(InvoicePayment, pk=payment_pk, invoice=inv)
     if request.method == 'POST':
@@ -488,6 +509,8 @@ def invoice_delete_payment(request, pk, payment_pk):
             inv.paid_date = None
             inv.save(update_fields=['is_paid', 'paid_at', 'paid_date', 'updated_at'])
             messages.warning(request, 'Invoice re-opened (total payments now below grand total).')
+    if next_url:
+        return redirect(next_url)
     return redirect('invoice_detail', pk=pk)
 
 

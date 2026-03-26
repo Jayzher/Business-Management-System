@@ -308,7 +308,7 @@ class ResyncSellingUnitTest(TestCase):
         )
         self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('3'))  # confirm corrupt
 
-        _call_resync('--phase', '2', '--apply')
+        _call_resync('--phase', '2')
 
         # Phase 2 replays GRN line: 3 rolls × 50 = 150 meters
         self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('150'))
