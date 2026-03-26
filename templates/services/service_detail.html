@@ -1,4 +1,5 @@
 {% extends "theme/base.html" %}
+{% load humanize %}
 {% block title %}Service {{ service.service_number }}{% endblock %}
 {% block page_title %}Service {{ service.service_number }}{% endblock %}
 {% block breadcrumb %}
@@ -45,6 +46,10 @@
             {% elif service.payment_status == 'PARTIAL' %}<span class="badge badge-warning">Partial</span>
             {% else %}<span class="badge badge-secondary">Unpaid</span>{% endif %}
           </td></tr>
+          {% if service.payment_status == 'PARTIAL' and service.partial_payment_amount_value > 0 %}
+          <tr><th>Partial Payment Amount</th><td>₱{{ service.partial_payment_amount_value|floatformat:2|intcomma }}</td></tr>
+          <tr><th>Remaining Balance</th><td>₱{{ service.remaining_balance|floatformat:2|intcomma }}</td></tr>
+          {% endif %}
           <tr><th>Created By</th><td>{{ service.created_by.get_full_name|default:service.created_by.username }}</td></tr>
           {% if service.posted_by %}
           <tr><th>Completed By</th><td>{{ service.posted_by.get_full_name|default:service.posted_by.username }} &mdash; {{ service.posted_at|date:"M d, Y H:i" }}</td></tr>
@@ -56,10 +61,10 @@
       </div>
     </div>
 
-    <!-- Product Lines -->
+    <!-- Product Lines + P&L -->
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-list mr-2 text-secondary"></i>Product / Parts Used</h3>
+        <h3 class="card-title"><i class="fas fa-boxes mr-2 text-primary"></i>Product / Parts Used</h3>
       </div>
       <div class="card-body table-responsive p-0">
         <table class="table table-hover detail-lines-table mb-0">
@@ -69,42 +74,30 @@
               <th>Location</th>
               <th class="text-right">Qty</th>
               <th>Unit</th>
-              <th class="text-right">Unit Price</th>
+              <th class="text-right">Selling Price</th>
               <th class="text-right">Line Total</th>
               <th>Notes</th>
             </tr>
           </thead>
           <tbody>
-            {% for line in service.lines.all %}
+            {% for row in line_pnl %}
             <tr>
-              <td><span class="text-muted small">{{ line.item.code }}</span> {{ line.item.name }}</td>
-              <td>{{ line.location|default:"—" }}</td>
-              <td class="text-right">{{ line.qty|floatformat:2 }}</td>
-              <td>{{ line.unit.abbreviation }}</td>
-              <td class="text-right">{{ line.unit_price|floatformat:2 }}</td>
-              <td class="text-right font-weight-bold">{{ line.line_total|floatformat:2 }}</td>
-              <td>{{ line.notes|default:"" }}</td>
+              <td><span class="text-muted small">{{ row.line.item.code }}</span> {{ row.line.item.name }}</td>
+              <td>{{ row.line.location|default:"—" }}</td>
+              <td class="text-right">{{ row.line.qty|floatformat:2 }}</td>
+              <td>{{ row.line.unit.abbreviation }}</td>
+              <td class="text-right">{{ row.line.unit_price|floatformat:2 }}</td>
+              <td class="text-right font-weight-bold">{{ row.selling|floatformat:2 }}</td>
+              <td>{{ row.line.notes|default:"" }}</td>
             </tr>
             {% empty %}
             <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No product lines.</td></tr>
             {% endfor %}
           </tbody>
           <tfoot>
-            <tr>
-              <td colspan="5" class="text-right font-weight-bold">Product Lines Total:</td>
-              <td class="text-right font-weight-bold">{{ service.line_total|floatformat:2 }}</td>
-              <td></td>
-            </tr>
-            {% if service.amount is not None %}
-            <tr>
-              <td colspan="5" class="text-right font-weight-bold text-warning">Manual Service Amount:</td>
-              <td class="text-right font-weight-bold text-warning">{{ service.amount|floatformat:2 }}</td>
-              <td></td>
-            </tr>
-            {% endif %}
-            <tr class="table-success">
-              <td colspan="5" class="text-right font-weight-bold">Grand Total:</td>
-              <td class="text-right font-weight-bold">{{ service.grand_total|floatformat:2 }}</td>
+            <tr class="table-light">
+              <td colspan="5" class="text-right font-weight-bold">Product Lines Subtotal:</td>
+              <td class="text-right font-weight-bold">{{ service.product_lines_total|floatformat:2 }}</td>
               <td></td>
             </tr>
           </tfoot>
@@ -112,6 +105,150 @@
       </div>
     </div>
 
+    <!-- Other Materials -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-layer-group mr-2 text-warning"></i>Other Materials</h3>
+      </div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Item Name</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">Unit Price</th>
+              <th class="text-right">Total Price</th>
+              <th>Vendor</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for mat in other_materials %}
+            <tr>
+              <td>{{ mat.item_name }}</td>
+              <td class="text-right">{{ mat.qty|floatformat:2 }}</td>
+              <td class="text-right">{{ mat.unit_price|floatformat:2 }}</td>
+              <td class="text-right font-weight-bold">{{ mat.line_total|floatformat:2 }}</td>
+              <td>{{ mat.vendor|default:"—" }}</td>
+              <td>{{ mat.notes|default:"" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="text-center text-muted py-3"><i class="fas fa-layer-group mr-1"></i>No other materials.</td></tr>
+            {% endfor %}
+          </tbody>
+          {% if other_materials %}
+          <tfoot>
+            <tr class="table-light">
+              <td colspan="3" class="text-right font-weight-bold">Other Materials Subtotal:</td>
+              <td class="text-right font-weight-bold">{{ service.other_materials_total|floatformat:2 }}</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+
+    <!-- Bundles / Package Sets -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-layer-group mr-2 text-primary"></i>Bundles / Package Sets</h3>
+      </div>
+      <div class="card-body table-responsive p-0">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Bundle / Set</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">Unit Price / Set</th>
+              <th class="text-right">Total Cost</th>
+              <th class="text-center">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in service.bundles.all %}
+            <tr>
+              <td>{{ b.price_list.name }}</td>
+              <td class="text-right">{{ b.qty|floatformat:0 }}</td>
+              <td class="text-right">{{ b.bundle_unit_price|floatformat:2|intcomma }}</td>
+              <td class="text-right font-weight-bold text-danger">{{ b.bundle_total|floatformat:2|intcomma }}</td>
+              <td class="text-center">
+                <button type="button"
+                        class="btn btn-sm btn-outline-info svc-bundle-detail-items-btn"
+                        data-api="/pricing/api/price-lists/{{ b.price_list_id }}/items/"
+                        data-bundle-name="{{ b.price_list.name }}"
+                        data-bundle-qty="{{ b.qty|floatformat:0 }}"
+                        title="View bundle items">
+                  <i class="fas fa-bars"></i>
+                </button>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="text-center text-muted py-3"><i class="fas fa-layer-group mr-1"></i>No bundles applied.</td></tr>
+            {% endfor %}
+          </tbody>
+          {% if service.bundles.exists %}
+          <tfoot>
+            <tr class="table-light">
+              <td colspan="3" class="text-right font-weight-bold">Bundles Subtotal:</td>
+              <td class="text-right font-weight-bold text-danger">{{ service.bundles_total|floatformat:2|intcomma }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+
+    <!-- Pricing Breakdown -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-receipt mr-2 text-success"></i>Pricing Breakdown</h3>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0">
+          <tr class="table-primary">
+            <td style="width:60%"><strong>Quotation</strong></td>
+            <td class="text-right font-weight-bold">{{ service.quotation_amount|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr>
+            <td class="text-danger">— Product Lines (cost)</td>
+            <td class="text-right text-danger">({{ service.product_lines_total|floatformat:2|intcomma }})</td>
+          </tr>
+          <tr>
+            <td class="text-danger">— Other Materials (cost)</td>
+            <td class="text-right text-danger">({{ service.other_materials_total|floatformat:2|intcomma }})</td>
+          </tr>
+          {% for b in service.bundles.all %}
+          <tr>
+            <td class="text-danger">— Bundle: <strong>{{ b.price_list.name }}</strong> &times;{{ b.qty|floatformat:0 }}
+              <small class="text-muted">(&#8369;{{ b.bundle_unit_price|floatformat:2|intcomma }}/set)</small>
+            </td>
+            <td class="text-right text-danger">({{ b.bundle_total|floatformat:2|intcomma }})</td>
+          </tr>
+          {% endfor %}
+          <tr class="table-light">
+            <td><strong>Net (before discount)</strong></td>
+            <td class="text-right font-weight-bold">{{ service.subtotal|floatformat:2|intcomma }}</td>
+          </tr>
+          {% if service.discount_amount > 0 %}
+          <tr>
+            <td class="text-danger">
+              Discount
+              <small class="text-muted">({{ service.get_discount_type_display }}{% if service.discount_type == 'PERCENT' %}: {{ service.discount_value }}%{% else %}: ₱{{ service.discount_value|floatformat:2 }}{% endif %})</small>
+            </td>
+            <td class="text-right text-danger">({{ service.discount_amount|floatformat:2|intcomma }})</td>
+          </tr>
+          {% endif %}
+          <tr class="table-success">
+            <td><strong>Grand Total</strong></td>
+            <td class="text-right font-weight-bold">{{ service.grand_total|floatformat:2|intcomma }}</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- P&L + ROI Summary -->
   </div>
 
   <!-- Right: Actions + Summary -->
@@ -195,9 +332,19 @@
               {% else %}<span class="badge badge-secondary">Unpaid</span>{% endif %}
             </td>
           </tr>
-          <tr><th>Lines Total</th><td class="text-right font-weight-bold">{{ service.line_total|floatformat:2 }}</td></tr>
-          {% if service.amount is not None %}
-          <tr><th>Service Fee</th><td class="text-right font-weight-bold text-warning">{{ service.amount|floatformat:2 }}</td></tr>
+          {% if service.payment_status == 'PARTIAL' and service.partial_payment_amount_value > 0 %}
+          <tr><th>Initial Paid</th><td class="text-right">{{ service.partial_payment_amount_value|floatformat:2 }}</td></tr>
+          <tr><th>Balance Due</th><td class="text-right">{{ service.remaining_balance|floatformat:2 }}</td></tr>
+          {% endif %}
+          <tr><th>Product Lines</th><td class="text-right">{{ service.product_lines_total|floatformat:2 }}</td></tr>
+          <tr><th>Other Materials</th><td class="text-right">{{ service.other_materials_total|floatformat:2 }}</td></tr>
+          <tr><th>Quotation</th><td class="text-right">{{ service.quotation_amount|floatformat:2 }}</td></tr>
+          {% if service.bundles.exists %}
+          <tr><th>Bundles (COGS)</th><td class="text-right text-danger">({{ service.bundles_total|floatformat:2 }})</td></tr>
+          {% endif %}
+          <tr><th>Net (before disc.)</th><td class="text-right font-weight-bold">{{ service.subtotal|floatformat:2 }}</td></tr>
+          {% if service.discount_amount > 0 %}
+          <tr><th class="text-danger">Discount</th><td class="text-right text-danger">({{ service.discount_amount|floatformat:2 }})</td></tr>
           {% endif %}
           <tr class="table-success">
             <th>Grand Total</th>

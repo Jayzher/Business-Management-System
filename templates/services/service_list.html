@@ -18,6 +18,9 @@
           {% endfor %}
         </select>
       </form>
+      <a href="{% url 'service_invoice_list' %}" class="btn btn-sm btn-outline-purple mr-1" style="color:#6f42c1;border-color:#6f42c1;">
+        <i class="fas fa-file-invoice-dollar mr-1"></i>Service Invoices
+      </a>
       <a href="#" data-modal-url="{% url 'service_create' %}" data-modal-size="modal-xl"
          class="btn btn-sm btn-primary">
         <i class="fas fa-plus mr-1"></i>New Service

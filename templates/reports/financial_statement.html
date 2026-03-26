@@ -56,6 +56,9 @@
           <tbody>
             <!-- REVENUE -->
             <tr class="pnl-section"><td colspan="2">REVENUE <small class="text-muted font-weight-normal">(from paid invoices)</small></td></tr>
+            {% if so_invoice_revenue %}<tr><td class="ps-4">Sales Orders Revenue</td><td class="text-right">&#8369; {{ so_invoice_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
+            {% if pos_invoice_revenue %}<tr><td class="ps-4">POS Revenue</td><td class="text-right">&#8369; {{ pos_invoice_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
+            {% if svc_invoice_revenue %}<tr><td class="ps-4">Services Revenue</td><td class="text-right">&#8369; {{ svc_invoice_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
             <tr><td class="ps-4">Invoice Revenue (gross)</td><td class="text-right">&#8369; {{ invoice_revenue|floatformat:2|intcomma }}</td></tr>
             {% if discount %}<tr><td class="ps-4">Less: Discounts</td><td class="text-right negative">(&#8369; {{ discount|floatformat:2|intcomma }})</td></tr>{% endif %}
             <tr class="pnl-total"><td>Net Revenue</td><td class="text-right">&#8369; {{ net_revenue|floatformat:2|intcomma }}</td></tr>

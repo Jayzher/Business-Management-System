@@ -42,23 +42,31 @@ class UnitConversionForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if not self.is_bound and (not getattr(self, 'instance', None) or not getattr(self.instance, 'pk', None)):
             self.fields['factor'].initial = None
+            self.fields['conversion_price'].initial = None
 
     class Meta:
         model = UnitConversion
-        fields = ['from_unit', 'to_unit', 'factor', 'item']
+        fields = ['from_unit', 'to_unit', 'factor', 'conversion_price', 'item']
         widgets = {
             'from_unit': forms.Select(attrs={'class': 'form-control'}),
             'to_unit': forms.Select(attrs={'class': 'form-control'}),
             'factor': forms.NumberInput(attrs={
                 'class': 'form-control', 'step': '0.000001', 'min': '0', 'placeholder': 'e.g., 20'
             }),
+            'conversion_price': forms.NumberInput(attrs={
+                'class': 'form-control', 'step': '0.01', 'min': '0',
+                'placeholder': 'e.g., 30.00 (optional)',
+            }),
             'item': forms.Select(attrs={'class': 'form-control select2'}),
         }
         help_texts = {
-            'from_unit': 'Source unit (e.g. Box).',
-            'to_unit': 'Target unit (e.g. Piece).',
-            'factor': 'How many target units equal 1 source unit (e.g. 1 Box = 20 pcs → factor = 20).',
-            'item': 'Leave blank for a global conversion. Select a product to override the factor for that specific item only.',
+            'from_unit': 'Source unit (e.g. Roll).',
+            'to_unit': 'Target unit (e.g. ft).',
+            'factor': 'How many target units equal 1 source unit (e.g. 1 Roll = 5 ft → factor = 5).',
+            'conversion_price': 'Optional explicit selling price per 1 to_unit. '
+                                'If set, overrides factor-based price for selling (not COGS). '
+                                'Example: leave item selling_price=100/Roll but charge 30/ft.',
+            'item': 'Leave blank for a global conversion. Select a product to override for that specific item only.',
         }
 
 
@@ -67,21 +75,27 @@ class ItemUnitConversionForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if not self.is_bound and (not getattr(self, 'instance', None) or not getattr(self.instance, 'pk', None)):
             self.fields['factor'].initial = None
+            self.fields['conversion_price'].initial = None
 
     class Meta:
         model = UnitConversion
-        fields = ['from_unit', 'to_unit', 'factor']
+        fields = ['from_unit', 'to_unit', 'factor', 'conversion_price']
         widgets = {
             'from_unit': forms.Select(attrs={'class': 'form-control'}),
             'to_unit': forms.Select(attrs={'class': 'form-control'}),
             'factor': forms.NumberInput(attrs={
-                'class': 'form-control', 'step': '0.000001', 'min': '0', 'placeholder': 'e.g., 20'
+                'class': 'form-control', 'step': '0.000001', 'min': '0', 'placeholder': 'e.g., 5'
+            }),
+            'conversion_price': forms.NumberInput(attrs={
+                'class': 'form-control', 'step': '0.01', 'min': '0',
+                'placeholder': 'e.g., 30.00 (optional)',
             }),
         }
         help_texts = {
             'from_unit': 'Source unit for this item-specific conversion.',
             'to_unit': 'Target unit for this item-specific conversion.',
             'factor': 'How many target units equal 1 source unit.',
+            'conversion_price': 'Optional explicit price per to_unit for selling. Leave blank to derive from item selling_price.',
         }
 
 
@@ -113,7 +127,7 @@ ItemUnitConversionFormSet = inlineformset_factory(
     formset=BaseItemUnitConversionFormSet,
     extra=1,
     can_delete=True,
-    fields=['from_unit', 'to_unit', 'factor'],
+    fields=['from_unit', 'to_unit', 'factor', 'conversion_price'],
 )
 
 
@@ -161,18 +175,7 @@ class ItemForm(forms.ModelForm):
     )
 
     def clean(self):
-        cleaned = super().clean()
-        default_unit = cleaned.get('default_unit')
-        selling_unit = cleaned.get('selling_unit')
-        if default_unit and selling_unit and selling_unit != default_unit:
-            if selling_unit.category != default_unit.category:
-                self.add_error(
-                    'selling_unit',
-                    f'Selling unit "{selling_unit}" ({selling_unit.get_category_display()}) '
-                    f'must be in the same category as the base unit "{default_unit}" '
-                    f'({default_unit.get_category_display()}).',
-                )
-        return cleaned
+        return super().clean()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

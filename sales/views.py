@@ -300,6 +300,8 @@ def sales_order_list_view(request):
 @sales_access
 def sales_order_detail_view(request, pk):
     from decimal import Decimal
+    from catalog.utils import calculate_line_cogs_with_conversion
+    
     order = get_object_or_404(
         SalesOrder.objects.select_related('customer', 'warehouse', 'created_by', 'approved_by', 'posted_by')
         .prefetch_related(
@@ -309,21 +311,33 @@ def sales_order_detail_view(request, pk):
         ), pk=pk
     )
 
-    # ── Per-line COGS (item.cost_price × qty_ordered) ─────────────────
+    # ── Per-line COGS with unit conversion ─────────────────────────────
     line_cogs_map = {}   # line.pk → cogs decimal
     so_line_cogs_total = Decimal('0')
     for line in order.lines.all():
-        cogs = (line.item.cost_price or Decimal('0')) * line.qty_ordered
+        # Calculate COGS with unit conversion applied
+        cogs = calculate_line_cogs_with_conversion(
+            line.item, 
+            line.qty_ordered, 
+            line.unit  # line.unit is the selling unit
+        )
         line_cogs_map[line.pk] = cogs
         so_line_cogs_total += cogs
 
-    # ── Bundle COGS (pli.item.cost_price × pli.min_qty × qty_multiplier) ─
+    # ── Bundle COGS with unit conversion ──────────────────────────────
     bundle_cogs_map = {}   # bundle.pk → cogs decimal
     so_bundle_cogs_total = Decimal('0')
     for bundle in order.price_list_lines.all():
         bcogs = Decimal('0')
         for pli in bundle.price_list.items.all():
-            bcogs += (pli.item.cost_price or Decimal('0')) * pli.min_qty * bundle.qty_multiplier
+            # Calculate COGS with unit conversion for each price list item
+            item_cogs = calculate_line_cogs_with_conversion(
+                pli.item,
+                pli.min_qty,
+                pli.unit  # pli.unit is the selling unit for this price list item
+            )
+            # Multiply by qty_multiplier for the bundle
+            bcogs += item_cogs * bundle.qty_multiplier
         bundle_cogs_map[bundle.pk] = bcogs
         so_bundle_cogs_total += bcogs
 

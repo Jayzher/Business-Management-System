@@ -5,6 +5,7 @@ from django.db.models import Sum, Count, Q, F, DecimalField
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from datetime import timedelta
+from core.cogs import compute_invoice_cogs
 
 
 @login_required
@@ -71,14 +72,18 @@ def dashboard_view(request):
         paid_date__gte=period_start.date(),
         paid_date__lt=period_end.date(),
     )
+    period_invoice_rows = list(
+        period_invoices.select_related('pos_sale', 'sales_order')
+        .prefetch_related('customer_services__lines__item')
+    )
     inv_agg = period_invoices.aggregate(
         revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
         discount=Coalesce(Sum('discount_total'), Decimal('0'), output_field=DecimalField()),
-        cogs=Coalesce(Sum('grand_total_cogs'), Decimal('0'), output_field=DecimalField()),
     )
+    invoice_cogs_total = sum((compute_invoice_cogs(inv) for inv in period_invoice_rows), Decimal('0'))
     combined_revenue = inv_agg['revenue'] - inv_agg['discount']
     combined_count = period_invoices.count()
-    combined_profit = combined_revenue - inv_agg['cogs']
+    combined_profit = combined_revenue - invoice_cogs_total
     pos_margin = (combined_profit / combined_revenue * 100) if combined_revenue > 0 else Decimal('0')
 
     # Keep POS sales queryset for channel breakdown and top-items widgets (non-revenue)
@@ -91,7 +96,7 @@ def dashboard_view(request):
     pos_revenue = Decimal('0')
     so_count = 0
     so_revenue = Decimal('0')
-    pos_cogs = inv_agg['cogs']
+    pos_cogs = invoice_cogs_total
     pos_profit = combined_profit
     so_cogs = Decimal('0')
     so_profit = Decimal('0')
@@ -135,13 +140,14 @@ def dashboard_view(request):
     # Open shifts
     open_shifts = POSShift.objects.filter(status=ShiftStatus.OPEN).select_related('register', 'opened_by')
 
-    # ── Inventory valuation ────────────────────────────────────────────
-    inventory_valuation = StockBalance.objects.filter(qty_on_hand__gt=0).aggregate(
-        total=Coalesce(
-            Sum(F('qty_on_hand') * F('item__cost_price'), output_field=DecimalField()),
-            Decimal('0'), output_field=DecimalField(),
-        )
-    )['total']
+    # ── Inventory valuation (exact calculation from Inventory module) ────────────────────────────────────────────
+    from catalog.models import Item
+    inventory_valuation = Decimal('0')
+    for item in Item.objects.filter(is_active=True).select_related('default_unit'):
+        total_on_hand = StockBalance.objects.filter(item=item).aggregate(
+            total=Coalesce(Sum('qty_on_hand'), Decimal('0'))
+        )['total'] or Decimal('0')
+        inventory_valuation += total_on_hand * (item.cost_price or Decimal('0'))
 
     # ── 7-day revenue trend (paid invoices by paid_date) ─────────────────
     revenue_trend = []
@@ -202,7 +208,7 @@ def dashboard_view(request):
     dash_formulas = {
         'inv_revenue': inv_agg['revenue'],
         'inv_discount': inv_agg['discount'],
-        'inv_cogs': inv_agg['cogs'],
+        'inv_cogs': invoice_cogs_total,
         'inv_count': combined_count,
         'combined_revenue': combined_revenue,
         'combined_count': combined_count,

@@ -423,6 +423,7 @@ WIS.openModal = function(url, size) {
         form.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) { new bootstrap.Tooltip(el); });
         wisInitFormsetFlags();
         wisInitSelect2(form);
+        if (WIS.initServiceOtherMaterials) WIS.initServiceOtherMaterials(wisModalBody);
       }
     })
     .catch(function() { wisModalBody.innerHTML = '<div class="p-4 text-danger">Network error.</div>'; });
@@ -870,14 +871,24 @@ $(document).on('change select2:select', '.svc-line-item', function() {
   var itemId = $sel.val();
   if (!itemId) return;
   var prefix = ($sel.attr('name') || '').replace(/-item$/, '');
-  $.getJSON('/api/items/' + itemId + '/', function(data) {
+  var unitId = $('select[name="' + prefix + '-unit"]', row).val() || '';
+  
+  /* Fetch with unit conversion support */
+  var itemApiUrl = '/api/items/' + itemId + '/';
+  if (unitId) {
+    itemApiUrl += '?unit=' + unitId;
+  }
+  $.getJSON(itemApiUrl, function(data) {
     var $price = row.find('.svc-line-price');
-    if ($price.length && data.selling_price !== undefined) {
-      $price.val(parseFloat(data.selling_price).toFixed(2));
+    if ($price.length) {
+      var price = data.converted_selling_price || data.selling_price;
+      if (price !== undefined) {
+        $price.val(parseFloat(price).toFixed(4));
+      }
     }
     var $unit = $('select[name="' + prefix + '-unit"]', row);
-    if ($unit.length && data.unit) {
-      $unit.val(data.unit).trigger('change');
+    if ($unit.length && data.selling_unit) {
+      $unit.val(data.selling_unit).trigger('change');
     }
   });
 });
@@ -1061,6 +1072,23 @@ function wisSoLoadCustomerCatalog($form, customerId) {
 }
 
 function wisSoFetchPrice($row) {
+  /* ══════════════════════════════════════════════════════════════════════
+     Unit Conversion Pricing Logic:
+     
+     When fetching a price for an item, the system now automatically adjusts
+     the price based on unit conversions if the selling unit differs from
+     the item's stock unit.
+     
+     Example: If an item is normally sold per "Piece" at $100, but the user
+     selects a selling unit of "Foot" where 1 Piece = 19.7 Feet, then the
+     price will be automatically recalculated to $100 / 19.7 = ~$5.08 per Foot.
+     
+     This works by:
+     1. Passing the unit_id as a query parameter to the API
+     2. The ItemSerializer calculates the conversion factor
+     3. The converted_selling_price is returned in the API response
+     4. The price field is populated with the converted price
+     ══════════════════════════════════════════════════════════════════════ */
   var api = wisSoGetPriceApi($row);
   var itemId = $row.find('.so-line-item').val();
   if (!itemId) {
@@ -1076,7 +1104,7 @@ function wisSoFetchPrice($row) {
     wisSoApplyPrice($row, cdcPrice);
     /* Mark the field to show it came from customer catalog */
     $row.find('.so-line-price')
-        .attr('title', 'Customer catalog price')
+        .attr('title', 'Customer catalog price (unit-adjusted)')
         .css('border-color', '#0d6efd');
     return;
   }
@@ -1084,9 +1112,15 @@ function wisSoFetchPrice($row) {
   $row.find('.so-line-price').removeAttr('title').css('border-color', '');
 
   if (!api) {
-    $.getJSON('/api/items/' + itemId + '/', function(item) {
-      if (item && item.selling_price && parseFloat(item.selling_price) > 0) {
-        wisSoApplyPrice($row, item.selling_price);
+    /* Fetch item with unit conversion awareness */
+    var itemApiUrl = '/api/items/' + itemId + '/';
+    if (unitId) {
+      itemApiUrl += '?unit=' + unitId;
+    }
+    $.getJSON(itemApiUrl, function(item) {
+      var price = item.converted_selling_price || item.selling_price;
+      if (item && price && parseFloat(price) > 0) {
+        wisSoApplyPrice($row, price);
       } else {
         wisSoUpdateLineAndGrand($row);
       }
@@ -1098,9 +1132,15 @@ function wisSoFetchPrice($row) {
     if (data && data.price && parseFloat(data.price) > 0) {
       wisSoApplyPrice($row, data.price);
     } else {
-      $.getJSON('/api/items/' + itemId + '/', function(item) {
-        if (item && item.selling_price && parseFloat(item.selling_price) > 0) {
-          wisSoApplyPrice($row, item.selling_price);
+      /* Fallback to item API with unit conversion */
+      var itemApiUrl = '/api/items/' + itemId + '/';
+      if (unitId) {
+        itemApiUrl += '?unit=' + unitId;
+      }
+      $.getJSON(itemApiUrl, function(item) {
+        var price = item.converted_selling_price || item.selling_price;
+        if (item && price && parseFloat(price) > 0) {
+          wisSoApplyPrice($row, price);
         } else {
           wisSoUpdateLineAndGrand($row);
         }
@@ -1109,9 +1149,15 @@ function wisSoFetchPrice($row) {
   }).fail(function() {
     var itemId2 = $row.find('.so-line-item').val();
     if (!itemId2) { wisSoUpdateLineAndGrand($row); return; }
-    $.getJSON('/api/items/' + itemId2 + '/', function(item) {
-      if (item && item.selling_price && parseFloat(item.selling_price) > 0) {
-        wisSoApplyPrice($row, item.selling_price);
+    /* Fallback to item API with unit conversion */
+    var itemApiUrl = '/api/items/' + itemId2 + '/';
+    if (unitId) {
+      itemApiUrl += '?unit=' + unitId;
+    }
+    $.getJSON(itemApiUrl, function(item) {
+      var price = item.converted_selling_price || item.selling_price;
+      if (item && price && parseFloat(price) > 0) {
+        wisSoApplyPrice($row, price);
       } else {
         wisSoUpdateLineAndGrand($row);
       }
@@ -1361,6 +1407,7 @@ $(document).on('click', 'form[data-so-form="1"] .so-bundle-preview-btn', functio
     title: 'Bundle Items',
     html: '<div class="text-center py-4"><div class="spinner-border text-primary"></div><div class="mt-2 text-muted small">Loading bundle items...</div></div>',
     width: 1000,
+    position: 'center-start',
     showConfirmButton: false,
     showCloseButton: true,
     customClass: { popup: 'text-start' }
@@ -1438,6 +1485,97 @@ $(document).on('change', 'form[data-so-form="1"] .so-line-item', function() {
 
 $(document).on('change input', 'form[data-so-form="1"] .so-line-discount-type, form[data-so-form="1"] .so-line-discount-val', function() {
   wisSoUpdateLineAndGrand($(this).closest('.formset-row'));
+});
+
+/* ── Service Line unit conversion handling ── */
+$(document).on('change', '.svc-line-unit', function() {
+  var $unitSel = $(this);
+  var row = $unitSel.closest('.formset-row');
+  if (!row.length) return;
+  var itemId = row.find('.svc-line-item').val();
+  if (!itemId) return;
+  var unitId = $unitSel.val();
+  
+  /* Re-fetch price with new unit conversion */
+  var itemApiUrl = '/api/items/' + itemId + '/';
+  if (unitId) {
+    itemApiUrl += '?unit=' + unitId;
+  }
+  $.getJSON(itemApiUrl, function(data) {
+    var $price = row.find('.svc-line-price');
+    if ($price.length) {
+      var price = data.converted_selling_price || data.selling_price;
+      if (price !== undefined) {
+        $price.val(parseFloat(price).toFixed(4));
+      }
+    }
+  });
+});
+
+/* ── Generic Purchase Order / Goods Receipt / Sales Return unit conversion ── */
+/* PO line item selection with unit conversion */
+$(document).on('change select2:select', '.po-line-item, .grn-line-item, .sr-line-item', function() {
+  var $sel = $(this);
+  var row = $sel.closest('.formset-row');
+  if (!row.length) return;
+  var itemId = $sel.val();
+  if (!itemId) return;
+  
+  var prefix = ($sel.attr('name') || '').replace(/-item$/, '');
+  var $unitSel = $('select[name="' + prefix + '-unit"]', row);
+  var $priceInput = row.find('input[name$="-unit_price"]');
+  
+  /* Fetch item data with unit conversion support */
+  var unitId = $unitSel.val() || '';
+  var itemApiUrl = '/api/items/' + itemId + '/';
+  if (unitId) {
+    itemApiUrl += '?unit=' + unitId;
+  }
+  
+  $.getJSON(itemApiUrl, function(data) {
+    /* Set default unit */
+    if ($unitSel.length && data.selling_unit) {
+      $unitSel.val(data.selling_unit);
+      if ($unitSel.hasClass('select2-hidden-accessible')) {
+        $unitSel.trigger('change.select2');
+      } else {
+        $unitSel.trigger('change');
+      }
+    }
+    /* Set price with conversion if applicable */
+    if ($priceInput.length) {
+      var price = data.converted_selling_price || data.selling_price;
+      if (price !== undefined && parseFloat(price) > 0) {
+        $priceInput.val(parseFloat(price).toFixed(4));
+      }
+    }
+  });
+});
+
+/* PO/GRN/Sales Return line unit change - recalculate price with conversion */
+$(document).on('change', '.po-line-unit, .grn-line-unit, .sr-line-unit', function() {
+  var $unitSel = $(this);
+  var row = $unitSel.closest('.formset-row');
+  if (!row.length) return;
+  var itemId = row.find('[name$="-item"]').val();
+  if (!itemId) return;
+  var unitId = $unitSel.val();
+  
+  var $priceInput = row.find('input[name$="-unit_price"]');
+  if (!$priceInput.length) return;
+  
+  /* Fetch converted price */
+  var itemApiUrl = '/api/items/' + itemId + '/';
+  if (unitId) {
+    itemApiUrl += '?unit=' + unitId;
+  }
+  
+  $.getJSON(itemApiUrl, function(data) {
+    var price = data.converted_selling_price || data.selling_price;
+    if (price !== undefined && parseFloat(price) > 0) {
+      $priceInput.val(parseFloat(price).toFixed(4));
+    }
+  });
 });
 
 /* ── Delegated handlers: Bundle Lines ── */
@@ -1571,6 +1709,382 @@ lightbox.addEventListener('click', function(e) { if (e.target === lightbox) wisC
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js"></script>
 <script src="{% static 'theme/js/tour.js' %}"></script>
+<script>
+window.WIS = window.WIS || {};
+WIS.initServiceOtherMaterials = function(root) {
+  var $root = $(root || document);
+  var $form = $root.is('form') ? $root : $root.find('#svc-main-form').first();
+  if (!$form.length) return;
+
+  var $tbody = $form.find('#mat-tbody');
+  var $totalForms = $form.find('#id_mats-TOTAL_FORMS');
+  var $addBtn = $form.find('#mat-add-row');
+  var $template = $form.find('#mat-empty-row-tpl');
+  if (!$tbody.length || !$totalForms.length || !$addBtn.length || !$template.length) return;
+  if ($form.data('service-other-materials-init')) {
+    WIS.updateServiceOtherMaterialsTotals($form);
+    return;
+  }
+  $form.data('service-other-materials-init', true);
+
+  function matUpdateRowTotal(row) {
+    var $row = $(row);
+    var qty = parseFloat($row.find('.mat-qty').val()) || 0;
+    var price = parseFloat($row.find('.mat-price').val()) || 0;
+    $row.find('.mat-row-total').text((qty * price).toFixed(2));
+  }
+
+  /* ── Bundle helpers ── */
+  var $bundleTotalForms = $form.find('#id_bundles-TOTAL_FORMS');
+  var $bundleTemplate   = $form.find('#svc-bundle-empty-row');
+  var $bundleBody       = $form.find('#bundle-formset-body');
+  var apiBase           = $form.data('bundle-api') || '/pricing/api/price-lists/';
+
+  function svcBundleUpdateRow($row) {
+    var unitPrice = parseFloat($row.data('bundle-unit-price')) || 0;
+    var qty       = parseFloat($row.find('.svc-bundle-qty').val()) || 1;
+    var total     = unitPrice * qty;
+    $row.find('.svc-bundle-unit-badge').text(unitPrice > 0 ? '₱' + unitPrice.toFixed(2) + '/set' : '');
+    $row.find('.svc-bundle-total-badge').text(total > 0 ? '₱' + total.toFixed(2) : '');
+    $row.data('bundle-total', total);
+    WIS.updateServiceOtherMaterialsTotals($form);
+  }
+
+  function svcBundleFetchPrice($row) {
+    var plId = $row.find('.svc-bundle-pricelist').val();
+    if (!plId) {
+      $row.removeData('bundle-unit-price bundle-total');
+      $row.find('.svc-bundle-unit-badge, .svc-bundle-total-badge').text('');
+      WIS.updateServiceOtherMaterialsTotals($form);
+      return;
+    }
+    $.getJSON(apiBase + plId + '/items/', function(data) {
+      var unitPrice = 0;
+      if (data && data.items) {
+        $.each(data.items, function(i, it) { unitPrice += parseFloat(it.price) || 0; });
+      }
+      $row.data('bundle-unit-price', unitPrice);
+      svcBundleUpdateRow($row);
+    }).fail(function() {
+      $row.data('bundle-unit-price', 0);
+      svcBundleUpdateRow($row);
+    });
+  }
+
+  WIS.updateServiceOtherMaterialsTotals = function(targetRoot) {
+    var $scope = $(targetRoot || $form);
+    var $scopeForm = $scope.is('form') ? $scope : $scope.find('#svc-main-form').first();
+    if (!$scopeForm.length) return;
+
+    var mats = 0;
+    $scopeForm.find('#mat-tbody .mat-row:visible').each(function() {
+      mats += parseFloat($(this).find('.mat-row-total').text()) || 0;
+    });
+
+    var lines = 0;
+    $scopeForm.find('#formset-body .formset-row:visible').each(function() {
+      var badge = $(this).find('.so-line-total-badge').text().replace(/[^0-9.]/g, '');
+      if (badge) {
+        lines += parseFloat(badge) || 0;
+      } else {
+        var qty = parseFloat($(this).find('[name$="-qty"]').val()) || 0;
+        var price = parseFloat($(this).find('[name$="-unit_price"]').val()) || 0;
+        lines += qty * price;
+      }
+    });
+
+    var bundles = 0;
+    var bundleCount = 0;
+    $scopeForm.find('#bundle-formset-body .bundle-card').each(function() {
+      var $r = $(this);
+      if ($r.find('[name$="-DELETE"]').is(':checked')) return;
+      var bt = parseFloat($r.data('bundle-total')) || 0;
+      bundles += bt;
+      if (bt > 0 || $r.find('.svc-bundle-pricelist').val()) bundleCount++;
+    });
+
+    var quot = parseFloat($scopeForm.find('#id_quotation').val()) || 0;
+    var sub  = quot - lines - mats - bundles;
+    var dtype = $scopeForm.find('#id_discount_type').val();
+    var dval  = parseFloat($scopeForm.find('#id_discount_value').val()) || 0;
+    var disc  = dtype === 'PERCENT' ? (sub * dval / 100) : dval;
+    disc = Math.min(Math.max(disc, 0), sub);
+    var grand = sub - disc;
+
+    $scopeForm.find('#tot-quotation').text(quot.toFixed(2));
+    $scopeForm.find('#tot-lines').text(lines.toFixed(2));
+    $scopeForm.find('#tot-mats').text(mats.toFixed(2));
+    $scopeForm.find('#tot-bundles').text(bundles.toFixed(2));
+    $scopeForm.find('#tot-subtotal').text(sub.toFixed(2));
+    $scopeForm.find('#tot-discount').text(disc.toFixed(2));
+    $scopeForm.find('#tot-grand').text(grand.toFixed(2));
+    $scopeForm.find('#svc-bundle-count').text(bundleCount || '');
+  };
+
+  /* ── Add bundle row ── */
+  $form.find('#svc-add-bundle-row').on('click', function(e) {
+    e.preventDefault();
+    var index = parseInt($bundleTotalForms.val(), 10) || 0;
+    var tpl = $bundleTemplate.html().replace(/__prefix__/g, index);
+    var $row = $(tpl);
+    $bundleBody.append($row);
+    $bundleTotalForms.val(index + 1);
+    WIS.updateServiceOtherMaterialsTotals($form);
+    wisInitSelect2($row[0]);
+  });
+
+  /* ── Price list change → fetch bundle price ── */
+  $form.on('change', '.svc-bundle-pricelist', function() {
+    svcBundleFetchPrice($(this).closest('.bundle-card'));
+  });
+
+  /* ── Qty change → recalc total ── */
+  $form.on('input change', '.svc-bundle-qty', function() {
+    svcBundleUpdateRow($(this).closest('.bundle-card'));
+  });
+
+  /* ── Items modal ── */
+  $form.on('click', '.svc-bundle-items-btn', function(e) {
+    e.stopPropagation(); // Prevent event bubbling
+    var $row   = $(this).closest('.bundle-card');
+    var plId   = $row.find('.svc-bundle-pricelist').val();
+    var plName = $row.find('.svc-bundle-pricelist option:selected').text() || 'Bundle Items';
+    var $modal = $('#svc-bundle-items-modal');
+    $modal.find('#svc-bundle-modal-name').text(plName);
+    var $body = $modal.find('#svc-bundle-modal-body');
+    
+    // Bootstrap 5 modal initialization
+    var modal = new bootstrap.Modal($modal[0], {
+      backdrop: 'static',
+      keyboard: true
+    });
+    
+    modal.show();
+    if (!plId) {
+      $body.html('<p class="text-muted p-4 text-center">No bundle selected.</p>');
+      return;
+    }
+    $body.html('<div class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin fa-2x"></i></div>');
+    $.getJSON(apiBase + plId + '/items/', function(data) {
+      if (data && data.items && data.items.length) {
+        var html = '<table class="table table-sm table-bordered table-striped mb-0">';
+        html += '<thead class="thead-light"><tr><th scope="col" style="width:40px;">#</th><th scope="col">Item</th><th scope="col" style="width:80px;">Unit</th><th scope="col" class="text-right" style="width:120px;">Price / set</th></tr></thead><tbody>';
+        var total = 0;
+        $.each(data.items, function(i, it) {
+          var p = parseFloat(it.price) || 0;
+          total += p;
+          html += '<tr><td class="text-muted">' + (i + 1) + '</td>';
+          html += '<td>' + (it.item_name || '') + '</td>';
+          html += '<td>' + (it.unit_abbr || '') + '</td>';
+          html += '<td class="text-right">₱' + p.toFixed(2) + '</td></tr>';
+        });
+        html += '<tr class="table-primary font-weight-bold"><td colspan="3">Bundle Unit Price (1 set)</td>';
+        html += '<td class="text-right">₱' + total.toFixed(2) + '</td></tr></tbody></table>';
+        html += '<div class="text-start mt-3">';
+        html += '<div class="small text-muted">Qty: ' + qty + '</div>';
+        html += '<div class="small text-muted">Unit Price / Set: ₱' + total.toFixed(2) + '</div>';
+        html += '<div class="fw-bold text-danger">Bundle Total: ₱' + (total * qty).toFixed(2) + '</div>';
+        html += '</div>';
+
+        $body.html(html);
+      } else {
+        $body.html('<p class="text-muted p-4 text-center">No items found in this bundle.</p>');
+      }
+    }).fail(function() {
+      $body.html('<p class="text-danger p-4 text-center">Failed to load bundle items.</p>');
+    });
+  });
+  
+  // Prevent modal close events from bubbling up (Bootstrap 5)
+  $('#svc-bundle-items-modal').on('hide.bs.modal', function(e) {
+    e.stopPropagation();
+  });
+  
+  $('#svc-bundle-items-modal').on('hidden.bs.modal', function(e) {
+    e.stopPropagation();
+  });
+
+  $(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
+    e.preventDefault();
+    var $btn = $(this);
+    var api = $btn.data('api');
+    var bundleName = $btn.data('bundle-name') || 'Bundle Items';
+    var qty = parseFloat($btn.data('bundle-qty')) || 1;
+
+    Swal.fire({
+      title: bundleName,
+      html: '<div class="text-center py-4"><div class="spinner-border text-primary"></div><div class="mt-2 text-muted small">Loading bundle items...</div></div>',
+      width: 900,
+      position: 'center-start',
+      showConfirmButton: false,
+      showCloseButton: true,
+      customClass: { popup: 'text-start' }
+    });
+
+    $.getJSON(api, function(data) {
+      if (!data || !data.items || !data.items.length) {
+        Swal.update({
+          title: bundleName,
+          html: '<div class="text-center py-5 text-muted"><i class="fas fa-box-open fa-2x mb-2"></i><div>No items in this bundle.</div></div>',
+          showConfirmButton: true,
+          confirmButtonText: 'Close'
+        });
+        return;
+      }
+
+      var total = 0;
+      var html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">';
+      html += '<thead class="thead-light"><tr><th style="width:40px;">#</th><th>Item</th><th style="width:90px;">Unit</th><th class="text-right" style="width:130px;">Price / set</th></tr></thead><tbody>';
+      $.each(data.items, function(i, it) {
+        var price = parseFloat(it.price) || 0;
+        total += price;
+        html += '<tr>';
+        html += '<td class="text-muted">' + (i + 1) + '</td>';
+        html += '<td>' + (it.item_name || '') + '</td>';
+        html += '<td>' + (it.unit_abbr || '') + '</td>';
+        html += '<td class="text-right">₱' + price.toFixed(2) + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+      html += '<div class="text-end mt-3">';
+      html += '<div class="small text-muted">Qty: ' + qty + '</div>';
+      html += '<div class="small text-muted">Unit Price / Set: ₱' + total.toFixed(2) + '</div>';
+      html += '<div class="fw-bold text-danger">Bundle Total: ₱' + (total * qty).toFixed(2) + '</div>';
+      html += '</div>';
+
+      Swal.update({
+        title: bundleName,
+        html: html,
+        showConfirmButton: true,
+        confirmButtonText: 'Close'
+      });
+    }).fail(function() {
+      Swal.update({
+        title: bundleName,
+        html: '<div class="text-danger py-5 text-center"><i class="fas fa-exclamation-triangle mr-1"></i>Failed to load bundle items.</div>',
+        showConfirmButton: true,
+        confirmButtonText: 'Close'
+      });
+    });
+  });
+
+  /* ── Remove bundle row ── */
+  $form.on('click', '.svc-bundle-remove-btn', function() {
+    var $row = $(this).closest('.bundle-card');
+    var $del = $row.find('[name$="-DELETE"]');
+    if ($del.length) { $del.prop('checked', true); $row.hide(); }
+    else { $row.remove(); }
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  /* ── Init existing bundle rows on page load ── */
+  $bundleBody.find('.bundle-card').each(function() { svcBundleFetchPrice($(this)); });
+
+
+  $addBtn.on('click', function(e) {
+    e.preventDefault();
+    var index = parseInt($totalForms.val(), 10) || 0;
+    var tpl = $template.html().replace(/__prefix__/g, index);
+    var $row = $(tpl);
+    $tbody.append($row);
+    $totalForms.val(index + 1);
+    matUpdateRowTotal($row);
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  $form.on('click', '.mat-delete-row', function() {
+    var $row = $(this).closest('.mat-row');
+    var $del = $row.find('[name$="-DELETE"]');
+    if ($del.length) {
+      $del.prop('checked', true);
+      $row.hide();
+    } else {
+      $row.remove();
+    }
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  $form.on('input change', '.mat-qty, .mat-price', function() {
+    matUpdateRowTotal($(this).closest('.mat-row'));
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  $form.on('input change', '[name$="-qty"], [name$="-unit_price"]', function() {
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  $form.find('#id_quotation, #id_discount_type, #id_discount_value').on('input change', function() {
+    WIS.updateServiceOtherMaterialsTotals($form);
+  });
+
+  $tbody.find('.mat-row').each(function() { matUpdateRowTotal(this); });
+  setTimeout(function() { WIS.updateServiceOtherMaterialsTotals($form); }, 0);
+};
+
+$(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
+  e.preventDefault();
+  var $btn = $(this);
+  var api = $btn.data('api');
+  var bundleName = $btn.data('bundle-name') || 'Bundle Items';
+  var qty = parseFloat($btn.data('bundle-qty')) || 1;
+
+  Swal.fire({
+    title: bundleName,
+    html: '<div class="py-4"><div class="spinner-border text-primary"></div><div class="mt-2 text-muted small">Loading bundle items...</div></div>',
+    width: 900,
+    position: 'center',
+    showConfirmButton: false,
+    showCloseButton: true,
+    customClass: { popup: 'text-start' }
+  });
+
+  $.getJSON(api, function(data) {
+    if (!data || !data.items || !data.items.length) {
+      Swal.update({
+        title: bundleName,
+        html: '<div class="py-5 text-muted"><i class="fas fa-box-open fa-2x mb-2"></i><div>No items in this bundle.</div></div>',
+        showConfirmButton: true,
+        confirmButtonText: 'Close'
+      });
+      return;
+    }
+
+    var total = 0;
+    var html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">';
+    html += '<thead class="thead-light"><tr><th style="width:40px;">#</th><th>Item</th><th style="width:90px;">Unit</th><th class="text-right" style="width:130px;">Price / set</th></tr></thead><tbody>';
+    $.each(data.items, function(i, it) {
+      var price = parseFloat(it.price) || 0;
+      total += price;
+      html += '<tr>';
+      html += '<td class="text-muted">' + (i + 1) + '</td>';
+      html += '<td>' + (it.item_name || '') + '</td>';
+      html += '<td>' + (it.unit_abbr || '') + '</td>';
+      html += '<td class="text-right">₱' + price.toFixed(2) + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<div class="mt-3 text-start">';
+    html += '<div class="small text-muted">Qty: ' + qty + '</div>';
+    html += '<div class="small text-muted">Unit Price / Set: ₱' + total.toFixed(2) + '</div>';
+    html += '<div class="fw-bold text-danger">Bundle Total: ₱' + (total * qty).toFixed(2) + '</div>';
+    html += '</div>';
+
+    Swal.update({
+      title: bundleName,
+      html: html,
+      showConfirmButton: true,
+      confirmButtonText: 'Close'
+    });
+  }).fail(function() {
+    Swal.update({
+      title: bundleName,
+      html: '<div class="text-danger py-5 text-center"><i class="fas fa-exclamation-triangle mr-1"></i>Failed to load bundle items.</div>',
+      showConfirmButton: true,
+      confirmButtonText: 'Close'
+    });
+  });
+});
+</script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>

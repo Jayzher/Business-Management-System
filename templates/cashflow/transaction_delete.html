@@ -1,0 +1,3 @@
+{% extends "theme/partials/delete_confirm.html" %}
+{% block object_name %}{{ object.transaction_number }}{% endblock %}
+{% block cancel_url %}{% url 'cashflow_list' %}{% endblock %}

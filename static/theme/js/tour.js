@@ -270,6 +270,16 @@
           '<p class="mt-1 mb-0"><small>Low stock alerts appear when levels drop below minimum.</small></p>',
       },
       {
+        selector: '[data-tour-id="nav-cashflow"]',
+        title: '💰 Cash Flow Module',
+        desc: '<p>Track all <strong>money movements</strong> in and out of your business:</p>' +
+          '<ul style="padding-left:1.2rem;" class="mb-0">' +
+          '<li><strong>Transactions</strong> — Record Cash-In and Cash-Out with categories (Procurement, Supplies, Expenses, Capital, Other)</li>' +
+          '<li><strong>Approval Workflow</strong> — Transactions go through Pending → Approved/Rejected</li>' +
+          '<li><strong>Logs</strong> — Full audit trail of every action taken on transactions</li></ul>' +
+          '<p class="mt-1 mb-0"><small>Summary boxes show total Cash In, Cash Out, and Net Cash Flow.</small></p>',
+      },
+      {
         selector: '[data-tour-id="nav-services"]',
         title: '🔧 Services Module',
         desc: '<p>Manage <strong>customer service jobs</strong> and repair orders:</p>' +
@@ -401,7 +411,68 @@
       }
     },
 
-    /* /catalog/items/ (list, detail, create, edit) — see Detail & Sub-page section below */
+    /* ── Catalog: Items ──────────────────────────────────────────────── */
+    '/catalog/items/': {
+      title: 'Product Catalog Guide',
+      steps: function () {
+        var s = [];
+        var path = window.location.pathname;
+
+        /* Detail page */
+        if (path.match(/\/catalog\/items\/\d+\//)) {
+          s.push({ popover: { title: '📦 Item Details', description: 'Full details for this product — stock levels, unit conversions, cost & selling price, and recent stock movements. Click the Edit button to update item information.', position: 'center' } });
+          return s;
+        }
+        /* Edit page */
+        if (path.match(/\/catalog\/items\/\d+\/edit\//)) {
+          s.push({ popover: { title: '✏️ Edit Item', description: 'Update this item\'s code, name, category, units, pricing, and image. You can also manage item-specific unit conversions in the table below.', position: 'center' } });
+          return s;
+        }
+        /* Create page */
+        if (path.indexOf('/create/') !== -1) {
+          s.push({ popover: { title: '➕ New Item', description: 'Create a new catalog item. Fill in the item code, name, category, default unit, cost price, and selling price. Upload an image to display on the catalog card.', position: 'center' } });
+          return s;
+        }
+        /* Print page */
+        if (path.indexOf('/print/') !== -1) {
+          s.push({ popover: { title: '🖨️ Full Catalog PDF', description: 'This is the print-ready full catalog. Click "Print / Save as PDF" in the top bar to export. Items are arranged in the same columns × rows grid you set on the catalog page.', position: 'center' } });
+          return s;
+        }
+
+        /* ── List page (card grid) ────────────────────────────────── */
+        s.push({ popover: { title: '🗂️ Product Catalog', description: '<p>Your entire product catalog displayed as an <strong>interactive card grid</strong>. Each card shows the item image, code, name, type, category, and selling price.</p><p class="mb-0"><small>Click any card to open the full item details in a new tab.</small></p>', position: 'center' } });
+
+        if (exists('#catalog-toolbar')) {
+          s.push({ element: '#catalog-toolbar', popover: { title: '🔧 Catalog Toolbar', description: 'Use this toolbar to <strong>search</strong>, <strong>filter by category or type</strong>, adjust the <strong>grid layout</strong> (columns × rows), import items, create new items, or export the catalog.', position: 'bottom' } });
+        }
+        if (exists('#cat-search')) {
+          s.push({ element: '#cat-search', popover: { title: '🔍 Search', description: 'Type to instantly search items by <strong>name or code</strong>. Results update after a short pause as you type.', position: 'bottom' } });
+        }
+        if (exists('#cat-category')) {
+          s.push({ element: '#cat-category', popover: { title: '📂 Category Filter', description: 'Filter the catalog to show only items belonging to a specific <strong>category</strong>. Select "All Categories" to reset.', position: 'bottom' } });
+        }
+        if (exists('#cat-grid-controls')) {
+          s.push({ element: '#cat-grid-controls', popover: { title: '⊞ Grid Layout', description: '<strong>Cols</strong> sets how many cards appear per row (1–6). <strong>Rows</strong> sets how many rows per page (1–10). The page size is <em>cols × rows</em>. Change either to instantly reflow the grid.', position: 'bottom' } });
+        }
+        if (exists('#catalog-export-dropdown')) {
+          s.push({ element: '#catalog-export-dropdown', popover: { title: '📤 Export Options', description: '<ul style="padding-left:1.2rem;margin-bottom:0;">' +
+            '<li><strong>PDF – This Page</strong>: Prints the current visible page (legal paper, fits exactly your cols × rows layout)</li>' +
+            '<li><strong>PDF – Full Catalog</strong>: Opens a print-ready page with ALL items across multiple pages</li>' +
+            '<li><strong>Export to Excel</strong>: Downloads all item details (code, name, prices, units, etc.) — no images</li>' +
+            '</ul>', position: 'bottom' } });
+        }
+        if (exists('#catalog-grid')) {
+          s.push({ element: '#catalog-grid', popover: { title: '🃏 Item Cards', description: 'Each card shows: <strong>product image</strong> (top), then <strong>code</strong>, <strong>name</strong>, <strong>type badge</strong>, <strong>price</strong>, and <strong>category</strong>. Cards are sorted alphabetically by category, then name. Click a card to open its full details in a new tab.', position: 'top' } });
+        }
+        if (exists('#catalog-pagination')) {
+          s.push({ element: '#catalog-pagination', popover: { title: '📄 Pagination', description: 'Navigate between pages of your catalog. The page size equals <strong>cols × rows</strong> (default 12 cards per page). Use First/Prev/Next/Last buttons or click a page number directly.', position: 'top' } });
+        }
+        if (exists('#catalog-new-btn')) {
+          s.push({ element: '#catalog-new-btn', popover: { title: '➕ New Item', description: 'Open the item creation form to add a new product to your catalog. You can set the image, code, name, category, units, and pricing.', position: 'bottom' } });
+        }
+        return s;
+      }
+    },
 
     /* ── Catalog: Categories ──────────────────────────────────────────── */
     '/catalog/categories/create/': { title: 'Create Category Guide', steps: function () { return [{ popover: { title: '➕ New Category', description: 'Create a product category to organize your catalog items. Categories help you group similar items together for easier management and reporting.', position: 'center' } }]; } },
@@ -1056,22 +1127,78 @@
       steps: function () {
         var s = [];
         var path = window.location.pathname;
+
+        /* Service Invoice List */
+        if (path === '/services/invoices/' || path.indexOf('/services/invoices') === 0) {
+          s.push({ popover: { title: '🧾 Service Invoices', description: 'Lists all invoices generated exclusively by completed customer services. Use the <strong>Paid/Unpaid filter</strong> to track outstanding balances.', position: 'center' } });
+          if (exists('select[name="paid"]')) s.push({ element: 'select[name="paid"]', popover: { title: '🔍 Payment Filter', description: 'Filter invoices by payment status — Paid, Unpaid, or All.', position: 'bottom' } });
+          if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Invoice Table', description: 'Shows invoice number, date, customer, linked service(s), status, grand total, and balance due. Click on an invoice or service badge to navigate directly.', position: 'top' } });
+          if (exists('.card-footer')) s.push({ element: '.card-footer', popover: { title: '↩ Back to Services', description: 'Return to the full Customer Services list.', position: 'top' } });
+          return s;
+        }
+
+        /* Service Detail / Edit */
         if (path.match(/\/services\/\d+\//)) {
           if (path.indexOf('/edit/') !== -1) {
             s.push({ popover: { title: '✏️ Edit Service', description: 'Update service details. The <strong>Completion Date</strong> field is only available on the edit form.', position: 'center' } });
             return s;
           }
-          s.push({ popover: { title: '🔧 Service Details', description: 'Full details of this customer service record — service info, product/parts lines, totals, and action buttons.', position: 'center' } });
-          if (exists('.table-bordered')) s.push({ element: '.table-bordered', popover: { title: '📄 Service Info', description: 'Shows service number, name, customer, dates, status, payment status, and linked invoice.', position: 'right' } });
-          if (exists('.table-hover')) s.push({ element: '.table-hover', popover: { title: '📦 Product Lines', description: 'Parts or items used in the service. Unit price is auto-filled from the Item catalog selling price.', position: 'top' } });
+          s.push({ popover: { title: '🔧 Service Details', description: 'Full details of this customer service job — info, parts used, and Profit & Loss summary. Complete the service to deduct inventory and generate an invoice automatically.', position: 'center' } });
+          if (exists('.doc-detail-table')) s.push({ element: '.doc-detail-table', popover: { title: '📄 Service Info', description: 'Service number, name, customer, dates, status, payment status, and linked invoice (shown after completion).', position: 'right' } });
+          if (exists('.detail-lines-table')) s.push({ element: '.detail-lines-table', popover: { title: '📦 Parts Used', description: 'Parts or items used in the service. Columns include <strong>Unit Price</strong> (selling), <strong>Cost (COGS)</strong> from the item catalog cost price, and <strong>Line Profit</strong> (revenue − cost per line).', position: 'top' } });
+          if (exists('.card-outline.card-info')) s.push({ element: '.card-outline.card-info', popover: { title: '📊 Profit & Loss Summary', description: '<strong>Revenue</strong> = service grand total<br><strong>COGS</strong> = sum of (cost price × qty) for all parts<br><strong>Gross Profit</strong> = Revenue − COGS<br>The margin % badge turns green above 20%, yellow above 10%.', position: 'left' } });
+          if (exists('.card-primary.card-outline')) s.push({ element: '.card-primary.card-outline', popover: { title: '⚡ Actions', description: '<strong>Complete Service</strong> deducts parts from inventory and creates an invoice. <strong>Mark In Progress</strong> updates the status. <strong>Cancel</strong> is irreversible.', position: 'left' } });
           return s;
         }
+
+        /* Service Create */
         if (path.indexOf('/create/') !== -1) {
-          s.push({ popover: { title: '➕ New Customer Service', description: 'Create a service job order. Fill in the service name, customer name (free text), date, and optionally add product/parts lines. Set the warehouse if parts will be deducted from inventory.', position: 'center' } });
+          s.push({ popover: { title: '➕ New Customer Service', description: 'Create a service job order. Fill in the service name, customer name (free text), date, and optionally add product/parts lines. Set the <strong>Warehouse</strong> so parts are deducted from inventory on completion.', position: 'center' } });
           return s;
         }
-        s.push({ popover: { title: '🔧 Customer Services', description: 'Track all customer service jobs. When a service is <strong>Completed</strong>, parts are deducted from inventory and an invoice is auto-generated.', position: 'center' } });
-        if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Services List', description: 'Shows service number, name, customer, date, status, payment status, and total. Click to view details.', position: 'top' } });
+
+        /* Service List */
+        s.push({ popover: { title: '🔧 Customer Services', description: 'Track all customer service jobs. When a service is <strong>Completed</strong>, parts are deducted from inventory using <em>Service Out</em> stock moves and an invoice is auto-generated.', position: 'center' } });
+        if (exists('select[name="status"]')) s.push({ element: 'select[name="status"]', popover: { title: '🔍 Status Filter', description: 'Filter services by status: Draft, In Progress, Completed, or Cancelled.', position: 'bottom' } });
+        if (exists('a[href="/services/invoices/"]')) s.push({ element: 'a[href="/services/invoices/"]', popover: { title: '🧾 Service Invoices', description: 'View all invoices generated by completed services in one place. Separate from the main invoice list.', position: 'bottom' } });
+        if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Services List', description: 'Shows service number, name, customer, date, status, payment status, and grand total. Click a service number to view full details with P&L.', position: 'top' } });
+        return s;
+      }
+    },
+
+    /* ── Cash Flow ─────────────────────────────────────────────── */
+    '/cashflow/new/': { title: 'New Cash Flow Transaction', steps: function () { return [{ popover: { title: '➕ New Transaction', description: 'Record a Cash-In or Cash-Out transaction. Select a <strong>Category</strong> (Procurement, Supplies, Expenses, Capital, Other), set the <strong>amount</strong>, date, payment method, and reason. The transaction starts as <em>Pending</em> and needs approval.', position: 'center' } }]; } },
+    '/cashflow/logs/': {
+      title: 'Cash Flow Logs Guide',
+      steps: function () {
+        var s = [];
+        s.push({ popover: { title: '📜 Activity Logs', description: 'Complete audit trail of every action taken on cash flow transactions — Created, Updated, Approved, Rejected, Cancelled, and Deleted events with timestamps and user info.', position: 'center' } });
+        if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Log Table', description: 'Each row shows the timestamp, linked transaction number, action taken, who performed it, and a brief description of what changed.', position: 'top' } });
+        return s;
+      }
+    },
+    '/cashflow/': {
+      title: 'Cash Flow Guide',
+      steps: function () {
+        var s = [];
+        var path = window.location.pathname;
+
+        /* Detail page */
+        if (path.match(/\/cashflow\/\d+\//)) {
+          if (path.indexOf('/edit/') !== -1) {
+            s.push({ popover: { title: '✏️ Edit Transaction', description: 'Update this transaction. Only <strong>Pending</strong> or <strong>Rejected</strong> transactions can be edited. Editing a rejected transaction resets its status to Pending for re-approval.', position: 'center' } });
+            return s;
+          }
+          s.push({ popover: { title: '💰 Transaction Details', description: 'Full details of this cash flow transaction including amount, category, type, payment method, and approval status. The activity log at the bottom tracks every change.', position: 'center' } });
+          if (exists('.doc-detail-table')) s.push({ element: '.doc-detail-table', popover: { title: '📄 Transaction Info', description: 'Transaction number, status, type (Cash In/Out), category, amount, date, payment method, reason, and notes.', position: 'right' } });
+          if (exists('.card-primary.card-outline')) s.push({ element: '.card-primary.card-outline', popover: { title: '⚡ Actions', description: '<strong>Approve</strong> or <strong>Reject</strong> pending transactions. Rejected transactions can be edited and resubmitted. Any non-cancelled transaction can be cancelled.', position: 'left' } });
+          return s;
+        }
+
+        /* List page */
+        s.push({ popover: { title: '💰 Cash Flow Transactions', description: '<p>Track all money movements — <strong>Cash In</strong> (revenue, capital, refunds) and <strong>Cash Out</strong> (procurement, supplies, expenses). Each transaction goes through an approval workflow.</p><p class="mb-0"><small>Use the filters to narrow by category, type, status, or date range.</small></p>', position: 'center' } });
+        if (exists('.info-box')) s.push({ element: '.info-box', popover: { title: '📊 Summary Boxes', description: 'Quick totals: <strong>Total Cash In</strong> (green), <strong>Total Cash Out</strong> (red), and <strong>Net Cash Flow</strong> (blue/yellow). These update based on your active filters.', position: 'bottom' } });
+        if (exists('table')) s.push({ element: 'table', popover: { title: '📋 Transaction Table', description: 'Shows transaction number, date, type, category, amount, reason, payment method, status, and creator. Click the eye icon to view details, or use edit/delete for pending items.', position: 'top' } });
         return s;
       }
     },

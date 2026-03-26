@@ -7,10 +7,41 @@
 <li class="breadcrumb-item active">{% if is_create %}New{% else %}Edit{% endif %}</li>
 {% endblock %}
 
+{% block extra_css %}
+  <style>
+   .svc-section-hdr { background:#f1f3f5; border-bottom:1px solid #dee2e6; }
+   .mat-table th, .mat-table td { vertical-align: middle; padding: .35rem .5rem; }
+   .mat-total-cell { font-weight: 600; }
+   #svc-totals-box { background:#f8f9fc; border:1px solid #dee2e6; border-radius:6px; }
+   #svc-totals-box td { padding:.3rem .6rem; }
+  .bundle-card { background:#fff; border:1px solid #dee2e6; border-radius:.5rem; padding:.85rem; margin-bottom:.75rem; }
+  .bundle-top-row { margin-bottom:.75rem; }
+  .bundle-bottom-row { padding-top:.75rem; border-top:1px solid #e9ecef; }
+  .bundle-select-wrapper { width:100%; }
+  .bundle-actions { display:flex; align-items:center; justify-content:flex-end; gap:.5rem; height:100%; }
+  .bundle-meta-box { display:flex; align-items:center; gap:.5rem; min-height:42px; padding:.45rem .65rem; background:#f8f9fa; border:1px solid #e9ecef; border-radius:.5rem; }
+  .bundle-meta-box.total-box { justify-content:flex-end; background:#e8f4ff; border-color:#b6d7ff; }
+  .bundle-meta-label { margin:0; font-size:.72rem; font-weight:700; color:#6c757d; text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
+  .bundle-qty-wrapper { display:flex; align-items:center; gap:.45rem; margin:0; }
+  .bundle-qty-wrapper label { margin:0; font-size:.78rem; font-weight:700; color:#6c757d; text-transform:uppercase; letter-spacing:.02em; }
+  .bundle-qty-wrapper input { width:74px; height:31px; }
+  .bundle-pill-btn { display:inline-flex; align-items:center; justify-content:center; gap:.35rem; min-height:31px; padding:.35rem .7rem; border-radius:.375rem; font-size:.78rem; font-weight:600; white-space:nowrap; }
+  .svc-bundle-remove-btn { width:31px; height:31px; padding:0; border-radius:.375rem; display:inline-flex; align-items:center; justify-content:center; }
+  .svc-bundle-unit-badge,
+  .svc-bundle-total-badge { display:inline-flex; align-items:center; min-height:31px; border-radius:8px; font-weight:600; }
+  .svc-bundle-unit-badge { font-size:.8rem; white-space:nowrap; padding:0; background:transparent; border:none; color:#495057; }
+  .svc-bundle-total-badge { font-size:.88rem; white-space:nowrap; padding:0; background:transparent; color:#0d6efd; box-shadow:none; }
+  @media (max-width: 767.98px) {
+    .bundle-actions { justify-content:flex-start; margin-top:.5rem; }
+    .bundle-meta-box { margin-bottom:.5rem; }
+  }
+ </style>
+{% endblock %}
+
 {% block content %}
-<form method="post" novalidate>
+<form method="post" novalidate id="svc-main-form" data-bundle-api="/pricing/api/price-lists/">
   {% csrf_token %}
-  <div class="card wis-form-card">
+  <div class="card wis-form-card" style="max-width:100%;">
     <div class="card-header">
       <h3 class="card-title"><i class="fas fa-tools mr-2"></i>{{ title }}</h3>
     </div>
@@ -20,15 +51,15 @@
       <div class="alert alert-danger">{% for e in form.non_field_errors %}{{ e }}{% endfor %}</div>
       {% endif %}
 
-      <!-- Service Header Fields -->
-      <div class="card mb-3 border shadow-none" style="background:#fafbfc;">
-        <div class="card-header py-2" style="background:#f1f3f5; border-bottom:1px solid #dee2e6;">
+      <!-- ── Service Header Fields ─────────────────────────────────────── -->
+      <div class="card mb-3 border shadow-none">
+        <div class="card-header py-2 svc-section-hdr">
           <h3 class="card-title small font-weight-bold text-muted mb-0"><i class="fas fa-info-circle mr-1"></i>Service Details</h3>
         </div>
         <div class="card-body pb-0">
           <div class="row">
             {% for field in form %}
-            {% if field.name != 'completion_date' %}
+            {% if field.name not in 'completion_date,quotation,bundle,discount_type,discount_value,partial_payment_amount' %}
             <div class="col-md-6 mb-3">
               <label for="{{ field.id_for_label }}" class="font-weight-bold small">
                 {{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}
@@ -39,28 +70,38 @@
             </div>
             {% endif %}
             {% endfor %}
-            {% if not is_create %}
-            {% for field in form %}
-            {% if field.name == 'completion_date' %}
-            <div class="col-md-6 mb-3">
-              <label for="{{ field.id_for_label }}" class="font-weight-bold small">{{ field.label }}</label>
-              {{ field }}
+            {% for field in form %}{% if field.name == 'partial_payment_amount' %}
+            <div class="col-md-6 mb-3" id="svc-partial-payment-group" style="display:none;">
+              <label for="{{ field.id_for_label }}" class="font-weight-bold small">
+                <i class="fas fa-wallet mr-1 text-warning"></i>{{ field.label }}
+              </label>
+              <div class="input-group input-group-sm">
+                <div class="input-group-prepend"><span class="input-group-text">₱</span></div>
+                {{ field }}
+              </div>
               {% if field.help_text %}<small class="form-text text-muted">{{ field.help_text }}</small>{% endif %}
               {% if field.errors %}<div class="text-danger small">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
             </div>
-            {% endif %}
-            {% endfor %}
+            {% endif %}{% endfor %}
+            {% if not is_create %}
+            {% for field in form %}{% if field.name == 'completion_date' %}
+            <div class="col-md-6 mb-3">
+              <label for="{{ field.id_for_label }}" class="font-weight-bold small">{{ field.label }}</label>
+              {{ field }}
+              {% if field.errors %}<div class="text-danger small">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+            </div>
+            {% endif %}{% endfor %}
             {% endif %}
           </div>
         </div>
       </div>
 
-      <!-- Product / Parts Lines -->
-      <div class="card mb-0 border shadow-none" style="background:#fafbfc;">
-        <div class="card-header py-2" style="background:#f1f3f5; border-bottom:1px solid #dee2e6;">
+      <!-- ── Product / Parts Lines ─────────────────────────────────────── -->
+      <div class="card mb-3 border shadow-none">
+        <div class="card-header py-2 svc-section-hdr">
           <h3 class="card-title small font-weight-bold text-muted mb-0">
-            <i class="fas fa-list mr-1"></i>Product / Parts Lines
-            <small class="font-weight-normal text-muted ml-1">(optional — deducted from stock on completion)</small>
+            <i class="fas fa-boxes mr-1 text-primary"></i>Product / Parts Lines
+            <small class="font-weight-normal text-muted ml-1">(deducted from inventory on completion)</small>
           </h3>
         </div>
         <div class="card-body p-3">
@@ -68,21 +109,286 @@
         </div>
       </div>
 
-    </div>
-    <div class="card-footer">
+      <!-- ── Other Materials Table ─────────────────────────────────────── -->
+      <div class="card mb-3 border shadow-none">
+        <div class="card-header py-2 svc-section-hdr d-flex justify-content-between align-items-center">
+          <h3 class="card-title small font-weight-bold text-muted mb-0">
+            <i class="fas fa-layer-group mr-1 text-warning"></i>Other Materials
+            <small class="font-weight-normal text-muted ml-1">(free-text supplies — NOT deducted from inventory)</small>
+          </h3>
+        </div>
+        <div class="card-body p-0">
+          {{ mat_formset.management_form }}
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered mat-table mb-0" id="mat-table">
+              <thead class="thead-light">
+                <tr>
+                  <th style="width:30%">Item Name <span class="text-danger">*</span></th>
+                  <th style="width:10%">Qty <span class="text-danger">*</span></th>
+                  <th style="width:14%">Unit Price <span class="text-danger">*</span></th>
+                  <th style="width:12%" class="text-right">Total Price</th>
+                  <th style="width:16%">Vendor</th>
+                  <th style="width:12%">Notes</th>
+                  <th style="width:6%"></th>
+                </tr>
+              </thead>
+              <tbody id="mat-tbody">
+                {% for mf in mat_formset %}
+                <tr class="mat-row{% if mf.instance.pk %} existing-mat{% endif %}">
+                  {% for hidden in mf.hidden_fields %}{{ hidden }}{% endfor %}
+                  <td>{{ mf.item_name }}{% if mf.item_name.errors %}<div class="text-danger small">{{ mf.item_name.errors.0 }}</div>{% endif %}</td>
+                  <td>{{ mf.qty }}{% if mf.qty.errors %}<div class="text-danger small">{{ mf.qty.errors.0 }}</div>{% endif %}</td>
+                  <td>{{ mf.unit_price }}{% if mf.unit_price.errors %}<div class="text-danger small">{{ mf.unit_price.errors.0 }}</div>{% endif %}</td>
+                  <td class="text-right mat-total-cell"><span class="mat-row-total">0.00</span></td>
+                  <td>{{ mf.vendor }}</td>
+                  <td>{{ mf.notes }}</td>
+                  <td class="text-center">
+                    <span style="display:none;">{{ mf.DELETE }}</span>
+                    <button type="button" class="btn btn-xs btn-outline-danger mat-delete-row" title="Remove">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="p-2">
+            <button type="button" class="btn btn-sm btn-outline-warning" id="mat-add-row">
+              <i class="fas fa-plus mr-1"></i>Add Other Material
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Bundle / Package Sets ───────────────────────────────── -->
+      <div class="card mb-3 border-primary border shadow-none">
+        <div class="card-header py-2 d-flex align-items-center justify-content-between svc-section-hdr" style="background:linear-gradient(135deg,#e8f0fe 0%,#fff 100%);border-bottom:2px solid #cfe2ff;">
+          <h3 class="card-title small font-weight-bold mb-0 text-primary">
+            <i class="fas fa-layer-group mr-1"></i>Bundle / Package Sets
+            <span class="badge badge-primary ml-1" id="svc-bundle-count"></span>
+          </h3>
+          <span class="text-muted small">Bundle cost (Price&times;Qty) is deducted from the quotation</span>
+        </div>
+        <div class="card-body p-2">
+          {{ bundle_formset.management_form }}
+          <div id="bundle-formset-body">
+            {% for bform in bundle_formset %}
+            <div class="bundle-card">
+              {% for hidden in bform.hidden_fields %}{{ hidden }}{% endfor %}
+              <div class="bundle-top-row row align-items-center">
+                <div class="col-lg-8 col-md-7 col-12">
+                  <div class="bundle-select-wrapper">
+                    {% for field in bform.visible_fields %}{% if field.name == 'price_list' %}{{ field }}{% endif %}{% endfor %}
+                  </div>
+                </div>
+                <div class="col-lg-4 col-md-5 col-12">
+                <div class="bundle-actions">
+                  <button type="button" class="btn btn-sm btn-outline-info bundle-pill-btn svc-bundle-items-btn" title="View bundle items">
+                    <i class="fas fa-bars"></i>
+                  </button>
+                  <button type="button" class="btn btn-outline-danger svc-bundle-remove-btn" title="Remove bundle">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+                </div>
+              </div>
+              <div class="bundle-bottom-row row">
+                <div class="col-lg-4 col-md-4 col-sm-6 mb-2 mb-md-0">
+                  <div class="bundle-meta-box">
+                    <div class="bundle-qty-wrapper">
+                      <label class="small mb-0 text-muted">Qty</label>
+                      {% for field in bform.visible_fields %}{% if field.name == 'qty' %}{{ field }}{% endif %}{% endfor %}
+                    </div>
+                  </div>
+                </div>
+                <div class="col-lg-4 col-md-4 col-sm-6 mb-2 mb-md-0">
+                  <div class="bundle-meta-box">
+                    <span class="bundle-meta-label">Unit Price</span>
+                    <span class="svc-bundle-unit-badge"></span>
+                  </div>
+                </div>
+                <div class="col-lg-4 col-md-4 col-sm-12">
+                  <div class="bundle-meta-box total-box">
+                    <span class="bundle-meta-label">Total</span>
+                    <span class="svc-bundle-total-badge"></span>
+                  </div>
+                </div>
+              </div>
+              <span style="display:none;">{% for field in bform.visible_fields %}{% if field.name == 'DELETE' %}{{ field }}{% endif %}{% endfor %}</span>
+            </div>
+            {% endfor %}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-primary w-100 mt-1" id="svc-add-bundle-row">
+            <i class="fas fa-plus-circle mr-1"></i>Add Bundle / Package
+          </button>
+          <script type="text/template" id="svc-bundle-empty-row">
+            <div class="bundle-card p-2 mb-1" style="border: solid darkgray 2px;">
+              {% for hidden in bundle_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}
+              <div class="bundle-top-row row align-items-center">
+                <div class="col-lg-7 col-md-7 col-12">
+                  <label class="small mb-0 text-muted">Bundle/Set</label>
+                  <div class="bundle-select-wrapper">{{ bundle_formset.empty_form.price_list.as_widget }}</div>
+                </div>
+                <div class="col">
+                  <div class="bundle-meta-box">
+                    <div class="bundle-qty-wrapper">
+                      <label class="small mb-0 text-muted">Qty</label>
+                      {{ bundle_formset.empty_form.qty.as_widget }}
+                    </div>
+                  </div>
+                </div>
+                <div class="col-lg-3 col-md-5 col-12 d-flex justify-content-end">
+                  <div class="bundle-actions d-flex flex-column">
+                    <label class="small mb-0 text-muted">Actions</label>
+                    <div>
+                      <button type="button" class="btn btn-sm btn-outline-info bundle-pill-btn svc-bundle-items-btn" title="View bundle items">
+                        <i class="fas fa-bars"></i>
+                      </button>
+                      <button type="button" class="btn btn-outline-danger svc-bundle-remove-btn" title="Remove bundle">
+                        <i class="fas fa-times"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="bundle-bottom-row row p-1">
+                <div class="col-lg-4 col-md-4 col-sm-6 mb-2 mb-md-0">
+                  <div class="bundle-meta-box bg-info rounded p-1" style="width: fit-content; font-size: 0.8rem;">
+                    <span class="bundle-meta-label">Unit Price: </span>
+                    <span class="svc-bundle-unit-badge">0</span>
+                  </div>
+                </div>
+                <div class="col-lg-4 col-md-4 col-sm-12">
+                  <div class="bundle-meta-box bg-primary rounded p-1" style="width: fit-content; font-size: 0.8rem;">
+                    <span class="bundle-meta-label">Total: </span>
+                    <span class="svc-bundle-total-badge">0</span>
+                  </div>
+                </div>
+              </div>
+              <span style="display:none;">{{ bundle_formset.empty_form.DELETE.as_widget }}</span>
+            </div>
+          </script>
+        </div>
+      </div>
+
+      <!-- Bundle Items Preview Modal -->
+      <div class="modal fade" id="svc-bundle-items-modal" tabindex="-1" role="dialog" aria-labelledby="svcBundleModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+          <div class="modal-content">
+            <div class="modal-header py-3">
+              <h5 class="modal-title" id="svcBundleModalLabel">
+                <i class="fas fa-layer-group mr-2 text-primary"></i><span id="svc-bundle-modal-name">Bundle Items</span>
+              </h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-3" id="svc-bundle-modal-body">
+              <div class="text-center py-5 text-muted"><i class="fas fa-spinner fa-spin fa-2x"></i></div>
+            </div>
+            <div class="modal-footer py-3">
+              <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Pricing Summary ───────────────────────────────────────────── -->
+      <div class="card mb-0 border shadow-none">
+        <div class="card-header py-2 svc-section-hdr">
+          <h3 class="card-title small font-weight-bold text-muted mb-0">
+            <i class="fas fa-calculator mr-1 text-success"></i>Pricing Summary
+          </h3>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <!-- Quotation -->
+            <div class="col-md-4 mb-3">
+              {% for field in form %}{% if field.name == 'quotation' %}
+              <label for="{{ field.id_for_label }}" class="font-weight-bold small">
+                <i class="fas fa-file-invoice-dollar mr-1 text-primary"></i>{{ field.label }}
+              </label>
+              <div class="input-group input-group-sm">
+                <div class="input-group-prepend"><span class="input-group-text">₱</span></div>
+                {{ field }}
+              </div>
+              {% if field.help_text %}<small class="form-text text-muted">{{ field.help_text }}</small>{% endif %}
+              {% if field.errors %}<div class="text-danger small">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
+              {% endif %}{% endfor %}
+            </div>
+
+            <!-- Discount Type + Value -->
+            <div class="col-md-4 mb-3">
+              <label class="font-weight-bold small"><i class="fas fa-tag mr-1 text-danger"></i>Discount</label>
+              <div class="input-group input-group-sm">
+                {% for field in form %}{% if field.name == 'discount_type' %}{{ field }}{% endif %}{% endfor %}
+                {% for field in form %}{% if field.name == 'discount_value' %}{{ field }}{% endif %}{% endfor %}
+              </div>
+              <small class="form-text text-muted">Fixed ₱ or % of net</small>
+            </div>
+
+            <!-- Live Totals -->
+            <div class="col-md-4 mb-3">
+              <label class="font-weight-bold small"><i class="fas fa-receipt mr-1 text-info"></i>Live Totals</label>
+              <table class="table table-sm table-borderless mb-0" id="svc-totals-box">
+                <tr><td class="text-muted small">Quotation</td><td class="text-right small" id="tot-quotation">0.00</td></tr>
+                <tr><td class="text-danger small">— Product Lines (cost)</td><td class="text-right small text-danger" id="tot-lines">0.00</td></tr>
+                <tr><td class="text-danger small">— Other Materials (cost)</td><td class="text-right small text-danger" id="tot-mats">0.00</td></tr>
+                <tr><td class="text-danger small">— Bundles (cost)</td><td class="text-right small text-danger" id="tot-bundles">0.00</td></tr>
+                <tr style="border-top:1px solid #dee2e6"><td class="text-muted small">Net (before discount)</td><td class="text-right small" id="tot-subtotal">0.00</td></tr>
+                <tr><td class="text-danger small">— Discount</td><td class="text-right small text-danger" id="tot-discount">0.00</td></tr>
+                <tr style="border-top:2px solid #adb5bd"><td class="font-weight-bold small">Grand Total (Net)</td><td class="text-right font-weight-bold" id="tot-grand">0.00</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /card-body -->
+
+    <div class="card-footer d-flex gap-2">
       <button type="submit" class="btn btn-primary">
         <i class="fas fa-save mr-1"></i>Save
       </button>
       {% if is_create %}
-      <a href="{% url 'service_list' %}" class="btn btn-secondary">
-        <i class="fas fa-times mr-1"></i>Cancel
-      </a>
+      <a href="{% url 'service_list' %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i>Cancel</a>
       {% else %}
-      <a href="{% url 'service_detail' service.pk %}" class="btn btn-secondary">
-        <i class="fas fa-times mr-1"></i>Cancel
-      </a>
+      <a href="{% url 'service_detail' service.pk %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i>Cancel</a>
       {% endif %}
     </div>
+    <script type="text/template" id="mat-empty-row-tpl">
+      <tr class="mat-row">
+        <td><input type="text" name="mats-__prefix__-item_name" class="form-control form-control-sm" placeholder="e.g., Copper wire"></td>
+        <td><input type="number" name="mats-__prefix__-qty" class="form-control form-control-sm mat-qty" step="0.01" min="0" placeholder="1"></td>
+        <td><input type="number" name="mats-__prefix__-unit_price" class="form-control form-control-sm mat-price" step="0.01" min="0" placeholder="0.00"></td>
+        <td class="text-right mat-total-cell"><span class="mat-row-total">0.00</span></td>
+        <td><input type="text" name="mats-__prefix__-vendor" class="form-control form-control-sm" placeholder="Vendor name"></td>
+        <td><input type="text" name="mats-__prefix__-notes" class="form-control form-control-sm" placeholder="Note"></td>
+        <td class="text-center"><button type="button" class="btn btn-xs btn-outline-danger mat-delete-row" title="Remove"><i class="fas fa-times"></i></button></td>
+      </tr>
+    </script>
   </div>
 </form>
+
+{% endblock %}
+
+{% block extra_js %}{{ block.super }}
+<script>
+$(function() {
+  if (window.WIS && WIS.initServiceOtherMaterials) {
+    WIS.initServiceOtherMaterials(document);
+  }
+
+  function svcTogglePartialPayment() {
+    var status = $('#id_payment_status').val();
+    var show = status === 'PARTIAL';
+    $('#svc-partial-payment-group').toggle(show);
+    if (!show) {
+      $('#id_partial_payment_amount').val('');
+    }
+  }
+
+  $(document).on('change', '#id_payment_status', svcTogglePartialPayment);
+  svcTogglePartialPayment();
+});
+</script>
 {% endblock %}
