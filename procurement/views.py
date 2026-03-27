@@ -1,6 +1,7 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.db import transaction as db_transaction
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -371,10 +372,12 @@ def purchase_return_detail_view(request, pk):
 
 @login_required
 @procurement_access
+@db_transaction.atomic
 def purchase_return_create_view(request):
     if request.method == 'POST':
         form = PurchaseReturnForm(request.POST)
-        formset = PurchaseReturnLineFormSet(request.POST)
+        # Validate formset against a dummy (unbound instance) first so we can
+        # check both before persisting anything.
         if form.is_valid():
             pr = form.save(commit=False)
             pr.created_by = request.user
@@ -384,11 +387,39 @@ def purchase_return_create_view(request):
                 formset.save()
                 messages.success(request, f'Purchase Return {pr.document_number} created.')
                 return redirect('purchase_return_detail', pk=pr.pk)
+            # Formset invalid — roll back by raising inside atomic block
+            # The transaction decorator will revert the pr.save().
+            db_transaction.set_rollback(True)
+        else:
+            formset = PurchaseReturnLineFormSet(request.POST)
     else:
         form = PurchaseReturnForm()
         formset = PurchaseReturnLineFormSet()
     return render(request, 'procurement/purchase_return_form.html', {
         'form': form, 'formset': formset, 'title': 'Create Purchase Return',
+    })
+
+
+@login_required
+@procurement_access
+def purchase_return_edit_view(request, pk):
+    pr = get_object_or_404(PurchaseReturn, pk=pk)
+    if pr.status != 'DRAFT':
+        messages.error(request, 'Only DRAFT purchase returns can be edited.')
+        return redirect('purchase_return_detail', pk=pk)
+    if request.method == 'POST':
+        form = PurchaseReturnForm(request.POST, instance=pr)
+        formset = PurchaseReturnLineFormSet(request.POST, instance=pr)
+        if form.is_valid() and formset.is_valid():
+            form.save()
+            formset.save()
+            messages.success(request, f'Purchase Return {pr.document_number} updated.')
+            return redirect('purchase_return_detail', pk=pr.pk)
+    else:
+        form = PurchaseReturnForm(instance=pr)
+        formset = PurchaseReturnLineFormSet(instance=pr)
+    return render(request, 'procurement/purchase_return_form.html', {
+        'form': form, 'formset': formset, 'title': f'Edit Return: {pr.document_number}',
     })
 
 

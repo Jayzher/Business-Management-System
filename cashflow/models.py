@@ -5,6 +5,7 @@ from core.models import TimeStampedModel, SoftDeleteModel
 
 class CashFlowCategory(models.TextChoices):
     PROCUREMENT = 'PROCUREMENT', 'Procurement'
+    SALES = 'SALES', 'Sales'
     SUPPLIES = 'SUPPLIES', 'Supplies'
     EXPENSES = 'EXPENSES', 'Expenses'
     CAPITAL = 'CAPITAL', 'Capital'
@@ -88,6 +89,20 @@ class CashFlowTransaction(SoftDeleteModel):
     )
     rejected_at = models.DateTimeField(null=True, blank=True)
     rejection_reason = models.CharField(max_length=300, blank=True, default='')
+
+    # Auto-generation tracking — links back to the source document
+    source_type = models.CharField(
+        max_length=50, blank=True, default='', db_index=True,
+        help_text='Model class name of the originating document (e.g. GoodsReceipt, POSSale)',
+    )
+    source_id = models.PositiveIntegerField(
+        null=True, blank=True, db_index=True,
+        help_text='PK of the originating document',
+    )
+    is_auto_generated = models.BooleanField(
+        default=False, db_index=True,
+        help_text='True when this entry was created automatically by a system signal',
+    )
 
     class Meta:
         ordering = ['-transaction_date', '-created_at']

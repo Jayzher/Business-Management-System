@@ -10,7 +10,7 @@
 
 {% block content %}
 {% include "theme/partials/status_workflow.html" with status=pr.status doc_type="PR" %}
-{% include "theme/partials/doc_actions.html" with obj=pr delete_url_name="purchase_return_delete" post_url_name="purchase_return_post" cancel_url_name="purchase_return_cancel" list_url_name="purchase_return_list" %}
+{% include "theme/partials/doc_actions.html" with obj=pr edit_url_name="purchase_return_edit" delete_url_name="purchase_return_delete" post_url_name="purchase_return_post" cancel_url_name="purchase_return_cancel" list_url_name="purchase_return_list" %}
 <div class="row">
   <div class="col-lg-6">
     <div class="card">
