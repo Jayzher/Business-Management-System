@@ -261,3 +261,30 @@ def log_list(request):
         .all()[:500]
     )
     return render(request, 'cashflow/log_list.html', {'logs': qs})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SYNC — Weekly sales gross-profit recalculation
+# ═══════════════════════════════════════════════════════════════════════════
+@login_required
+def sync_cashflow(request):
+    """
+    POST-only view.  Deletes all auto-generated WeeklySalesRevenue entries
+    and rebuilds them by calculating (Revenue - COGS) per ISO week across
+    all posted POS, Delivery Note, Sales Pickup and Sales Return documents.
+    """
+    if request.method != 'POST':
+        return redirect('cashflow_list')
+
+    from cashflow.sync import sync_weekly_sales_revenue
+    try:
+        count = sync_weekly_sales_revenue(request.user)
+        messages.success(
+            request,
+            f'Cash flow sync complete — {count} weekly sales entr'
+            f'{"y" if count == 1 else "ies"} created.',
+        )
+    except Exception as exc:
+        messages.error(request, f'Sync failed: {exc}')
+
+    return redirect('cashflow_list')
