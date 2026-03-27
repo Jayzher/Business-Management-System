@@ -1,8 +1,10 @@
 from django import forms
 from django.forms import inlineformset_factory
+from decimal import Decimal
 from inventory.models import (
     StockTransfer, StockTransferLine,
     StockAdjustment, StockAdjustmentLine,
+    StockBalance,
     DamagedReport, DamagedReportLine,
     InventoryToSupplyTransfer, InventoryToSupplyTransferLine,
 )
@@ -68,6 +70,45 @@ class StockAdjustmentForm(forms.ModelForm):
 
 
 class StockAdjustmentLineForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        qty_system_widget = self.fields['qty_system'].widget
+        qty_system_widget.attrs.update({
+            'readonly': 'readonly',
+            'data-system-qty': '1',
+            'tabindex': '-1',
+            'class': 'form-control form-control-sm bg-light',
+        })
+
+    @staticmethod
+    def _system_qty(item, location):
+        if not item or not location:
+            return Decimal('0')
+
+        qty_on_hand = (
+            StockBalance.objects
+            .filter(item=item, location=location)
+            .values_list('qty_on_hand', flat=True)
+            .first()
+        )
+        return qty_on_hand if qty_on_hand is not None else Decimal('0')
+
+    def clean(self):
+        cleaned_data = super().clean()
+        item = cleaned_data.get('item')
+        location = cleaned_data.get('location')
+
+        if item and location:
+            cleaned_data['qty_system'] = self._system_qty(item, location)
+
+        return cleaned_data
+
+    def save(self, commit=True):
+        item = self.cleaned_data.get('item') if hasattr(self, 'cleaned_data') else None
+        location = self.cleaned_data.get('location') if hasattr(self, 'cleaned_data') else None
+        self.instance.qty_system = self._system_qty(item, location)
+        return super().save(commit=commit)
+
     class Meta:
         model = StockAdjustmentLine
         fields = ['item', 'location', 'qty_counted', 'qty_system', 'unit', 'batch_number', 'notes']
@@ -75,7 +116,7 @@ class StockAdjustmentLineForm(forms.ModelForm):
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'location': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'qty_counted': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0', 'placeholder': 'e.g., 50'}),
-            'qty_system': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0', 'placeholder': 'e.g., 48'}),
+            'qty_system': forms.NumberInput(attrs={'class': 'form-control form-control-sm bg-light', 'step': '1', 'min': '0', 'placeholder': 'Auto-calculated', 'readonly': 'readonly', 'data-system-qty': '1', 'tabindex': '-1'}),
             'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'batch_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Batch # (optional)'}),
             'notes': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
