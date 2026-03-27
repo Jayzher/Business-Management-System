@@ -23,6 +23,7 @@ from inventory.services import (
     post_goods_receipt, post_delivery, post_transfer,
     post_adjustment, post_damaged_report, cancel_document,
 )
+from inventory.forms import StockAdjustmentLineForm
 from core.models import DocumentStatus
 
 
@@ -189,6 +190,45 @@ class PostAdjustmentTests(PostingTestMixin, TestCase):
 
         bal = StockBalance.objects.get(item=self.item, location=self.location)
         self.assertEqual(bal.qty_on_hand, Decimal('45'))
+
+
+class StockAdjustmentLineFormTests(PostingTestMixin, TestCase):
+
+    def test_qty_system_is_calculated_from_balance(self):
+        StockBalance.objects.create(
+            item=self.item,
+            location=self.location,
+            qty_on_hand=Decimal('50'),
+            qty_reserved=Decimal('0'),
+        )
+        form = StockAdjustmentLineForm(data={
+            'item': self.item.pk,
+            'location': self.location.pk,
+            'qty_counted': '45',
+            'qty_system': '9999',
+            'unit': self.unit.pk,
+            'batch_number': '',
+            'notes': '',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        line = form.save(commit=False)
+        self.assertEqual(line.qty_system, Decimal('50'))
+
+    def test_qty_system_defaults_to_zero_without_balance(self):
+        form = StockAdjustmentLineForm(data={
+            'item': self.item.pk,
+            'location': self.location.pk,
+            'qty_counted': '45',
+            'qty_system': '9999',
+            'unit': self.unit.pk,
+            'batch_number': '',
+            'notes': '',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        line = form.save(commit=False)
+        self.assertEqual(line.qty_system, Decimal('0'))
 
 
 class PostDamagedTests(PostingTestMixin, TestCase):

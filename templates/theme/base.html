@@ -423,6 +423,7 @@ WIS.openModal = function(url, size) {
         form.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) { new bootstrap.Tooltip(el); });
         wisInitFormsetFlags();
         wisInitSelect2(form);
+        wisAdjustmentInit(form);
         if (WIS.initServiceOtherMaterials) WIS.initServiceOtherMaterials(wisModalBody);
       }
     })
@@ -493,6 +494,7 @@ WIS.refreshContent = function() {
       $(curContent).find('[data-bs-toggle="tooltip"]').each(function() { new bootstrap.Tooltip(this); });
       wisInitFormsetFlags();
       wisInitSelect2(curContent);
+      wisAdjustmentInit(curContent);
     }
   })
   .catch(function() { /* Fallback: full reload if dynamic refresh fails */
@@ -749,6 +751,101 @@ function wisInitFormsetFlags() {
   });
 }
 
+/* ── Stock Adjustment: auto-populate system qty (modal-safe) ─────── */
+function wisAdjustmentGetRows(container) {
+  var $scope = container ? $(container) : $(document);
+  return $scope.find('#formset-body .formset-row').filter(function() {
+    return $(this).find('input[name$="-qty_system"][data-system-qty="1"]').length > 0;
+  });
+}
+
+function wisAdjustmentLockQtySystem($row) {
+  var $qtySystem = $row.find('input[name$="-qty_system"][data-system-qty="1"]');
+  if (!$qtySystem.length) return;
+  $qtySystem.prop('readonly', true);
+  $qtySystem.attr('tabindex', '-1');
+  $qtySystem.addClass('bg-light');
+}
+
+function wisAdjustmentSetUnitFromItem($row, force) {
+  var $item = $row.find('select[name$="-item"]');
+  var $unit = $row.find('select[name$="-unit"]');
+  if (!$item.length || !$unit.length) return;
+
+  var itemId = $item.val();
+  if (!itemId) return;
+
+  if (!force && $unit.val()) return;
+
+  $.getJSON('/api/items/' + itemId + '/', function(data) {
+    var preferred = data.selling_unit || data.default_unit || '';
+    if (!preferred) return;
+    $unit.val(String(preferred));
+    if ($unit.hasClass('select2-hidden-accessible')) {
+      $unit.trigger('change.select2');
+    } else {
+      $unit.trigger('change');
+    }
+  });
+}
+
+function wisAdjustmentSetSystemQty($row) {
+  var $item = $row.find('select[name$="-item"]');
+  var $location = $row.find('select[name$="-location"]');
+  var $qtySystem = $row.find('input[name$="-qty_system"][data-system-qty="1"]');
+  var $form = $row.closest('form');
+  var $warehouse = $form.find('select[name="warehouse"]');
+
+  if (!$item.length || !$location.length || !$qtySystem.length) return;
+
+  wisAdjustmentLockQtySystem($row);
+
+  var itemId = $item.val();
+  var locationId = $location.val();
+  var warehouseId = $warehouse.length ? $warehouse.val() : '';
+
+  if (!itemId) {
+    $qtySystem.val('0.0000');
+    return;
+  }
+
+  var params = { item: itemId };
+  if (locationId) {
+    params.location = locationId;
+  } else if (warehouseId) {
+    params['location__warehouse'] = warehouseId;
+  }
+
+  $.getJSON('/api/stock-balances/', params)
+    .done(function(resp) {
+      var records = (resp && resp.results) ? resp.results : (Array.isArray(resp) ? resp : []);
+      var qty = 0;
+
+      if (locationId) {
+        qty = records.length && records[0].qty_on_hand != null ? parseFloat(records[0].qty_on_hand) : 0;
+      } else {
+        records.forEach(function(r) {
+          qty += parseFloat(r.qty_on_hand || 0);
+        });
+      }
+
+      if (!isFinite(qty)) qty = 0;
+      $qtySystem.val(qty);
+    })
+    .fail(function() {
+      $qtySystem.val('0.0000');
+    });
+}
+
+function wisAdjustmentInit(container) {
+  wisAdjustmentGetRows(container).each(function() {
+    var $row = $(this);
+    wisAdjustmentSetUnitFromItem($row, false);
+    wisAdjustmentLockQtySystem($row);
+    wisAdjustmentSetSystemQty($row);
+  });
+}
+
 /* ── Formset add row handler ─────────────────────────────────────── */
 $(document).on('click', '.formset-add-row', function(e) {
   e.preventDefault();
@@ -821,6 +918,7 @@ $(document).on('click', '.formset-add-row', function(e) {
   
   // Init Select2 on new row selects
   wisInitSelect2(emptyRow[0]);
+  wisAdjustmentInit(form[0]);
 });
 
 /* Reset modal on close */
@@ -854,6 +952,39 @@ function wisUpdateItemThumb(selectEl) {
 }
 $(document).on('change', '.formset-table select[name$="-item"]', function() { wisUpdateItemThumb(this); });
 $(document).on('select2:select', '.formset-table select[name$="-item"]', function() { wisUpdateItemThumb(this); });
+
+$(document).on('change', '#formset-body .formset-row select[name$="-item"], #formset-body .formset-row select[name$="-location"]', function() {
+  var $row = $(this).closest('.formset-row');
+  if ($row.find('input[name$="-qty_system"][data-system-qty="1"]').length) {
+    var changedName = $(this).attr('name') || '';
+    if (/-item$/.test(changedName)) {
+      wisAdjustmentSetUnitFromItem($row, true);
+    }
+    wisAdjustmentSetSystemQty($row);
+  }
+});
+
+$(document).on('select2:select', '#formset-body .formset-row select[name$="-item"], #formset-body .formset-row select[name$="-location"]', function() {
+  var $row = $(this).closest('.formset-row');
+  if ($row.find('input[name$="-qty_system"][data-system-qty="1"]').length) {
+    var changedName = $(this).attr('name') || '';
+    if (/-item$/.test(changedName)) {
+      wisAdjustmentSetUnitFromItem($row, true);
+    }
+    wisAdjustmentSetSystemQty($row);
+  }
+});
+
+$(document).on('change select2:select', 'form select[name="warehouse"]', function() {
+  var $form = $(this).closest('form');
+  wisAdjustmentGetRows($form).each(function() {
+    wisAdjustmentSetSystemQty($(this));
+  });
+});
+
+$(function() {
+  wisAdjustmentInit(document);
+});
 /* Init thumbs for existing rows on modal open */
 var _origOpenModal = WIS.openModal;
 WIS.openModal = function(url, size) {
