@@ -1,5 +1,9 @@
 from django.contrib import admin
-from cashflow.models import CashFlowTransaction, CashFlowLog
+from django.utils import timezone
+from cashflow.models import (
+    CashFlowTransaction, CashFlowLog,
+    CashFlowStatus, CashFlowLogAction,
+)
 
 
 class CashFlowLogInline(admin.TabularInline):
@@ -10,6 +14,26 @@ class CashFlowLogInline(admin.TabularInline):
 
     def has_add_permission(self, request, obj=None):
         return False
+
+
+@admin.action(description='Approve selected transactions')
+def approve_selected(modeladmin, request, queryset):
+    pending = queryset.filter(status=CashFlowStatus.PENDING)
+    now = timezone.now()
+    count = 0
+    for txn in pending:
+        txn.status = CashFlowStatus.APPROVED
+        txn.approved_by = request.user
+        txn.approved_at = now
+        txn.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
+        CashFlowLog.objects.create(
+            transaction=txn,
+            action=CashFlowLogAction.APPROVED,
+            performed_by=request.user,
+            details=f'Bulk-approved via admin.',
+        )
+        count += 1
+    modeladmin.message_user(request, f'{count} transaction(s) approved.')
 
 
 @admin.register(CashFlowTransaction)
@@ -23,6 +47,7 @@ class CashFlowTransactionAdmin(admin.ModelAdmin):
     readonly_fields = ['transaction_number', 'created_by', 'approved_by', 'approved_at', 'rejected_by', 'rejected_at']
     date_hierarchy = 'transaction_date'
     inlines = [CashFlowLogInline]
+    actions = [approve_selected]
 
 
 @admin.register(CashFlowLog)

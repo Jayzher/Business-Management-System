@@ -2,6 +2,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
+from django.http import JsonResponse
 from django.db.models import Sum, Q, DecimalField
 from django.db.models.functions import Coalesce
 
@@ -49,14 +50,15 @@ def transaction_list(request):
     if date_to:
         qs = qs.filter(transaction_date__lte=date_to)
 
-    # Summary totals
+    # Summary totals — only APPROVED transactions count toward the net
+    approved_q = Q(status=CashFlowStatus.APPROVED)
     totals = qs.aggregate(
         total_in=Coalesce(
-            Sum('amount', filter=Q(flow_type=CashFlowType.CASH_IN)),
+            Sum('amount', filter=approved_q & Q(flow_type=CashFlowType.CASH_IN)),
             0, output_field=DecimalField(),
         ),
         total_out=Coalesce(
-            Sum('amount', filter=Q(flow_type=CashFlowType.CASH_OUT)),
+            Sum('amount', filter=approved_q & Q(flow_type=CashFlowType.CASH_OUT)),
             0, output_field=DecimalField(),
         ),
     )
@@ -264,27 +266,48 @@ def log_list(request):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# SYNC — Weekly sales gross-profit recalculation
+# SYNC — Full cash-flow recalculation (sales + procurement + expenses)
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def sync_cashflow(request):
     """
-    POST-only view.  Deletes all auto-generated WeeklySalesRevenue entries
-    and rebuilds them by calculating (Revenue - COGS) per ISO week across
-    all posted POS, Delivery Note, Sales Pickup and Sales Return documents.
+    POST-only AJAX view.  Rebuilds weekly sales revenue entries and
+    backfills any missing GoodsReceipt, PurchaseReturn, and Expense entries.
+    Returns JSON so the frontend can show results via Swal.fire.
     """
     if request.method != 'POST':
         return redirect('cashflow_list')
 
-    from cashflow.sync import sync_weekly_sales_revenue
+    from cashflow.sync import sync_all
     try:
-        count = sync_weekly_sales_revenue(request.user)
-        messages.success(
-            request,
-            f'Cash flow sync complete — {count} weekly sales entr'
-            f'{"y" if count == 1 else "ies"} created.',
-        )
+        result = sync_all(request.user)
     except Exception as exc:
-        messages.error(request, f'Sync failed: {exc}')
+        return JsonResponse({
+            'success': False,
+            'message': f'Sync failed: {exc}',
+        }, status=500)
 
-    return redirect('cashflow_list')
+    parts = []
+    if result['sales']:
+        parts.append(f"{result['sales']} weekly sales entr{'y' if result['sales'] == 1 else 'ies'}")
+    if result['grn']:
+        parts.append(f"{result['grn']} goods receipt(s)")
+    if result['purchase_return']:
+        parts.append(f"{result['purchase_return']} purchase return(s)")
+    if result['expense']:
+        parts.append(f"{result['expense']} expense(s)")
+
+    if result['errors']:
+        return JsonResponse({
+            'success': False,
+            'message': ' | '.join(result['errors']),
+            'detail': ', '.join(parts) if parts else None,
+        }, status=500)
+
+    total = result['sales'] + result['grn'] + result['purchase_return'] + result['expense']
+    summary = ', '.join(parts) if parts else 'Everything is up to date'
+    return JsonResponse({
+        'success': True,
+        'message': f'Cash flow sync complete — {total} entries created.',
+        'detail': summary,
+    })
