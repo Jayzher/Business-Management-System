@@ -5,11 +5,14 @@
 {% block breadcrumb %}<li class="breadcrumb-item active">Cash Flow</li>{% endblock %}
 
 {% block content %}
-<div class="card">
+<div class="card p-2">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-money-bill-wave mr-1"></i> Cash Flow Transactions</h3>
     <div class="card-tools">
       <a href="{% url 'cashflow_log_list' %}" class="btn btn-sm btn-outline-secondary mr-1"><i class="fas fa-history mr-1"></i> Logs</a>
+      <button type="button" class="btn btn-sm btn-outline-warning mr-1" id="btn-sync-cashflow">
+        <i class="fas fa-sync-alt mr-1"></i> Sync Cash Flow
+      </button>
       <a href="#" data-modal-url="{% url 'cashflow_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Transaction</a>
     </div>
   </div>
@@ -86,6 +89,7 @@
           <th>Reason</th>
           <th>Payment</th>
           <th>Status</th>
+          <th>Source</th>
           <th>By</th>
           <th></th>
         </tr>
@@ -112,20 +116,100 @@
             {% elif txn.status == 'REJECTED' %}<span class="badge bg-danger">Rejected</span>
             {% else %}<span class="badge bg-secondary">Cancelled</span>{% endif %}
           </td>
+          <td>
+            {% if txn.is_auto_generated %}
+              {% if txn.source_type == 'WeeklySalesRevenue' %}
+                <span class="badge bg-primary" title="Auto-synced weekly gross profit (Revenue − COGS)">
+                  <i class="fas fa-chart-line mr-1"></i>Weekly Sales
+                </span>
+              {% else %}
+                <span class="badge bg-info" title="Auto-generated from {{ txn.source_type }} #{{ txn.source_id }}">
+                  <i class="fas fa-robot mr-1"></i>{{ txn.source_type }}
+                </span>
+              {% endif %}
+            {% else %}
+              <span class="badge bg-secondary">Manual</span>
+            {% endif %}
+          </td>
           <td>{{ txn.created_by.get_short_name|default:txn.created_by.username }}</td>
           <td class="text-right">
             <a href="{% url 'cashflow_detail' txn.pk %}" class="btn btn-xs btn-outline-info"><i class="fas fa-eye"></i></a>
             {% if txn.status == 'PENDING' or txn.status == 'REJECTED' %}
             <a href="#" data-modal-url="{% url 'cashflow_edit' txn.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            {% if not txn.is_auto_generated %}
             <a href="#" data-modal-url="{% url 'cashflow_delete' txn.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+            {% endif %}
             {% endif %}
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="10" class="text-center text-muted py-3">No cash flow transactions yet.</td></tr>
+        <tr><td colspan="11" class="text-center text-muted py-3">No cash flow transactions yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  var btn = document.getElementById('btn-sync-cashflow');
+  if (!btn) return;
+  btn.addEventListener('click', function() {
+    Swal.fire({
+      title: 'Sync Cash Flow?',
+      text: 'This will sync weekly sales revenue, procurement (GRN & purchase returns), and expenses.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, sync now',
+      confirmButtonColor: '#007bff',
+      cancelButtonColor: '#6c757d',
+    }).then(function(result) {
+      if (!result.isConfirmed) return;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Syncing…';
+      fetch('{% url "cashflow_sync" %}', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': '{{ csrf_token }}',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      })
+      .then(function(resp) { return resp.json().then(function(data) { return { ok: resp.ok, data: data }; }); })
+      .then(function(res) {
+        if (res.ok && res.data.success) {
+          Swal.fire({
+            icon: 'success',
+            title: 'Sync Complete',
+            html: '<strong>' + res.data.message + '</strong>' +
+                  (res.data.detail ? '<br><small class="text-muted">' + res.data.detail + '</small>' : ''),
+            confirmButtonColor: '#28a745',
+          }).then(function() { location.reload(); });
+        } else {
+          Swal.fire({
+            icon: 'error',
+            title: 'Sync Failed',
+            html: '<strong>' + (res.data.message || 'Unknown error') + '</strong>' +
+                  (res.data.detail ? '<br><small>Partial results: ' + res.data.detail + '</small>' : ''),
+            confirmButtonColor: '#dc3545',
+          });
+        }
+      })
+      .catch(function(err) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Sync Failed',
+          text: 'Network error: ' + err.message,
+          confirmButtonColor: '#dc3545',
+        });
+      })
+      .finally(function() {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i> Sync Cash Flow';
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}

@@ -5,6 +5,7 @@ urlpatterns = [
     # Transactions
     path('', views.transaction_list, name='cashflow_list'),
     path('new/', views.transaction_create, name='cashflow_create'),
+    path('sync/', views.sync_cashflow, name='cashflow_sync'),
     path('<int:pk>/', views.transaction_detail, name='cashflow_detail'),
     path('<int:pk>/edit/', views.transaction_edit, name='cashflow_edit'),
     path('<int:pk>/delete/', views.transaction_delete, name='cashflow_delete'),
