@@ -24,6 +24,7 @@ urlpatterns = [
     path('purchase-returns/', views.purchase_return_list_view, name='purchase_return_list'),
     path('purchase-returns/create/', views.purchase_return_create_view, name='purchase_return_create'),
     path('purchase-returns/<int:pk>/', views.purchase_return_detail_view, name='purchase_return_detail'),
+    path('purchase-returns/<int:pk>/edit/', views.purchase_return_edit_view, name='purchase_return_edit'),
     path('purchase-returns/<int:pk>/post/', views.purchase_return_post_view, name='purchase_return_post'),
     path('purchase-returns/<int:pk>/cancel/', views.purchase_return_cancel_view, name='purchase_return_cancel'),
     path('purchase-returns/<int:pk>/delete/', views.purchase_return_delete_view, name='purchase_return_delete'),
