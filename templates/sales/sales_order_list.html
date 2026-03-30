@@ -8,10 +8,10 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-file-invoice-dollar mr-1"></i> Sales Orders</h3>
-    <div class="card-tools">
+    {% if not is_view_only %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'sales_order_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
       <a href="#" data-modal-url="{% url 'sales_order_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New SO</a>
-    </div>
+    </div>{% endif %}
   </div>
   <div class="card-body table-responsive">
     <table class="table table-hover table-striped text-nowrap wis-table">

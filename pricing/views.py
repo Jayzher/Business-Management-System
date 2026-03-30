@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from pricing.models import PriceList, PriceListItem, DiscountRule, CustomerPriceCatalog, CustomerPriceCatalogItem
 from pricing.serializers import PriceListSerializer, PriceListItemSerializer, DiscountRuleSerializer
 from pricing.forms import (
+from accounts.decorators import write_denied_for_viewer
     PriceListForm, PriceListItemFormSet, DiscountRuleForm,
     CustomerPriceCatalogForm, CustomerPriceCatalogItemFormSet,
 )
@@ -156,6 +157,7 @@ def price_list_list_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def price_list_create_view(request):
     if request.method == 'POST':
         form = PriceListForm(request.POST)
@@ -176,6 +178,7 @@ def price_list_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def price_list_edit_view(request, pk):
     obj = get_object_or_404(PriceList, pk=pk)
     if request.method == 'POST':
@@ -195,6 +198,7 @@ def price_list_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def price_list_delete_view(request, pk):
     obj = get_object_or_404(PriceList, pk=pk)
     if request.method == 'POST':
@@ -213,6 +217,7 @@ def discount_rule_list_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def discount_rule_create_view(request):
     if request.method == 'POST':
         form = DiscountRuleForm(request.POST)
@@ -228,6 +233,7 @@ def discount_rule_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def discount_rule_edit_view(request, pk):
     obj = get_object_or_404(DiscountRule, pk=pk)
     if request.method == 'POST':
@@ -244,6 +250,7 @@ def discount_rule_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def discount_rule_delete_view(request, pk):
     obj = get_object_or_404(DiscountRule, pk=pk)
     if request.method == 'POST':
@@ -328,6 +335,7 @@ def customer_catalog_list_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def customer_catalog_create_view(request):
     if request.method == 'POST':
         form = CustomerPriceCatalogForm(request.POST)
@@ -348,6 +356,7 @@ def customer_catalog_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def customer_catalog_edit_view(request, pk):
     obj = get_object_or_404(CustomerPriceCatalog, pk=pk)
     if request.method == 'POST':
@@ -368,6 +377,7 @@ def customer_catalog_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def customer_catalog_delete_view(request, pk):
     obj = get_object_or_404(CustomerPriceCatalog, pk=pk)
     if request.method == 'POST':

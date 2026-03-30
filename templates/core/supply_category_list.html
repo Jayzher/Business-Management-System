@@ -7,7 +7,7 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-layer-group mr-1"></i> Supply Categories</h3>
-    <div class="card-tools"><a href="#" data-modal-url="{% url 'supply_category_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Category</a></div>
+    {% if not is_view_only %}<div class="card-tools"><a href="#" data-modal-url="{% url 'supply_category_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Category</a></div>{% endif %}
   </div>
   <div class="card-body table-responsive">
     <table class="table table-hover text-nowrap wis-table">

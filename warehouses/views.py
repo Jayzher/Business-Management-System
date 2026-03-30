@@ -10,6 +10,7 @@ from warehouses.serializers import WarehouseSerializer, LocationSerializer
 from warehouses.forms import WarehouseForm, LocationForm
 from inventory.models import StockBalance
 from inventory.serializers import StockBalanceSerializer
+from accounts.decorators import write_denied_for_viewer
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ def warehouse_detail_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def warehouse_create_view(request):
     if request.method == 'POST':
         form = WarehouseForm(request.POST)
@@ -81,6 +83,7 @@ def warehouse_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def warehouse_edit_view(request, pk):
     warehouse = get_object_or_404(Warehouse, pk=pk)
     if request.method == 'POST':
@@ -95,6 +98,7 @@ def warehouse_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def warehouse_delete_view(request, pk):
     warehouse = get_object_or_404(Warehouse, pk=pk)
     if request.method == 'POST':
@@ -107,6 +111,7 @@ def warehouse_delete_view(request, pk):
 # ── Location CRUD ──────────────────────────────────────────────────────────
 
 @login_required
+@write_denied_for_viewer
 def location_create_view(request):
     warehouse_id = request.GET.get('warehouse')
     initial = {}
@@ -124,6 +129,7 @@ def location_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def location_edit_view(request, pk):
     location = get_object_or_404(Location, pk=pk)
     if request.method == 'POST':
@@ -138,6 +144,7 @@ def location_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def location_delete_view(request, pk):
     location = get_object_or_404(Location, pk=pk)
     wh_pk = location.warehouse.pk

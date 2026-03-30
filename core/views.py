@@ -18,12 +18,14 @@ from core.forms import (
     SupplyCategoryForm, SupplyItemForm, SupplyMovementForm, TargetGoalForm,
 )
 from core.cogs import compute_invoice_cogs
+from accounts.decorators import write_denied_for_viewer
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SETTINGS / BUSINESS PROFILE
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def settings_view(request):
     profile = BusinessProfile.get_instance()
     if request.method == 'POST':
@@ -47,6 +49,7 @@ def channel_list(request):
 
 
 @login_required
+@write_denied_for_viewer
 def channel_create(request):
     if request.method == 'POST':
         form = SalesChannelForm(request.POST)
@@ -60,6 +63,7 @@ def channel_create(request):
 
 
 @login_required
+@write_denied_for_viewer
 def channel_edit(request, pk):
     obj = get_object_or_404(SalesChannel, pk=pk)
     if request.method == 'POST':
@@ -74,6 +78,7 @@ def channel_edit(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def channel_delete(request, pk):
     obj = get_object_or_404(SalesChannel, pk=pk)
     if request.method == 'POST':
@@ -93,6 +98,7 @@ def expense_category_list(request):
 
 
 @login_required
+@write_denied_for_viewer
 def expense_category_create(request):
     if request.method == 'POST':
         form = ExpenseCategoryForm(request.POST)
@@ -106,6 +112,7 @@ def expense_category_create(request):
 
 
 @login_required
+@write_denied_for_viewer
 def expense_category_edit(request, pk):
     obj = get_object_or_404(ExpenseCategory, pk=pk)
     if request.method == 'POST':
@@ -120,6 +127,7 @@ def expense_category_edit(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def expense_category_delete(request, pk):
     obj = get_object_or_404(ExpenseCategory, pk=pk)
     if request.method == 'POST':
@@ -155,6 +163,7 @@ def expense_list(request):
 
 
 @login_required
+@write_denied_for_viewer
 def expense_create(request):
     if request.method == 'POST':
         form = ExpenseForm(request.POST)
@@ -170,6 +179,7 @@ def expense_create(request):
 
 
 @login_required
+@write_denied_for_viewer
 def expense_edit(request, pk):
     obj = get_object_or_404(Expense, pk=pk)
     if request.method == 'POST':
@@ -184,6 +194,7 @@ def expense_edit(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def expense_delete(request, pk):
     obj = get_object_or_404(Expense, pk=pk)
     if request.method == 'POST':
@@ -234,6 +245,7 @@ def invoice_list(request):
 
 
 @login_required
+@write_denied_for_viewer
 def invoice_from_sale(request, sale_id):
     """Generate invoice from a POS Sale."""
     from pos.models import POSSale
@@ -291,6 +303,7 @@ def invoice_from_sale(request, sale_id):
 
 
 @login_required
+@write_denied_for_viewer
 def invoice_from_so(request, so_id):
     """Generate invoice from a Sales Order."""
     from sales.models import SalesOrder
@@ -382,6 +395,7 @@ def invoice_print(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def invoice_add_payment(request, pk):
     """Add a payment to an invoice. If fully paid, mark invoice as paid and auto-post linked SO."""
     inv = get_object_or_404(Invoice, pk=pk)
@@ -458,6 +472,7 @@ def invoice_add_payment(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def invoice_mark_paid(request, pk):
     """Manually mark an invoice as fully paid (records a single full-amount payment if none exist)."""
     inv = get_object_or_404(Invoice, pk=pk)
@@ -503,6 +518,7 @@ def invoice_mark_paid(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def invoice_delete_payment(request, pk, payment_pk):
     """Delete a single payment record from an invoice (re-opens invoice if was paid)."""
     inv = get_object_or_404(Invoice, pk=pk)
@@ -534,6 +550,7 @@ def supply_item_list(request):
 
 
 @login_required
+@write_denied_for_viewer
 def supply_item_create(request):
     if request.method == 'POST':
         form = SupplyItemForm(request.POST)
@@ -547,6 +564,7 @@ def supply_item_create(request):
 
 
 @login_required
+@write_denied_for_viewer
 def supply_item_edit(request, pk):
     obj = get_object_or_404(SupplyItem, pk=pk)
     if request.method == 'POST':
@@ -561,6 +579,7 @@ def supply_item_edit(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def supply_item_delete(request, pk):
     obj = get_object_or_404(SupplyItem, pk=pk)
     if request.method == 'POST':
@@ -587,6 +606,7 @@ def supply_movement_list(request):
 
 
 @login_required
+@write_denied_for_viewer
 def supply_movement_create(request):
     if request.method == 'POST':
         form = SupplyMovementForm(request.POST)
@@ -608,6 +628,7 @@ def supply_category_list(request):
 
 
 @login_required
+@write_denied_for_viewer
 def supply_category_create(request):
     if request.method == 'POST':
         form = SupplyCategoryForm(request.POST)
@@ -621,6 +642,7 @@ def supply_category_create(request):
 
 
 @login_required
+@write_denied_for_viewer
 def supply_category_edit(request, pk):
     obj = get_object_or_404(SupplyCategory, pk=pk)
     if request.method == 'POST':
@@ -635,6 +657,7 @@ def supply_category_edit(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def supply_category_delete(request, pk):
     obj = get_object_or_404(SupplyCategory, pk=pk)
     if request.method == 'POST':
@@ -660,6 +683,7 @@ def goal_list(request):
 
 
 @login_required
+@write_denied_for_viewer
 def goal_create(request):
     if request.method == 'POST':
         form = TargetGoalForm(request.POST)
@@ -675,6 +699,7 @@ def goal_create(request):
 
 
 @login_required
+@write_denied_for_viewer
 def goal_edit(request, pk):
     obj = get_object_or_404(TargetGoal, pk=pk)
     if request.method == 'POST':
@@ -689,6 +714,7 @@ def goal_edit(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def goal_delete(request, pk):
     obj = get_object_or_404(TargetGoal, pk=pk)
     if request.method == 'POST':

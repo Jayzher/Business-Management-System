@@ -194,7 +194,7 @@
 
       <!-- Action buttons -->
       <div class="col ms-auto d-flex justify-content-end gap-2 flex-wrap" id="cat-action-btns">
-        <a href="#" data-modal-url="{% url 'catalog_import' %}"
+        {% if not is_view_only %}<a href="#" data-modal-url="{% url 'catalog_import' %}"
            class="btn btn-sm btn-outline-success no-print" id="catalog-import-btn"
            title="Import items from CSV">
           <i class="fas fa-file-import me-1"></i>Import
@@ -202,7 +202,7 @@
         <a href="#" data-modal-url="{% url 'item_create' %}"
            class="btn btn-sm btn-primary no-print" id="catalog-new-btn">
           <i class="fas fa-plus me-1"></i>New Item
-        </a>
+        </a>{% endif %}
         <div class="dropdown no-print" id="catalog-export-dropdown">
           <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
                   data-bs-toggle="dropdown" id="catalog-export-btn" type="button"
