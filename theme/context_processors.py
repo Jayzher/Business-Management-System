@@ -1,16 +1,56 @@
 def user_role_flags(request):
-    """Expose role flags to all templates."""
+    """Expose role flags and role set to all templates."""
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
-        return {'is_view_only': False}
+        return {'is_view_only': False, 'user_roles': set()}
     if user.is_superuser:
-        return {'is_view_only': False}
+        return {'is_view_only': False, 'user_roles': {'Admin'}}
     from accounts.decorators import _user_is_view_only
-    return {'is_view_only': _user_is_view_only(user)}
+    roles = set(user.user_roles.values_list('role__name', flat=True))
+    return {
+        'is_view_only': _user_is_view_only(user),
+        'user_roles': roles,
+    }
+
+
+_ALL = None  # sentinel: every role can see this item
+
+# Role → sidebar module access map.  _ALL means every authenticated user.
+# The set values must match accounts.Role.name exactly.
+_ADMIN_MANAGER = {'Admin', 'Manager', 'Manager (View Only)'}
+_ROLE_MAP = {
+    'Dashboard':   _ALL,
+    'Catalog':     _ALL,
+    'Partners':    {*_ADMIN_MANAGER, 'Procurement Officer', 'Sales Officer'},
+    'Warehouses':  {*_ADMIN_MANAGER, 'Procurement Officer', 'Warehouse Staff'},
+    'Procurement': {*_ADMIN_MANAGER, 'Procurement Officer'},
+    'Sales':       {*_ADMIN_MANAGER, 'Sales Officer'},
+    'Expenses':    _ADMIN_MANAGER,
+    'Supplies':    {*_ADMIN_MANAGER, 'Warehouse Staff'},
+    'Cash Flow':   _ADMIN_MANAGER,
+    'Services':    {*_ADMIN_MANAGER, 'Sales Officer'},
+    'Inventory':   {*_ADMIN_MANAGER, 'Procurement Officer', 'Warehouse Staff'},
+    'POS':         {*_ADMIN_MANAGER, 'POS Cashier', 'Sales Officer'},
+    'Pricing':     {*_ADMIN_MANAGER, 'Sales Officer'},
+    'QR Codes':    {*_ADMIN_MANAGER, 'Warehouse Staff'},
+    'Reports':     {*_ADMIN_MANAGER, 'Sales Officer', 'Procurement Officer'},
+    'Target Goals': _ADMIN_MANAGER,
+    'Dictionary':  _ALL,
+    'Settings':    {'Admin'},
+}
 
 
 def sidebar_menu(request):
-    """Provide sidebar menu items to all templates."""
+    """Provide sidebar menu items to all templates, filtered by user role."""
+    user = getattr(request, 'user', None)
+    if user and user.is_authenticated:
+        if user.is_superuser:
+            user_roles = {'Admin'}
+        else:
+            user_roles = set(user.user_roles.values_list('role__name', flat=True))
+    else:
+        user_roles = set()
+
     menu = [
         {
             'label': 'Dashboard',
@@ -183,13 +223,24 @@ def sidebar_menu(request):
         {
             'label': 'Settings',
             'icon': 'fas fa-cog',
-            'url': '/core/settings/',
-            'active_prefix': '/core/settings',
             'tour_id': 'nav-settings',
+            'children': [
+                {'label': 'Business Profile', 'url': '/core/settings/', 'active_prefix': '/core/settings/', 'icon': 'fas fa-building'},
+                {'label': 'Tests & Syncs', 'url': '/core/settings/tests-syncs/', 'active_prefix': '/core/settings/tests-syncs', 'icon': 'fas fa-vial'},
+            ],
         },
     ]
 
-    # Mark active items 
+    # ── Filter menu by user role ────────────────────────────────────────
+    if user_roles:
+        filtered = []
+        for item in menu:
+            allowed = _ROLE_MAP.get(item['label'], _ALL)
+            if allowed is _ALL or user_roles & allowed:
+                filtered.append(item)
+        menu = filtered
+
+    # Mark active items
     path = request.path if hasattr(request, 'path') else ''
     for item in menu:
         if 'children' in item:

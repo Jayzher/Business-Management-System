@@ -48,8 +48,8 @@
           <td><small>{{ exp.memo|truncatewords:8 }}</small></td>
           <td>{{ exp.created_by.get_short_name|default:exp.created_by.username }}</td>
           <td class="text-right">
-            <a href="#" data-modal-url="{% url 'expense_edit' exp.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
-            <a href="#" data-modal-url="{% url 'expense_delete' exp.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'expense_edit' exp.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'expense_delete' exp.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
         {% empty %}

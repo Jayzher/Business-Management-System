@@ -32,8 +32,8 @@
           <td>{% if pl.is_default %}<span class="badge bg-primary">Yes</span>{% else %}-{% endif %}</td>
           <td>{% if pl.is_active %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
           <td>
-            <a href="#" data-modal-url="{% url 'price_list_edit' pl.pk %}" data-modal-size="modal-xl" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
-            <a href="#" data-modal-url="{% url 'price_list_delete' pl.pk %}" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></a>
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'price_list_edit' pl.pk %}" data-modal-size="modal-xl" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'price_list_delete' pl.pk %}" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
         {% empty %}
