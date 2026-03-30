@@ -44,19 +44,13 @@
     {% endfor %}
     {% for bundle in doc.price_list_lines.all %}
     <tr style="background:#e8f0fe;">
-      <td colspan="7" style="padding:4px 8px;"><strong style="color:#0d6efd;">&#9643; Bundle: {{ bundle.price_list.name }}</strong> &times;{{ bundle.qty_multiplier|decimal2 }} multiplier</td>
-    </tr>
-    {% for pli in bundle.price_list.items.all %}
-    <tr style="background:#f0f7ff;">
       <td></td>
-      <td>{{ pli.item.code }}</td>
-      <td>{{ pli.item.name }}</td>
-      <td class="text-right">{{ pli.min_qty|decimal2 }}</td>
-      <td>{{ pli.unit.abbreviation }}</td>
-      <td class="text-right">{{ pli.price|currency }}</td>
-      <td class="text-right"><strong>{{ pli.price|currency }}</strong></td>
+      <td colspan="2"><strong style="color:#0d6efd;">&#9643; {{ bundle.price_list.name }}</strong></td>
+      <td class="text-right">{{ bundle.qty_multiplier|decimal2 }}</td>
+      <td>bundle</td>
+      <td class="text-right">{{ bundle.bundle_subtotal|currency }}</td>
+      <td class="text-right"><strong>{{ bundle.bundle_total|currency }}</strong></td>
     </tr>
-    {% endfor %}
     {% endfor %}
   </tbody>
 </table>
