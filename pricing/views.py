@@ -10,8 +10,8 @@ from rest_framework.response import Response
 
 from pricing.models import PriceList, PriceListItem, DiscountRule, CustomerPriceCatalog, CustomerPriceCatalogItem
 from pricing.serializers import PriceListSerializer, PriceListItemSerializer, DiscountRuleSerializer
-from pricing.forms import (
 from accounts.decorators import write_denied_for_viewer
+from pricing.forms import (
     PriceListForm, PriceListItemFormSet, DiscountRuleForm,
     CustomerPriceCatalogForm, CustomerPriceCatalogItemFormSet,
 )
