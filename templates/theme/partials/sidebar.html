@@ -33,7 +33,7 @@
               {% for child in item.children %}
               <li class="nav-item">
                 <a href="{{ child.url }}" class="nav-link{% if child.is_active %} active{% endif %}">
-                  <i class="nav-icon child-icon {{ child.icon|default:'far fa-circle' }}"></i>
+                  <i class="nav-icon child-icon {{ child.icon|default:'fas fa-circle' }}"></i>
                   <p class="child-label">{{ child.label }}</p>
                 </a>
               </li>

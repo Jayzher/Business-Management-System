@@ -8,8 +8,63 @@
 {% block extra_css %}
 <style>
 /* ── Toolbar ─────────────────────────────────────────────── */
-#catalog-toolbar .form-control,
-#catalog-toolbar .form-select { font-size: .85rem; }
+#catalog-toolbar .select2-container--default .select2-selection--single {
+  height: calc(1.8125rem + 2px);
+  padding: 0 .5rem;
+  border: 1px solid #ced4da;
+  border-radius: .2rem;
+  display: flex;
+  align-items: center;
+}
+#catalog-toolbar .select2-container--default .select2-selection--single .select2-selection__rendered {
+  line-height: 1; font-size: .875rem; color: #495057; padding: 0;
+}
+#catalog-toolbar .select2-container--default .select2-selection--single .select2-selection__arrow {
+  height: 100%; top: 0; right: 4px;
+}
+#catalog-toolbar .grid-label {
+  font-size: .78rem; color: #6c757d; font-weight: 600; white-space: nowrap;
+}
+
+/* ── Select2 Dropdown ────────────────────────────────────── */
+.select2-dropdown {
+  border: 1px solid #ced4da;
+  border-radius: .25rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,.1);
+}
+.select2-results__option {
+  padding: 6px 12px;
+  font-size: .85rem;
+  color: #495057;
+}
+.select2-results__option--highlighted[aria-selected] {
+  background-color: #4a90d9;
+  color: #fff;
+}
+.select2-results__option[aria-selected="true"] {
+  background-color: #e9ecef;
+  color: #212529;
+}
+.select2-results__options {
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #c1c9d4 transparent;
+}
+.select2-results__options::-webkit-scrollbar {
+  width: 6px;
+}
+.select2-results__options::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+.select2-results__options::-webkit-scrollbar-thumb {
+  background: #c1c9d4;
+  border-radius: 3px;
+}
+.select2-results__options::-webkit-scrollbar-thumb:hover {
+  background: #9aa5b4;
+}
 
 /* ── Card Grid ───────────────────────────────────────────── */
 #catalog-grid {
@@ -131,28 +186,29 @@
 <!-- ── Toolbar ──────────────────────────────────────────────────────── -->
 <div class="card shadow-sm mb-3" id="catalog-toolbar">
   <div class="card-body py-2 px-3">
-    <div class="row g-2 align-items-center">
+    <div class="row align-items-center" style="row-gap:.45rem;">
 
       <!-- Search -->
       <div class="col-12 col-md-3" id="cat-search-col">
         <div class="input-group input-group-sm">
-          <span class="input-group-text bg-white border-end-0 pe-1">
-            <i class="fas fa-search text-muted" style="font-size:.8rem;"></i>
-          </span>
-          <input type="text" id="cat-search" class="form-control border-start-0"
+          <div class="input-group-prepend">
+            <span class="input-group-text bg-white"><i class="fas fa-search text-muted" style="font-size:.8rem;"></i></span>
+          </div>
+          <input type="text" id="cat-search" class="form-control"
                  placeholder="Search by name or code…"
                  value="{{ search }}" autocomplete="off">
           {% if search %}
-          <button class="btn btn-outline-secondary" type="button" id="cat-clear-search"
-                  title="Clear search"><i class="fas fa-times"></i></button>
+          <div class="input-group-append">
+            <button class="btn btn-outline-secondary" type="button" id="cat-clear-search"
+                    title="Clear search"><i class="fas fa-times"></i></button>
+          </div>
           {% endif %}
         </div>
       </div>
 
       <!-- Category -->
       <div class="col-6 col-md-2" id="cat-category-col">
-        <select id="cat-category" class="form-control form-control-sm"
-                title="Filter by category">
+        <select id="cat-category" class="form-control form-control-sm" title="Filter by category">
           <option value="">All Categories</option>
           {% for cat in categories %}
           <option value="{{ cat.pk }}"
@@ -165,8 +221,7 @@
 
       <!-- Type -->
       <div class="col-6 col-md-2" id="cat-type-col">
-        <select id="cat-type" class="form-control form-control-sm"
-                title="Filter by item type">
+        <select id="cat-type" class="form-control form-control-sm" title="Filter by item type">
           <option value="">All Types</option>
           <option value="RAW"      {% if current_type == "RAW"      %}selected{% endif %}>Raw Material</option>
           <option value="FINISHED" {% if current_type == "FINISHED" %}selected{% endif %}>Finished Good</option>
@@ -175,17 +230,15 @@
       </div>
 
       <!-- Grid cols / rows -->
-      <div class="col-auto d-flex align-items-center gap-2" id="cat-grid-controls">
-        <span class="small text-muted fw-semibold text-nowrap">Cols:</span>
-        <select id="cat-cols" class="form-control form-control-sm" style="width:62px;"
-                title="Cards per row">
+      <div class="col-auto d-flex align-items-center" id="cat-grid-controls" style="gap:.4rem;">
+        <span class="grid-label">Cols:</span>
+        <select id="cat-cols" class="form-control form-control-sm" style="width:58px;" title="Cards per row">
           {% for c in col_range %}
           <option value="{{ c }}" {% if cols == c %}selected{% endif %}>{{ c }}</option>
           {% endfor %}
         </select>
-        <span class="small text-muted fw-semibold text-nowrap">Rows:</span>
-        <select id="cat-rows" class="form-control form-control-sm" style="width:62px;"
-                title="Rows per page">
+        <span class="grid-label ml-1">Rows:</span>
+        <select id="cat-rows" class="form-control form-control-sm" style="width:58px;" title="Rows per page">
           {% for r in row_range %}
           <option value="{{ r }}" {% if rows == r %}selected{% endif %}>{{ r }}</option>
           {% endfor %}
@@ -193,37 +246,37 @@
       </div>
 
       <!-- Action buttons -->
-      <div class="col ms-auto d-flex justify-content-end gap-2 flex-wrap" id="cat-action-btns">
+      <div class="col ml-auto d-flex justify-content-end flex-wrap" id="cat-action-btns" style="gap:.4rem;">
         {% if not is_view_only %}<a href="#" data-modal-url="{% url 'catalog_import' %}"
            class="btn btn-sm btn-outline-success no-print" id="catalog-import-btn"
            title="Import items from CSV">
-          <i class="fas fa-file-import me-1"></i>Import
+          <i class="fas fa-file-import mr-1"></i>Import
         </a>
         <a href="#" data-modal-url="{% url 'item_create' %}"
            class="btn btn-sm btn-primary no-print" id="catalog-new-btn">
-          <i class="fas fa-plus me-1"></i>New Item
+          <i class="fas fa-plus mr-1"></i>New Item
         </a>{% endif %}
         <div class="dropdown no-print" id="catalog-export-dropdown">
           <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
-                  data-bs-toggle="dropdown" id="catalog-export-btn" type="button"
-                  title="Export options">
-            <i class="fas fa-file-export me-1"></i>Export
+                  data-toggle="dropdown" data-bs-toggle="dropdown"
+                  id="catalog-export-btn" type="button" title="Export options">
+            <i class="fas fa-file-export mr-1"></i>Export
           </button>
-          <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="min-width:210px;">
+          <ul class="dropdown-menu dropdown-menu-right shadow-sm" style="min-width:210px;">
             <li>
               <a class="dropdown-item py-2" href="#" id="export-pdf-page">
-                <i class="fas fa-file-pdf me-2 text-danger"></i>
+                <i class="fas fa-file-pdf mr-2 text-danger"></i>
                 <span>PDF – This Page</span>
-                <small class="d-block text-muted ms-4" style="font-size:.72rem;">
+                <small class="d-block text-muted ml-4" style="font-size:.72rem;">
                   Current {{ cols }}×{{ rows }} grid
                 </small>
               </a>
             </li>
             <li>
               <a class="dropdown-item py-2" href="#" id="export-pdf-all">
-                <i class="fas fa-file-pdf me-2 text-danger"></i>
+                <i class="fas fa-file-pdf mr-2 text-danger"></i>
                 <span>PDF – Full Catalog</span>
-                <small class="d-block text-muted ms-4" style="font-size:.72rem;">
+                <small class="d-block text-muted ml-4" style="font-size:.72rem;">
                   All {{ page_obj.paginator.count }} items, {{ cols }}×{{ rows }} layout
                 </small>
               </a>
@@ -231,9 +284,9 @@
             <li><hr class="dropdown-divider my-1"></li>
             <li>
               <a class="dropdown-item py-2" href="#" id="export-excel">
-                <i class="fas fa-file-excel me-2 text-success"></i>
+                <i class="fas fa-file-excel mr-2 text-success"></i>
                 <span>Export to Excel</span>
-                <small class="d-block text-muted ms-4" style="font-size:.72rem;">
+                <small class="d-block text-muted ml-4" style="font-size:.72rem;">
                   All details, no images
                 </small>
               </a>
@@ -245,8 +298,8 @@
 
     <!-- Active filter badges -->
     {% if search or current_category or current_type %}
-    <div class="mt-2 d-flex gap-2 flex-wrap" id="cat-active-filters">
-      <span class="small text-muted me-1">Active filters:</span>
+    <div class="mt-2 d-flex flex-wrap" id="cat-active-filters" style="gap:.4rem;">
+      <span class="small text-muted mr-1">Active filters:</span>
       {% if search %}
       <span class="filter-badge">
         <i class="fas fa-search" style="font-size:.65rem;"></i> {{ search }}
@@ -310,8 +363,8 @@
   </div>
   {% empty %}
   <div style="grid-column: 1 / -1;" class="text-center py-5 text-muted">
-    <i class="fas fa-box-open fa-3x mb-3 d-block opacity-50"></i>
-    <p class="fw-semibold mb-1">No items found</p>
+    <i class="fas fa-box-open fa-3x mb-3 d-block" style="opacity:.5;"></i>
+    <p class="font-weight-bold mb-1">No items found</p>
     <p class="small mb-0">Try adjusting your search or filter criteria.</p>
   </div>
   {% endfor %}
@@ -319,8 +372,8 @@
 
 <!-- ── Pagination ─────────────────────────────────────────────────────── -->
 {% if page_obj.paginator.num_pages > 1 %}
-<div class="d-flex flex-wrap justify-content-between align-items-center mt-3 gap-2 no-print"
-     id="catalog-pagination">
+<div class="d-flex flex-wrap justify-content-between align-items-center mt-3 no-print"
+     id="catalog-pagination" style="gap:.5rem;">
   <div class="text-muted small">
     Showing <strong>{{ page_obj.start_index }}–{{ page_obj.end_index }}</strong>
     of <strong>{{ page_obj.paginator.count }}</strong> items
@@ -370,122 +423,101 @@
 
 {% block extra_js %}
 <script>
-(function () {
+(function ($) {
   'use strict';
 
   /* ── Navigate preserving all current params ───────────────────── */
   function catNavigate(params) {
     var url = new URL(window.location.href);
-    Object.keys(params).forEach(function (k) {
-      var v = params[k];
+    $.each(params, function (k, v) {
       if (v !== null && v !== undefined && v !== '') {
         url.searchParams.set(k, v);
       } else {
         url.searchParams.delete(k);
       }
     });
-    if (!Object.prototype.hasOwnProperty.call(params, 'page')) {
+    if (!params.hasOwnProperty('page')) {
       url.searchParams.set('page', '1');
     }
     window.location.href = url.toString();
   }
 
+  /* ── Init Select2 (no search) on all toolbar selects ──────────── */
+  $('#cat-category, #cat-type, #cat-cols, #cat-rows').select2({
+    minimumResultsForSearch: Infinity,
+    width: 'resolve'
+  });
+
   /* ── Search (800 ms debounce, focus restored after reload) ───── */
   var _st;
-  var si = document.getElementById('cat-search');
-  if (si) {
-    si.addEventListener('input', function () {
+  var $si = $('#cat-search');
+  $si.on('input', function () {
+    clearTimeout(_st);
+    _st = setTimeout(function () {
+      sessionStorage.setItem('cat_search_focus', '1');
+      catNavigate({ q: $si.val().trim() });
+    }, 800);
+  });
+  $si.on('keydown', function (e) {
+    if (e.key === 'Enter') {
       clearTimeout(_st);
-      _st = setTimeout(function () {
-        sessionStorage.setItem('cat_search_focus', '1');
-        catNavigate({ q: si.value.trim() });
-      }, 800);
-    });
-    si.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') {
-        clearTimeout(_st);
-        sessionStorage.setItem('cat_search_focus', '1');
-        catNavigate({ q: si.value.trim() });
-      }
-    });
-  }
-  var clr = document.getElementById('cat-clear-search');
-  if (clr) clr.addEventListener('click', function () { catNavigate({ q: '' }); });
+      sessionStorage.setItem('cat_search_focus', '1');
+      catNavigate({ q: $si.val().trim() });
+    }
+  });
+  $('#cat-clear-search').on('click', function () { catNavigate({ q: '' }); });
 
   /* ── Restore search focus if page loaded via search debounce ──── */
-  if (si && sessionStorage.getItem('cat_search_focus') === '1') {
+  if ($si.length && sessionStorage.getItem('cat_search_focus') === '1') {
     sessionStorage.removeItem('cat_search_focus');
-    si.focus();
-    var len = si.value.length;
-    si.setSelectionRange(len, len);
+    var el = $si[0];
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
   }
 
   /* ── Active filter badge removals ────────────────────────────── */
-  var fc = document.getElementById('filter-clear-search');
-  if (fc) fc.addEventListener('click', function () { catNavigate({ q: '' }); });
-  var fcat = document.getElementById('filter-clear-category');
-  if (fcat) fcat.addEventListener('click', function () { catNavigate({ category: '' }); });
-  var ftype = document.getElementById('filter-clear-type');
-  if (ftype) ftype.addEventListener('click', function () { catNavigate({ type: '' }); });
+  $('#filter-clear-search').on('click', function () { catNavigate({ q: '' }); });
+  $('#filter-clear-category').on('click', function () { catNavigate({ category: '' }); });
+  $('#filter-clear-type').on('click', function () { catNavigate({ type: '' }); });
 
   /* ── Category / Type selects ──────────────────────────────────── */
-  var catSel = document.getElementById('cat-category');
-  if (catSel) catSel.addEventListener('change', function () { catNavigate({ category: catSel.value }); });
+  $('#cat-category').on('change', function () { catNavigate({ category: $(this).val() }); });
+  $('#cat-type').on('change', function () { catNavigate({ type: $(this).val() }); });
 
-  var typeSel = document.getElementById('cat-type');
-  if (typeSel) typeSel.addEventListener('change', function () { catNavigate({ type: typeSel.value }); });
-
-  /* ── Grid Cols / Rows — immediate CSS update + server navigate ── */
-  var grid = document.getElementById('catalog-grid');
-
-  var colsSel = document.getElementById('cat-cols');
-  if (colsSel) {
-    colsSel.addEventListener('change', function () {
-      if (grid) grid.style.setProperty('--cat-cols', colsSel.value);
-      catNavigate({ cols: colsSel.value });
-    });
-  }
-
-  var rowsSel = document.getElementById('cat-rows');
-  if (rowsSel) {
-    rowsSel.addEventListener('change', function () {
-      catNavigate({ rows: rowsSel.value });
-    });
-  }
+  /* ── Grid Cols / Rows ─────────────────────────────────────────── */
+  $('#cat-cols').on('change', function () {
+    var v = $(this).val();
+    $('#catalog-grid').css('--cat-cols', v);
+    catNavigate({ cols: v });
+  });
+  $('#cat-rows').on('change', function () {
+    catNavigate({ rows: $(this).val() });
+  });
 
   /* ── Export: PDF — This Page ──────────────────────────────────── */
-  var btnPdfPage = document.getElementById('export-pdf-page');
-  if (btnPdfPage) {
-    btnPdfPage.addEventListener('click', function (e) {
-      e.preventDefault();
-      window.print();
-    });
-  }
+  $('#export-pdf-page').on('click', function (e) {
+    e.preventDefault();
+    window.print();
+  });
 
   /* ── Export: PDF — Full Catalog ───────────────────────────────── */
-  var btnPdfAll = document.getElementById('export-pdf-all');
-  if (btnPdfAll) {
-    btnPdfAll.addEventListener('click', function (e) {
-      e.preventDefault();
-      var sp = new URL(window.location.href).searchParams;
-      sp.delete('page');
-      var qs = sp.toString();
-      window.open('/catalog/items/print/' + (qs ? '?' + qs : ''), '_blank');
-    });
-  }
+  $('#export-pdf-all').on('click', function (e) {
+    e.preventDefault();
+    var sp = new URL(window.location.href).searchParams;
+    sp.delete('page');
+    var qs = sp.toString();
+    window.open('/catalog/items/print/' + (qs ? '?' + qs : ''), '_blank');
+  });
 
   /* ── Export: Excel ────────────────────────────────────────────── */
-  var btnExcel = document.getElementById('export-excel');
-  if (btnExcel) {
-    btnExcel.addEventListener('click', function (e) {
-      e.preventDefault();
-      var sp = new URL(window.location.href).searchParams;
-      sp.delete('page');
-      var qs = sp.toString();
-      window.location.href = '/catalog/items/export-excel/' + (qs ? '?' + qs : '');
-    });
-  }
+  $('#export-excel').on('click', function (e) {
+    e.preventDefault();
+    var sp = new URL(window.location.href).searchParams;
+    sp.delete('page');
+    var qs = sp.toString();
+    window.location.href = '/catalog/items/export-excel/' + (qs ? '?' + qs : '');
+  });
 
-})();
+})(jQuery);
 </script>
 {% endblock %}
