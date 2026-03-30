@@ -16,7 +16,7 @@ from sales.forms import (
 from django.utils import timezone
 from inventory.services import post_delivery, reserve_stock, cancel_document, post_sales_pickup
 from core.models import DocumentStatus
-from accounts.decorators import sales_access
+from accounts.decorators import write_denied_for_viewer,  sales_access
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -176,6 +176,7 @@ class SalesPickupViewSet(viewsets.ModelViewSet):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def sales_order_approve_view(request, pk):
     so = get_object_or_404(SalesOrder, pk=pk)
     if request.method == 'POST':
@@ -201,6 +202,7 @@ def sales_order_approve_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def sales_order_cancel_view(request, pk):
     so = get_object_or_404(SalesOrder, pk=pk)
     if request.method == 'POST':
@@ -214,6 +216,7 @@ def sales_order_cancel_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def delivery_post_view(request, pk):
     dn = get_object_or_404(DeliveryNote, pk=pk)
     if request.method == 'POST':
@@ -231,6 +234,7 @@ def delivery_post_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def delivery_cancel_view(request, pk):
     dn = get_object_or_404(DeliveryNote, pk=pk)
     if request.method == 'POST':
@@ -374,6 +378,7 @@ def delivery_detail_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def sales_order_create_view(request):
     if request.method == 'POST':
         form = SalesOrderForm(request.POST)
@@ -402,6 +407,7 @@ def sales_order_create_view(request):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def sales_order_edit_view(request, pk):
     so = get_object_or_404(SalesOrder, pk=pk)
     if so.status != 'DRAFT':
@@ -429,6 +435,7 @@ def sales_order_edit_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def sales_order_delete_view(request, pk):
     so = get_object_or_404(SalesOrder, pk=pk)
     if request.method == 'POST':
@@ -440,6 +447,7 @@ def sales_order_delete_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def delivery_create_view(request):
     if request.method == 'POST':
         form = DeliveryNoteForm(request.POST)
@@ -473,6 +481,7 @@ def delivery_create_view(request):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def delivery_edit_view(request, pk):
     dn = get_object_or_404(DeliveryNote, pk=pk)
     if dn.status != 'DRAFT':
@@ -504,6 +513,7 @@ def delivery_edit_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def delivery_delete_view(request, pk):
     dn = get_object_or_404(DeliveryNote, pk=pk)
     if request.method == 'POST':
@@ -534,6 +544,7 @@ def pickup_detail_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def pickup_create_view(request):
     if request.method == 'POST':
         form = SalesPickupForm(request.POST)
@@ -567,6 +578,7 @@ def pickup_create_view(request):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def pickup_edit_view(request, pk):
     pickup = get_object_or_404(SalesPickup, pk=pk)
     if pickup.status != 'DRAFT':
@@ -598,6 +610,7 @@ def pickup_edit_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def pickup_delete_view(request, pk):
     pickup = get_object_or_404(SalesPickup, pk=pk)
     if request.method == 'POST':
@@ -609,6 +622,7 @@ def pickup_delete_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def pickup_post_view(request, pk):
     pickup = get_object_or_404(SalesPickup, pk=pk)
     if request.method == 'POST':
@@ -632,6 +646,7 @@ def pickup_post_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def pickup_cancel_view(request, pk):
     pickup = get_object_or_404(SalesPickup, pk=pk)
     if request.method == 'POST':
@@ -697,6 +712,7 @@ def sales_return_detail_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def sales_return_create_view(request):
     if request.method == 'POST':
         form = SalesReturnForm(request.POST)
@@ -720,6 +736,7 @@ def sales_return_create_view(request):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def sales_return_post_view(request, pk):
     sr = get_object_or_404(SalesReturn, pk=pk)
     if request.method == 'POST':
@@ -734,6 +751,7 @@ def sales_return_post_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def sales_return_cancel_view(request, pk):
     sr = get_object_or_404(SalesReturn, pk=pk)
     if request.method == 'POST':
@@ -747,6 +765,7 @@ def sales_return_cancel_view(request, pk):
 
 @login_required
 @sales_access
+@write_denied_for_viewer
 def sales_return_delete_view(request, pk):
     sr = get_object_or_404(SalesReturn, pk=pk)
     if request.method == 'POST':

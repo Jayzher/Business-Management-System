@@ -8,9 +8,9 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title">Unit List</h3>
-    <div class="card-tools">
+    {% if not is_view_only %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'unit_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Unit</a>
-    </div>
+    </div>{% endif %}
   </div>
   <div class="card-body table-responsive">
     <table class="table table-hover text-nowrap wis-table">

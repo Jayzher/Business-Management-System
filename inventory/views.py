@@ -31,7 +31,7 @@ from inventory.services import (
     post_inventory_to_supply, cancel_inventory_to_supply,
 )
 from core.models import DocumentStatus
-from accounts.decorators import warehouse_access
+from accounts.decorators import write_denied_for_viewer,  warehouse_access
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -120,6 +120,7 @@ class DamagedReportViewSet(viewsets.ModelViewSet):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def transfer_post_view(request, pk):
     obj = get_object_or_404(StockTransfer, pk=pk)
     if request.method == 'POST':
@@ -133,6 +134,7 @@ def transfer_post_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def transfer_cancel_view(request, pk):
     obj = get_object_or_404(StockTransfer, pk=pk)
     if request.method == 'POST':
@@ -146,6 +148,7 @@ def transfer_cancel_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def adjustment_approve_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
     if request.method == 'POST':
@@ -162,6 +165,7 @@ def adjustment_approve_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def adjustment_post_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
     if request.method == 'POST':
@@ -175,6 +179,7 @@ def adjustment_post_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def adjustment_cancel_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
     if request.method == 'POST':
@@ -188,6 +193,7 @@ def adjustment_cancel_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def damaged_post_view(request, pk):
     obj = get_object_or_404(DamagedReport, pk=pk)
     if request.method == 'POST':
@@ -201,6 +207,7 @@ def damaged_post_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def damaged_cancel_view(request, pk):
     obj = get_object_or_404(DamagedReport, pk=pk)
     if request.method == 'POST':
@@ -349,6 +356,7 @@ def damaged_detail_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def transfer_create_view(request):
     if request.method == 'POST':
         form = StockTransferForm(request.POST)
@@ -372,6 +380,7 @@ def transfer_create_view(request):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def transfer_edit_view(request, pk):
     obj = get_object_or_404(StockTransfer, pk=pk)
     if obj.status != 'DRAFT':
@@ -395,6 +404,7 @@ def transfer_edit_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def transfer_delete_view(request, pk):
     obj = get_object_or_404(StockTransfer, pk=pk)
     if request.method == 'POST':
@@ -408,6 +418,7 @@ def transfer_delete_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def adjustment_create_view(request):
     if request.method == 'POST':
         form = StockAdjustmentForm(request.POST)
@@ -431,6 +442,7 @@ def adjustment_create_view(request):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def adjustment_edit_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
     if obj.status != 'DRAFT':
@@ -454,6 +466,7 @@ def adjustment_edit_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def adjustment_delete_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
     if request.method == 'POST':
@@ -467,6 +480,7 @@ def adjustment_delete_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def damaged_create_view(request):
     if request.method == 'POST':
         form = DamagedReportForm(request.POST)
@@ -490,6 +504,7 @@ def damaged_create_view(request):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def damaged_edit_view(request, pk):
     obj = get_object_or_404(DamagedReport, pk=pk)
     if obj.status != 'DRAFT':
@@ -513,6 +528,7 @@ def damaged_edit_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def damaged_delete_view(request, pk):
     obj = get_object_or_404(DamagedReport, pk=pk)
     if request.method == 'POST':
@@ -547,6 +563,7 @@ def ist_detail_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def ist_create_view(request):
     from inventory.services import generate_document_number
     if request.method == 'POST':
@@ -573,6 +590,7 @@ def ist_create_view(request):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def ist_edit_view(request, pk):
     obj = get_object_or_404(InventoryToSupplyTransfer, pk=pk)
     if obj.status != 'DRAFT':
@@ -597,6 +615,7 @@ def ist_edit_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def ist_delete_view(request, pk):
     obj = get_object_or_404(InventoryToSupplyTransfer, pk=pk)
     if request.method == 'POST':
@@ -608,6 +627,7 @@ def ist_delete_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def ist_post_view(request, pk):
     obj = get_object_or_404(InventoryToSupplyTransfer, pk=pk)
     if request.method == 'POST':
@@ -625,6 +645,7 @@ def ist_post_view(request, pk):
 
 @login_required
 @warehouse_access
+@write_denied_for_viewer
 def ist_cancel_view(request, pk):
     obj = get_object_or_404(InventoryToSupplyTransfer, pk=pk)
     if request.method == 'POST':

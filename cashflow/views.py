@@ -11,6 +11,7 @@ from cashflow.models import (
     CashFlowStatus, CashFlowType,
 )
 from cashflow.forms import CashFlowTransactionForm, CashFlowRejectForm
+from accounts.decorators import write_denied_for_viewer
 
 
 def _log(transaction, action, user, details='', old_values=None, new_values=None):
@@ -105,6 +106,7 @@ def transaction_detail(request, pk):
 # TRANSACTION CREATE
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def transaction_create(request):
     if request.method == 'POST':
         form = CashFlowTransactionForm(request.POST)
@@ -129,6 +131,7 @@ def transaction_create(request):
 # TRANSACTION EDIT
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def transaction_edit(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if txn.status not in (CashFlowStatus.PENDING, CashFlowStatus.REJECTED):
@@ -170,6 +173,7 @@ def transaction_edit(request, pk):
 # TRANSACTION DELETE
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def transaction_delete(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if txn.status == CashFlowStatus.APPROVED:
@@ -189,6 +193,7 @@ def transaction_delete(request, pk):
 # APPROVE / REJECT / CANCEL
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def transaction_approve(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if request.method != 'POST':
@@ -208,6 +213,7 @@ def transaction_approve(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def transaction_reject(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if request.method != 'POST':
@@ -235,6 +241,7 @@ def transaction_reject(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def transaction_cancel(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if request.method != 'POST':
@@ -269,6 +276,7 @@ def log_list(request):
 # SYNC — Full cash-flow recalculation (sales + procurement + expenses)
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def sync_cashflow(request):
     """
     POST-only AJAX view.  Rebuilds weekly sales revenue entries and

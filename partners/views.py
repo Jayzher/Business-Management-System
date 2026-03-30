@@ -6,6 +6,7 @@ from rest_framework import viewsets
 from partners.models import Supplier, Customer
 from partners.serializers import SupplierSerializer, CustomerSerializer
 from partners.forms import SupplierForm, CustomerForm
+from accounts.decorators import write_denied_for_viewer
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ def supplier_list_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def supplier_create_view(request):
     if request.method == 'POST':
         form = SupplierForm(request.POST)
@@ -46,6 +48,7 @@ def supplier_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def supplier_edit_view(request, pk):
     supplier = get_object_or_404(Supplier, pk=pk)
     if request.method == 'POST':
@@ -60,6 +63,7 @@ def supplier_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def supplier_delete_view(request, pk):
     supplier = get_object_or_404(Supplier, pk=pk)
     if request.method == 'POST':
@@ -76,6 +80,7 @@ def customer_list_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def customer_create_view(request):
     if request.method == 'POST':
         form = CustomerForm(request.POST)
@@ -89,6 +94,7 @@ def customer_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def customer_edit_view(request, pk):
     customer = get_object_or_404(Customer, pk=pk)
     if request.method == 'POST':
@@ -103,6 +109,7 @@ def customer_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def customer_delete_view(request, pk):
     customer = get_object_or_404(Customer, pk=pk)
     if request.method == 'POST':

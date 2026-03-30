@@ -10,10 +10,10 @@
     <h3 class="card-title"><i class="fas fa-money-bill-wave mr-1"></i> Cash Flow Transactions</h3>
     <div class="card-tools">
       <a href="{% url 'cashflow_log_list' %}" class="btn btn-sm btn-outline-secondary mr-1"><i class="fas fa-history mr-1"></i> Logs</a>
-      <button type="button" class="btn btn-sm btn-outline-warning mr-1" id="btn-sync-cashflow">
+      {% if not is_view_only %}<button type="button" class="btn btn-sm btn-outline-warning mr-1" id="btn-sync-cashflow">
         <i class="fas fa-sync-alt mr-1"></i> Sync Cash Flow
       </button>
-      <a href="#" data-modal-url="{% url 'cashflow_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Transaction</a>
+      <a href="#" data-modal-url="{% url 'cashflow_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Transaction</a>{% endif %}
     </div>
   </div>
   <div class="card-body">

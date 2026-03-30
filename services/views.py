@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from services.models import CustomerService, ServiceLine, ServiceOtherMaterial, ServiceBundle, ServiceStatus, ServicePaymentStatus
 from services.forms import (
+from accounts.decorators import write_denied_for_viewer
     CustomerServiceForm, CustomerServiceEditForm,
     ServiceLineFormSet, ServiceOtherMaterialFormSet, ServiceBundleFormSet,
 )
@@ -206,6 +207,7 @@ def service_detail(request, pk):
 # CREATE
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def service_create(request):
     if request.method == 'POST':
         form = CustomerServiceForm(request.POST)
@@ -244,6 +246,7 @@ def service_create(request):
 # EDIT
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def service_edit(request, pk):
     svc = get_object_or_404(CustomerService, pk=pk)
     if svc.status in (ServiceStatus.COMPLETED, ServiceStatus.CANCELLED):
@@ -281,6 +284,7 @@ def service_edit(request, pk):
 # DELETE
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def service_delete(request, pk):
     svc = get_object_or_404(CustomerService, pk=pk)
     if svc.status == ServiceStatus.COMPLETED:
@@ -297,6 +301,7 @@ def service_delete(request, pk):
 # MARK IN-PROGRESS
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def service_start(request, pk):
     svc = get_object_or_404(CustomerService, pk=pk)
     if request.method == 'POST':
@@ -312,6 +317,7 @@ def service_start(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 @transaction.atomic
+@write_denied_for_viewer
 def service_complete(request, pk):
     svc = get_object_or_404(CustomerService, pk=pk)
     if request.method != 'POST':
@@ -588,6 +594,7 @@ def service_complete(request, pk):
 # CANCEL
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
+@write_denied_for_viewer
 def service_cancel(request, pk):
     svc = get_object_or_404(CustomerService, pk=pk)
     if request.method == 'POST':

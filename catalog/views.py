@@ -24,6 +24,7 @@ from catalog.forms import CategoryForm, UnitForm, UnitConversionForm, ItemForm, 
 from inventory.models import StockBalance
 from django.db.models import Sum, F
 from inventory.serializers import StockBalanceSerializer
+from accounts.decorators import write_denied_for_viewer
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -308,6 +309,7 @@ def item_detail_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def item_create_view(request):
     if request.method == 'POST':
         form = ItemForm(request.POST, request.FILES)
@@ -330,6 +332,7 @@ def item_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def item_edit_view(request, pk):
     item = get_object_or_404(Item, pk=pk)
     if request.method == 'POST':
@@ -352,6 +355,7 @@ def item_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def item_delete_view(request, pk):
     item = get_object_or_404(Item, pk=pk)
     if request.method == 'POST':
@@ -370,6 +374,7 @@ def category_list_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def category_create_view(request):
     if request.method == 'POST':
         form = CategoryForm(request.POST)
@@ -383,6 +388,7 @@ def category_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def category_edit_view(request, pk):
     category = get_object_or_404(Category, pk=pk)
     if request.method == 'POST':
@@ -397,6 +403,7 @@ def category_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def category_delete_view(request, pk):
     category = get_object_or_404(Category, pk=pk)
     relation_summary = build_relation_summary(category)
@@ -430,6 +437,7 @@ def unit_list_view(request):
     return render(request, 'catalog/unit_list.html', {'units': units})
 
 @login_required
+@write_denied_for_viewer
 def unit_create_view(request):
     if request.method == 'POST':
         form = UnitForm(request.POST)
@@ -443,6 +451,7 @@ def unit_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def unit_edit_view(request, pk):
     unit = get_object_or_404(Unit, pk=pk)
     if request.method == 'POST':
@@ -457,6 +466,7 @@ def unit_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def unit_delete_view(request, pk):
     unit = get_object_or_404(Unit, pk=pk)
     if request.method == 'POST':
@@ -477,6 +487,7 @@ def unit_conversion_list_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def unit_conversion_create_view(request):
     if request.method == 'POST':
         form = UnitConversionForm(request.POST)
@@ -492,6 +503,7 @@ def unit_conversion_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def unit_conversion_edit_view(request, pk):
     conv = get_object_or_404(UnitConversion, pk=pk)
     if request.method == 'POST':
@@ -509,6 +521,7 @@ def unit_conversion_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def unit_conversion_delete_view(request, pk):
     conv = get_object_or_404(UnitConversion, pk=pk)
     if request.method == 'POST':

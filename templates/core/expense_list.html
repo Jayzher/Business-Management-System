@@ -8,10 +8,10 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-receipt mr-1"></i> Expenses</h3>
-    <div class="card-tools">
+    {% if not is_view_only %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'expense_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
       <a href="#" data-modal-url="{% url 'expense_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> Record Expense</a>
-    </div>
+    </div>{% endif %}
   </div>
   <div class="card-body">
     <form method="get" class="row g-2 mb-3">

@@ -16,9 +16,9 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-bullseye mr-1"></i> Target Goals</h3>
-    <div class="card-tools">
+    {% if not is_view_only %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'goal_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Goal</a>
-    </div>
+    </div>{% endif %}
   </div>
   <div class="card-body">
     <form method="get" class="row g-2 mb-3">

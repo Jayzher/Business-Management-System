@@ -8,11 +8,11 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-box-open mr-1"></i> Supply Items</h3>
-    <div class="card-tools">
+    {% if not is_view_only %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'supply_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
       <a href="#" data-modal-url="{% url 'supply_movement_create' %}" class="btn btn-sm btn-info mr-1"><i class="fas fa-plus mr-1"></i> Stock In/Out</a>
       <a href="#" data-modal-url="{% url 'supply_item_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Item</a>
-    </div>
+    </div>{% endif %}
   </div>
   <div class="card-body table-responsive">
     <table class="table table-hover table-striped text-nowrap wis-table">

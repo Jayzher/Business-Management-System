@@ -29,6 +29,7 @@ from pos.services import (
     generate_sale_number, generate_refund_number,
 )
 from pos.forms import POSRegisterForm, OpenShiftForm, CloseShiftForm, CashEntryForm
+from accounts.decorators import write_denied_for_viewer
 
 
 # ── DRF API Views ─────────────────────────────────────────────────────────
@@ -239,6 +240,7 @@ def register_list_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def register_create_view(request):
     if request.method == 'POST':
         form = POSRegisterForm(request.POST)
@@ -252,6 +254,7 @@ def register_create_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def register_edit_view(request, pk):
     obj = get_object_or_404(POSRegister, pk=pk)
     if request.method == 'POST':
@@ -266,6 +269,7 @@ def register_edit_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def register_delete_view(request, pk):
     obj = get_object_or_404(POSRegister, pk=pk)
     if request.method == 'POST':
@@ -276,6 +280,7 @@ def register_delete_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def shift_open_view(request):
     if request.method == 'POST':
         form = OpenShiftForm(request.POST)
@@ -296,6 +301,7 @@ def shift_open_view(request):
 
 
 @login_required
+@write_denied_for_viewer
 def shift_close_view(request, pk):
     shift = get_object_or_404(POSShift, pk=pk)
     if shift.status != ShiftStatus.OPEN:
@@ -397,6 +403,7 @@ def receipt_detail_view(request, pk):
 
 
 @login_required
+@write_denied_for_viewer
 def refund_create_view(request, sale_pk):
     """Start a refund from an existing posted sale."""
     original_sale = get_object_or_404(
@@ -462,6 +469,7 @@ def refund_create_view(request, sale_pk):
 
 @login_required
 @require_POST
+@write_denied_for_viewer
 def terminal_new_sale(request, shift_id):
     """Create a new DRAFT sale in the terminal."""
     shift = get_object_or_404(POSShift, pk=shift_id)
@@ -482,6 +490,7 @@ def terminal_new_sale(request, shift_id):
 
 @login_required
 @require_POST
+@write_denied_for_viewer
 def terminal_add_line(request, sale_id):
     """Add a line to a DRAFT sale (AJAX endpoint for terminal)."""
     sale = get_object_or_404(POSSale, pk=sale_id)
@@ -535,6 +544,7 @@ def terminal_add_line(request, sale_id):
 
 @login_required
 @require_POST
+@write_denied_for_viewer
 def terminal_remove_line(request, line_id):
     """Remove a line from a DRAFT sale."""
     line = get_object_or_404(POSSaleLine, pk=line_id)
@@ -555,6 +565,7 @@ def terminal_remove_line(request, line_id):
 
 @login_required
 @require_POST
+@write_denied_for_viewer
 def terminal_update_qty(request, line_id):
     """Update qty on a DRAFT sale line (AJAX endpoint for +/- buttons)."""
     line = get_object_or_404(POSSaleLine, pk=line_id)
@@ -593,6 +604,7 @@ def terminal_update_qty(request, line_id):
 
 @login_required
 @require_POST
+@write_denied_for_viewer
 def terminal_add_bundle(request, sale_id):
     """Add a bundle (PriceList) to a DRAFT sale."""
     sale = get_object_or_404(POSSale, pk=sale_id)
@@ -634,6 +646,7 @@ def terminal_add_bundle(request, sale_id):
 
 @login_required
 @require_POST
+@write_denied_for_viewer
 def terminal_update_bundle_qty(request, bundle_line_id):
     """Update qty_sets on a DRAFT sale bundle line."""
     bundle_line = get_object_or_404(POSSaleBundleLine, pk=bundle_line_id)
@@ -666,6 +679,7 @@ def terminal_update_bundle_qty(request, bundle_line_id):
 
 @login_required
 @require_POST
+@write_denied_for_viewer
 def terminal_remove_bundle(request, bundle_line_id):
     """Remove a bundle line from a DRAFT sale."""
     bundle_line = get_object_or_404(POSSaleBundleLine, pk=bundle_line_id)
@@ -739,6 +753,7 @@ def terminal_validate_bundle_stock(request, sale_id, price_list_id):
 
 @login_required
 @require_POST
+@write_denied_for_viewer
 def terminal_checkout(request, sale_id):
     """Complete checkout: set payments, mark paid, post sale."""
     sale = get_object_or_404(POSSale, pk=sale_id)

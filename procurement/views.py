@@ -19,7 +19,7 @@ from procurement.forms import (
 from django.utils import timezone
 from inventory.services import post_goods_receipt, cancel_document
 from core.models import DocumentStatus
-from accounts.decorators import procurement_access
+from accounts.decorators import write_denied_for_viewer,  procurement_access
 from django.http import HttpResponseRedirect
 
 
@@ -74,6 +74,7 @@ class GoodsReceiptViewSet(viewsets.ModelViewSet):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def purchase_order_approve_view(request, pk):
     po = get_object_or_404(PurchaseOrder, pk=pk)
     if request.method == 'POST':
@@ -95,6 +96,7 @@ def purchase_order_approve_view(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def purchase_order_cancel_view(request, pk):
     po = get_object_or_404(PurchaseOrder, pk=pk)
     if request.method == 'POST':
@@ -108,6 +110,7 @@ def purchase_order_cancel_view(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def goods_receipt_post_view(request, pk):
     grn = get_object_or_404(GoodsReceipt, pk=pk)
     if request.method == 'POST':
@@ -121,6 +124,7 @@ def goods_receipt_post_view(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def goods_receipt_cancel_view(request, pk):
     grn = get_object_or_404(GoodsReceipt, pk=pk)
     if request.method == 'POST':
@@ -202,6 +206,7 @@ def goods_receipt_detail_view(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def goods_receipt_attachment_upload(request, pk):
     receipt = get_object_or_404(GoodsReceipt, pk=pk)
     if request.method == 'POST':
@@ -229,6 +234,7 @@ def goods_receipt_attachment_upload(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def goods_receipt_attachment_delete(request, pk, attachment_id):
     receipt = get_object_or_404(GoodsReceipt, pk=pk)
     attachment = get_object_or_404(GoodsReceiptAttachment, pk=attachment_id, goods_receipt=receipt)
@@ -239,6 +245,7 @@ def goods_receipt_attachment_delete(request, pk, attachment_id):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def purchase_order_create_view(request):
     if request.method == 'POST':
         form = PurchaseOrderForm(request.POST)
@@ -262,6 +269,7 @@ def purchase_order_create_view(request):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def purchase_order_edit_view(request, pk):
     po = get_object_or_404(PurchaseOrder, pk=pk)
     if po.status != 'DRAFT':
@@ -285,6 +293,7 @@ def purchase_order_edit_view(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def purchase_order_delete_view(request, pk):
     po = get_object_or_404(PurchaseOrder, pk=pk)
     if request.method == 'POST':
@@ -296,6 +305,7 @@ def purchase_order_delete_view(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def goods_receipt_create_view(request):
     if request.method == 'POST':
         form = GoodsReceiptForm(request.POST)
@@ -319,6 +329,7 @@ def goods_receipt_create_view(request):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def goods_receipt_edit_view(request, pk):
     grn = get_object_or_404(GoodsReceipt, pk=pk)
     if grn.status != 'DRAFT':
@@ -342,6 +353,7 @@ def goods_receipt_edit_view(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def goods_receipt_delete_view(request, pk):
     grn = get_object_or_404(GoodsReceipt, pk=pk)
     if request.method == 'POST':
@@ -373,6 +385,7 @@ def purchase_return_detail_view(request, pk):
 @login_required
 @procurement_access
 @db_transaction.atomic
+@write_denied_for_viewer
 def purchase_return_create_view(request):
     if request.method == 'POST':
         form = PurchaseReturnForm(request.POST)
@@ -402,6 +415,7 @@ def purchase_return_create_view(request):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def purchase_return_edit_view(request, pk):
     pr = get_object_or_404(PurchaseReturn, pk=pk)
     if pr.status != 'DRAFT':
@@ -425,6 +439,7 @@ def purchase_return_edit_view(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def purchase_return_post_view(request, pk):
     pr = get_object_or_404(PurchaseReturn, pk=pk)
     if request.method == 'POST':
@@ -439,6 +454,7 @@ def purchase_return_post_view(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def purchase_return_cancel_view(request, pk):
     pr = get_object_or_404(PurchaseReturn, pk=pk)
     if request.method == 'POST':
@@ -452,6 +468,7 @@ def purchase_return_cancel_view(request, pk):
 
 @login_required
 @procurement_access
+@write_denied_for_viewer
 def purchase_return_delete_view(request, pk):
     pr = get_object_or_404(PurchaseReturn, pk=pk)
     if request.method == 'POST':
