@@ -134,12 +134,12 @@
           <td>{{ txn.created_by.get_short_name|default:txn.created_by.username }}</td>
           <td class="text-right">
             <a href="{% url 'cashflow_detail' txn.pk %}" class="btn btn-xs btn-outline-info"><i class="fas fa-eye"></i></a>
-            {% if txn.status == 'PENDING' or txn.status == 'REJECTED' %}
+            {% if not is_view_only %}{% if txn.status == 'PENDING' or txn.status == 'REJECTED' %}
             <a href="#" data-modal-url="{% url 'cashflow_edit' txn.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             {% if not txn.is_auto_generated %}
             <a href="#" data-modal-url="{% url 'cashflow_delete' txn.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
             {% endif %}
-            {% endif %}
+            {% endif %}{% endif %}
           </td>
         </tr>
         {% empty %}

@@ -38,8 +38,8 @@
           <td>{{ shift.cash_sales_total }}</td>
           <td>
             {% if shift.status == 'OPEN' %}
-            <a href="{% url 'pos_terminal' shift_id=shift.pk %}" class="btn btn-sm btn-primary"><i class="fas fa-cash-register"></i> Terminal</a>
-            <a href="{% url 'pos_shift_close' pk=shift.pk %}" class="btn btn-sm btn-warning"><i class="fas fa-lock"></i> Close</a>
+            {% if not is_view_only %}<a href="{% url 'pos_terminal' shift_id=shift.pk %}" class="btn btn-sm btn-primary"><i class="fas fa-cash-register"></i> Terminal</a>
+            <a href="{% url 'pos_shift_close' pk=shift.pk %}" class="btn btn-sm btn-warning"><i class="fas fa-lock"></i> Close</a>{% endif %}
             {% endif %}
             <a href="{% url 'pos_shift_summary' pk=shift.pk %}" class="btn btn-sm btn-info"><i class="fas fa-chart-bar"></i> Summary</a>
           </td>

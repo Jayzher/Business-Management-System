@@ -64,12 +64,12 @@
           <td class="text-right">{{ svc.grand_total|floatformat:2 }}</td>
           <td>
             <a href="{% url 'service_detail' svc.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
-            {% if svc.status == 'DRAFT' or svc.status == 'IN_PROGRESS' %}
+            {% if not is_view_only %}{% if svc.status == 'DRAFT' or svc.status == 'IN_PROGRESS' %}
             <a href="#" data-modal-url="{% url 'service_edit' svc.pk %}" data-modal-size="modal-xl"
                class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'service_delete' svc.pk %}"
                class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
-            {% endif %}
+            {% endif %}{% endif %}
           </td>
         </tr>
         {% empty %}

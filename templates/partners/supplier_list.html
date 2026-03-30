@@ -26,8 +26,8 @@
           <td>{{ s.city|default:"-" }}</td>
           <td>{% if s.is_active %}<span class="badge bg-success">Active</span>{% else %}<span class="badge bg-secondary">Inactive</span>{% endif %}</td>
           <td>
-            <a href="#" data-modal-url="{% url 'supplier_edit' s.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
-            <a href="#" data-modal-url="{% url 'supplier_delete' s.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'supplier_edit' s.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'supplier_delete' s.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
         {% empty %}

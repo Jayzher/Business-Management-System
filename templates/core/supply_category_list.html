@@ -18,8 +18,8 @@
           <td><strong>{{ cat.code }}</strong></td>
           <td>{{ cat.name }}</td>
           <td class="text-right">
-            <a href="#" data-modal-url="{% url 'supply_category_edit' cat.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
-            <a href="#" data-modal-url="{% url 'supply_category_delete' cat.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'supply_category_edit' cat.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'supply_category_delete' cat.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
         {% empty %}

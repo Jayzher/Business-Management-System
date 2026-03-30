@@ -730,3 +730,207 @@ def goal_delete(request, pk):
 @login_required
 def dictionary_view(request):
     return render(request, 'core/dictionary.html')
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TESTS & SYNCS  (Admin only)
+# ═══════════════════════════════════════════════════════════════════════════
+import io
+import json as _json
+from django.http import JsonResponse
+from accounts.decorators import admin_required
+
+
+# Registry of runnable actions --------------------------------------------------
+_SYNC_ACTIONS = {
+    'seed_roles': {
+        'label': 'Seed Roles',
+        'icon': 'fas fa-user-shield',
+        'color': 'primary',
+        'description': 'Create the 7 default system roles if they do not exist yet.',
+        'category': 'seed',
+        'command': 'seed_roles',
+        'args': [],
+    },
+    'seed_units': {
+        'label': 'Seed Units',
+        'icon': 'fas fa-ruler-combined',
+        'color': 'primary',
+        'description': 'Create or update standard units of measure and common conversions.',
+        'category': 'seed',
+        'command': 'seed_units',
+        'args': [],
+    },
+    'seed_data': {
+        'label': 'Seed Sample Data',
+        'icon': 'fas fa-database',
+        'color': 'secondary',
+        'description': 'Load sample categories, warehouse, partners, and items (idempotent).',
+        'category': 'seed',
+        'command': 'seed_data',
+        'args': [],
+    },
+    'backfill_selling_units': {
+        'label': 'Backfill Selling Units',
+        'icon': 'fas fa-exchange-alt',
+        'color': 'info',
+        'description': 'Set selling_unit = default_unit for items where selling_unit is blank.',
+        'category': 'sync',
+        'command': 'backfill_item_selling_units',
+        'args': [],
+    },
+    'sync_invoice_cogs': {
+        'label': 'Sync Invoice COGS',
+        'icon': 'fas fa-calculator',
+        'color': 'warning',
+        'description': 'Recompute grand_total_cogs on all Invoice records from source documents.',
+        'category': 'sync',
+        'command': 'sync_invoice_cogs',
+        'args': [],
+    },
+    'sync_payments': {
+        'label': 'Sync Payments',
+        'icon': 'fas fa-money-check-alt',
+        'color': 'warning',
+        'description': 'Backfill missing InvoicePayment records and paid_date for paid invoices.',
+        'category': 'sync',
+        'command': 'sync_payments',
+        'args': ['--cogs'],
+    },
+    'sync_pos_stock': {
+        'label': 'Sync POS Stock Moves',
+        'icon': 'fas fa-cash-register',
+        'color': 'warning',
+        'description': 'Backfill missing StockMove rows for completed POS receipts.',
+        'category': 'sync',
+        'command': 'sync_pos_stock_moves',
+        'args': [],
+    },
+    'resync_inventory': {
+        'label': 'Full Inventory Resync',
+        'icon': 'fas fa-sync-alt',
+        'color': 'danger',
+        'description': 'Phase 0-3: deduplicate moves, fix quantities, rebuild StockBalance from all posted documents, run integrity audit. This may take a while.',
+        'category': 'sync',
+        'command': 'resync_inventory',
+        'args': ['--quiet'],
+    },
+    'resync_inventory_dry': {
+        'label': 'Inventory Resync (Dry Run)',
+        'icon': 'fas fa-search',
+        'color': 'info',
+        'description': 'Preview what the full inventory resync would change without writing to the database.',
+        'category': 'test',
+        'command': 'resync_inventory',
+        'args': ['--dry-run', '--quiet'],
+    },
+    'integrity_audit': {
+        'label': 'Integrity Audit',
+        'icon': 'fas fa-stethoscope',
+        'color': 'info',
+        'description': 'Run Phase 3 only: check for negative balances, duplicate moves, unknown reference types, missing unit conversions.',
+        'category': 'test',
+        'command': 'resync_inventory',
+        'args': ['--phase', '3'],
+    },
+    'django_check': {
+        'label': 'Django System Check',
+        'icon': 'fas fa-heartbeat',
+        'color': 'success',
+        'description': 'Run Django\'s built-in system check framework to detect common problems.',
+        'category': 'test',
+        'command': 'check',
+        'args': [],
+    },
+}
+
+
+def _gather_diagnostics():
+    """Collect quick read-only stats for the dashboard cards."""
+    from accounts.models import Role, UserRole, User
+    from inventory.models import StockBalance, StockMove, MoveStatus
+    from catalog.models import Item, Unit, UnitConversion, Category
+    from warehouses.models import Warehouse, Location
+    from core.models import Invoice
+
+    total_users = User.objects.count()
+    users_with_roles = UserRole.objects.values('user').distinct().count()
+    roles = list(Role.objects.values_list('name', flat=True).order_by('name'))
+
+    items_total = Item.objects.count()
+    items_no_selling = Item.objects.filter(selling_unit__isnull=True).count()
+    units_total = Unit.objects.count()
+    conversions_total = UnitConversion.objects.count()
+    categories_total = Category.objects.count()
+
+    warehouses_total = Warehouse.objects.count()
+    locations_total = Location.objects.count()
+
+    balance_rows = StockBalance.objects.count()
+    negative_balances = StockBalance.objects.filter(qty_on_hand__lt=0).count()
+    move_total = StockMove.objects.filter(status=MoveStatus.POSTED).count()
+
+    invoices_total = Invoice.objects.count()
+    invoices_no_cogs = Invoice.objects.filter(is_paid=True, grand_total_cogs__isnull=True).count() + \
+                       Invoice.objects.filter(is_paid=True, grand_total_cogs=0).count()
+    invoices_no_payment = Invoice.objects.filter(is_paid=True).exclude(payments__isnull=False).count()
+
+    return {
+        'total_users': total_users,
+        'users_with_roles': users_with_roles,
+        'users_no_roles': total_users - users_with_roles,
+        'roles': roles,
+        'items_total': items_total,
+        'items_no_selling': items_no_selling,
+        'units_total': units_total,
+        'conversions_total': conversions_total,
+        'categories_total': categories_total,
+        'warehouses_total': warehouses_total,
+        'locations_total': locations_total,
+        'balance_rows': balance_rows,
+        'negative_balances': negative_balances,
+        'move_total': move_total,
+        'invoices_total': invoices_total,
+        'invoices_no_cogs': invoices_no_cogs,
+        'invoices_no_payment': invoices_no_payment,
+    }
+
+
+@login_required
+@admin_required
+def tests_syncs_view(request):
+    """Admin-only page: diagnostics dashboard + runnable sync/test actions."""
+    diag = _gather_diagnostics()
+    actions_by_cat = {}
+    for key, action in _SYNC_ACTIONS.items():
+        cat = action['category']
+        actions_by_cat.setdefault(cat, []).append({**action, 'key': key})
+    return render(request, 'core/tests_syncs.html', {
+        'diag': diag,
+        'seed_actions': actions_by_cat.get('seed', []),
+        'sync_actions': actions_by_cat.get('sync', []),
+        'test_actions': actions_by_cat.get('test', []),
+    })
+
+
+@login_required
+@admin_required
+def run_sync_action(request):
+    """AJAX endpoint: run a management command and return its output."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'POST required'}, status=405)
+
+    action_key = request.POST.get('action', '')
+    spec = _SYNC_ACTIONS.get(action_key)
+    if not spec:
+        return JsonResponse({'ok': False, 'error': f'Unknown action: {action_key}'}, status=400)
+
+    from django.core.management import call_command
+    buf = io.StringIO()
+    try:
+        call_command(spec['command'], *spec['args'], stdout=buf, stderr=buf)
+        output = buf.getvalue()
+        return JsonResponse({'ok': True, 'output': output})
+    except Exception as exc:
+        output = buf.getvalue()
+        return JsonResponse({'ok': False, 'output': output, 'error': str(exc)})

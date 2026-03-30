@@ -63,12 +63,12 @@
             {% endif %}
           </td>
           <td>
-            <a href="#" data-modal-url="{% url 'unit_conversion_edit' c.pk %}" class="btn btn-xs btn-warning" title="Edit">
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'unit_conversion_edit' c.pk %}" class="btn btn-xs btn-warning" title="Edit">
               <i class="fas fa-edit"></i>
             </a>
             <a href="#" data-modal-url="{% url 'unit_conversion_delete' c.pk %}" class="btn btn-xs btn-danger" title="Delete">
               <i class="fas fa-trash"></i>
-            </a>
+            </a>{% endif %}
           </td>
         </tr>
         {% empty %}
