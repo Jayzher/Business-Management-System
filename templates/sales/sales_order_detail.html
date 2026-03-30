@@ -83,73 +83,49 @@
           <td class="text-end fw-semibold text-primary">{{ line.line_total|currency }}</td>
         </tr>
         {% empty %}
+        {% if not order.price_list_lines.exists %}
         <tr><td colspan="9" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        {% endif %}
+        {% endfor %}
+        {% for bundle in order.price_list_lines.select_related %}
+        <tr style="background:#e8f0fe;">
+          <td>
+            <span class="badge bg-primary me-1" style="font-size:10px;letter-spacing:.5px;">BUNDLE</span>
+            <strong class="text-primary">{{ bundle.price_list.name }}</strong>
+            {% if bundle.discount_value %}<span class="badge bg-warning text-dark ms-1">{{ bundle.discount_value|decimal2 }}{% if bundle.discount_type == 'PERCENT' %}%{% else %} off{% endif %}</span>{% endif %}
+          </td>
+          <td class="text-end">{{ bundle.qty_multiplier|decimal2 }}</td>
+          <td class="text-end text-muted">—</td>
+          <td class="text-end text-muted">—</td>
+          <td class="text-end text-muted">—</td>
+          <td><span class="text-muted fst-italic">bundle</span></td>
+          <td class="text-end">{{ bundle.bundle_subtotal|currency }}</td>
+          <td class="text-end text-danger">{{ bundle_cogs_map|get_item:bundle.pk|currency }}</td>
+          <td class="text-end fw-semibold text-primary">{{ bundle.bundle_total|currency }}</td>
+        </tr>
         {% endfor %}
       </tbody>
-      {% if order.lines.exists %}
+      {% if order.lines.exists or order.price_list_lines.exists %}
       <tfoot class="table-light fw-bold">
+        {% if order.lines.exists %}
         <tr>
           <td colspan="7" class="text-end">Lines Subtotal</td>
           <td class="text-end text-danger">{{ so_line_cogs_total|currency }}</td>
           <td class="text-end text-primary">{{ order.line_amount_total|currency }}</td>
         </tr>
+        {% endif %}
+        {% if order.price_list_lines.exists %}
+        <tr>
+          <td colspan="7" class="text-end">Bundles Subtotal</td>
+          <td class="text-end text-danger">{{ so_bundle_cogs_total|currency }}</td>
+          <td class="text-end text-primary">{{ order.bundle_amount_total|currency }}</td>
+        </tr>
+        {% endif %}
       </tfoot>
       {% endif %}
     </table>
   </div>
 </div>
-
-{% if order.price_list_lines.exists %}
-<div class="card border-primary">
-  <div class="card-header" style="background:linear-gradient(135deg,#e8f0fe 0%,#fff 100%);border-bottom:2px solid #cfe2ff;">
-    <h3 class="card-title mb-0 text-primary"><i class="fas fa-layer-group me-2"></i>Bundle / Package Lines</h3>
-  </div>
-  {% for bundle in order.price_list_lines.select_related %}
-  <div class="card-body p-0 {% if not forloop.last %}border-bottom{% endif %}">
-    <div class="px-3 py-2 d-flex justify-content-between align-items-center" style="background:#f0f7ff;">
-      <div>
-        <strong class="text-primary"><i class="fas fa-layer-group me-1"></i>{{ bundle.price_list.name }}</strong>
-        <span class="badge bg-secondary ms-2">×{{ bundle.qty_multiplier|decimal2 }} multiplier</span>
-        {% if bundle.discount_value %}<span class="badge bg-warning text-dark ms-1">Discount: {{ bundle.discount_value|decimal2 }}{% if bundle.discount_type == 'PERCENT' %}%{% else %} fixed{% endif %}</span>{% endif %}
-      </div>
-      <div class="text-end">
-        <span class="text-muted small me-2">Subtotal: {{ bundle.bundle_subtotal|currency }}</span>
-        <strong class="text-success me-3">Total: {{ bundle.bundle_total|currency }}</strong>
-        <span class="text-danger small">COGS: {{ bundle_cogs_map|get_item:bundle.pk|currency }}</span>
-      </div>
-    </div>
-    <div class="table-responsive">
-      <table class="table table-sm table-hover mb-0">
-        <thead class="table-light">
-          <tr>
-            <th>Item</th>
-            <th class="text-end">Qty (× multiplier)</th>
-            <th>Unit</th>
-            <th class="text-end">Bundle Price</th>
-            <th class="text-end text-danger">COGS</th>
-            <th class="text-end">Line Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for pli in bundle.price_list.items.all %}
-          <tr>
-            <td>{% include "theme/partials/item_cell.html" with item=pli.item %}</td>
-            <td class="text-end">{{ pli.min_qty|decimal2 }} × {{ bundle.qty_multiplier|decimal2 }}</td>
-            <td>{{ pli.unit.abbreviation }}</td>
-            <td class="text-end text-success fw-semibold">{{ pli.price|currency }}</td>
-            <td class="text-end text-danger">{{ pli.item.cost_price|currency }}</td>
-            <td class="text-end text-primary fw-semibold">{{ pli.price|currency }}</td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="6" class="text-center text-muted py-2">No items in this bundle.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
 
 <!-- ═══ Grand Total Summary Card ═══ -->
 <div class="row justify-content-end mt-2">

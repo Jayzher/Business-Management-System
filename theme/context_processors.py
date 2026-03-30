@@ -1,3 +1,14 @@
+def user_role_flags(request):
+    """Expose role flags to all templates."""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return {'is_view_only': False}
+    if user.is_superuser:
+        return {'is_view_only': False}
+    from accounts.decorators import _user_is_view_only
+    return {'is_view_only': _user_is_view_only(user)}
+
+
 def sidebar_menu(request):
     """Provide sidebar menu items to all templates."""
     menu = [

@@ -268,20 +268,17 @@ def auto_create_invoice_from_so(so, user):
             line_total=line.line_total,
         )
 
-    for bundle in so.price_list_lines.select_related('price_list').prefetch_related(
-        'price_list__items__item', 'price_list__items__unit'
-    ).all():
-        for pli in bundle.price_list.items.select_related('item', 'unit').all():
-            qty = pli.min_qty * bundle.qty_multiplier
-            InvoiceLine.objects.create(
-                invoice=inv,
-                item_code=pli.item.code,
-                item_name=f'[Bundle: {bundle.price_list.name}] {pli.item.name}',
-                qty=qty,
-                unit=pli.unit.abbreviation,
-                unit_price=pli.price,
-                line_total=pli.price * qty,
-            )
+    for bundle in so.price_list_lines.select_related('price_list').all():
+        InvoiceLine.objects.create(
+            invoice=inv,
+            item_code='BUNDLE',
+            item_name=bundle.price_list.name,
+            qty=bundle.qty_multiplier,
+            unit='bundle',
+            unit_price=bundle.bundle_subtotal,
+            discount=bundle.bundle_discount_amount if hasattr(bundle, 'bundle_discount_amount') else Decimal('0'),
+            line_total=bundle.bundle_total,
+        )
 
     return inv
 
@@ -331,20 +328,17 @@ def auto_create_invoice_from_pickup(pickup, user):
                 unit_price=line.unit_price,
                 line_total=line.line_total,
             )
-        for bundle in so.price_list_lines.select_related('price_list').prefetch_related(
-            'price_list__items__item', 'price_list__items__unit'
-        ).all():
-            for pli in bundle.price_list.items.select_related('item', 'unit').all():
-                qty = pli.min_qty * bundle.qty_multiplier
-                InvoiceLine.objects.create(
-                    invoice=inv,
-                    item_code=pli.item.code,
-                    item_name=f'[Bundle: {bundle.price_list.name}] {pli.item.name}',
-                    qty=qty,
-                    unit=pli.unit.abbreviation,
-                    unit_price=pli.price,
-                    line_total=pli.price * qty,
-                )
+        for bundle in so.price_list_lines.select_related('price_list').all():
+            InvoiceLine.objects.create(
+                invoice=inv,
+                item_code='BUNDLE',
+                item_name=bundle.price_list.name,
+                qty=bundle.qty_multiplier,
+                unit='bundle',
+                unit_price=bundle.bundle_subtotal,
+                discount=bundle.bundle_discount_amount if hasattr(bundle, 'bundle_discount_amount') else Decimal('0'),
+                line_total=bundle.bundle_total,
+            )
     else:
         # No SO linked — create basic invoice from pickup lines
         inv = Invoice.objects.create(
@@ -418,20 +412,17 @@ def auto_create_invoice_from_delivery(delivery, user):
                 unit_price=line.unit_price,
                 line_total=line.line_total,
             )
-        for bundle in so.price_list_lines.select_related('price_list').prefetch_related(
-            'price_list__items__item', 'price_list__items__unit'
-        ).all():
-            for pli in bundle.price_list.items.select_related('item', 'unit').all():
-                qty = pli.min_qty * bundle.qty_multiplier
-                InvoiceLine.objects.create(
-                    invoice=inv,
-                    item_code=pli.item.code,
-                    item_name=f'[Bundle: {bundle.price_list.name}] {pli.item.name}',
-                    qty=qty,
-                    unit=pli.unit.abbreviation,
-                    unit_price=pli.price,
-                    line_total=pli.price * qty,
-                )
+        for bundle in so.price_list_lines.select_related('price_list').all():
+            InvoiceLine.objects.create(
+                invoice=inv,
+                item_code='BUNDLE',
+                item_name=bundle.price_list.name,
+                qty=bundle.qty_multiplier,
+                unit='bundle',
+                unit_price=bundle.bundle_subtotal,
+                discount=bundle.bundle_discount_amount if hasattr(bundle, 'bundle_discount_amount') else Decimal('0'),
+                line_total=bundle.bundle_total,
+            )
     else:
         # No SO linked — create basic invoice from delivery lines
         inv = Invoice.objects.create(

@@ -59,6 +59,18 @@
     </thead>
     <tbody>
       {% for line in invoice.lines.all %}
+      {% if line.unit == 'bundle' %}
+      <tr style="background:#dbeeff;">
+        <td>{{ forloop.counter }}</td>
+        <td><strong>BUNDLE</strong></td>
+        <td><strong>{{ line.item_name }}</strong></td>
+        <td class="text-right">{{ line.qty|floatformat:2 }}</td>
+        <td>{{ line.unit }}</td>
+        <td class="text-right">{{ line.unit_price|floatformat:2|intcomma }}</td>
+        <td class="text-right">{{ line.discount|floatformat:2|intcomma }}</td>
+        <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
+      </tr>
+      {% else %}
       <tr>
         <td>{{ forloop.counter }}</td>
         <td>{{ line.item_code }}</td>
@@ -69,6 +81,7 @@
         <td class="text-right">{{ line.discount|floatformat:2|intcomma }}</td>
         <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
       </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>

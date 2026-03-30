@@ -324,6 +324,16 @@ def invoice_from_so(request, so_id):
             unit_price=line.unit_price,
             line_total=line.line_total,
         )
+    for bundle in so.price_list_lines.select_related('price_list').all():
+        InvoiceLine.objects.create(
+            invoice=inv,
+            item_code='BUNDLE',
+            item_name=bundle.price_list.name,
+            qty=bundle.qty_multiplier,
+            unit='bundle',
+            unit_price=bundle.bundle_subtotal,
+            line_total=bundle.bundle_total,
+        )
     messages.success(request, f'Invoice {inv.invoice_number} generated.')
     return redirect('invoice_detail', pk=inv.pk)
 
