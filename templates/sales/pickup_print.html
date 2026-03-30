@@ -27,7 +27,7 @@
     <tr><th>#</th><th>Item Code</th><th>Description</th><th>Location</th><th class="text-right">Qty</th><th>Unit</th></tr>
   </thead>
   <tbody>
-    {% for line in doc.lines.all %}
+    {% for line in regular_lines %}
     <tr>
       <td>{{ forloop.counter }}</td>
       <td>{{ line.item.code }}</td>
@@ -35,6 +35,16 @@
       <td>{{ line.location }}</td>
       <td class="text-right">{{ line.qty|decimal2 }}</td>
       <td>{{ line.unit.abbreviation }}</td>
+    </tr>
+    {% endfor %}
+    {% for bundle in bundles %}
+    <tr style="background:#f3e8ff;">
+      <td>{{ regular_lines|length|add:forloop.counter }}</td>
+      <td><i class="fas fa-layer-group" style="color:#6f42c1;"></i> BUNDLE</td>
+      <td><strong>{{ bundle.name }}</strong></td>
+      <td>—</td>
+      <td class="text-right">{{ bundle.qty|decimal2 }}</td>
+      <td>set</td>
     </tr>
     {% endfor %}
   </tbody>

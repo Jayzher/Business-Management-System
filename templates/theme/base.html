@@ -278,7 +278,9 @@ $(function(){
 /* ── Select2 Auto-init ───────────────────────────────────────────────── */
 function wisInitSelect2(container) {
   container = container || document;
-  $(container).find('select').not('.no-select2').each(function() {
+  $(container).find('select').not('.no-select2').filter(function() {
+    return !$(this).closest('.dataTables_wrapper').length;
+  }).each(function() {
     if ($(this).hasClass('select2-hidden-accessible')) return;
     var $select = $(this);
     var parentModal = $select.closest('.modal');

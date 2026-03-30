@@ -523,6 +523,33 @@ def delivery_delete_view(request, pk):
     return render(request, 'sales/delivery_delete.html', {'object': dn})
 
 
+def _split_pickup_lines(pickup):
+    """Separate pickup lines into regular lines and bundle summaries."""
+    all_lines = list(pickup.lines.all())
+    regular_lines = [l for l in all_lines if not l.notes.startswith('From bundle ')]
+    # Build bundle summaries from the SO's price_list_lines if available
+    bundles = []
+    if pickup.sales_order:
+        for bl in pickup.sales_order.price_list_lines.select_related('price_list').all():
+            bundles.append({
+                'name': bl.price_list.name,
+                'qty': bl.qty_multiplier,
+            })
+    else:
+        # No SO — group by bundle name from notes
+        from collections import OrderedDict
+        seen = OrderedDict()
+        for l in all_lines:
+            if l.notes.startswith('From bundle '):
+                bname = l.notes[len('From bundle '):]
+                if bname not in seen:
+                    seen[bname] = {'name': bname, 'qty': l.qty}
+                else:
+                    seen[bname]['qty'] += l.qty
+        bundles = list(seen.values())
+    return regular_lines, bundles
+
+
 @login_required
 @sales_access
 def pickup_list_view(request):
@@ -539,7 +566,10 @@ def pickup_detail_view(request, pk):
         SalesPickup.objects.select_related('sales_order', 'customer', 'warehouse', 'created_by', 'posted_by')
         .prefetch_related('lines__item', 'lines__unit', 'lines__location'), pk=pk
     )
-    return render(request, 'sales/pickup_detail.html', {'pickup': pickup})
+    regular_lines, bundles = _split_pickup_lines(pickup)
+    return render(request, 'sales/pickup_detail.html', {
+        'pickup': pickup, 'regular_lines': regular_lines, 'bundles': bundles,
+    })
 
 
 @login_required
@@ -686,8 +716,10 @@ def pickup_print_view(request, pk):
         .prefetch_related('lines__item', 'lines__unit', 'lines__location'), pk=pk
     )
     profile = BusinessProfile.get_instance()
+    regular_lines, bundles = _split_pickup_lines(pickup)
     return render(request, 'sales/pickup_print.html', {
         'doc': pickup, 'doc_title': 'PICKUP', 'doc_number': pickup.document_number, 'profile': profile,
+        'regular_lines': regular_lines, 'bundles': bundles,
     })
 
 
