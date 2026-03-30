@@ -23,8 +23,8 @@
           <td>{{ u.name }}</td>
           <td>{{ u.abbreviation }}</td>
           <td>
-            <a href="#" data-modal-url="{% url 'unit_edit' u.pk %}" class="btn btn-xs btn-warning"><i class="fas fa-edit"></i></a>
-            <a href="#" data-modal-url="{% url 'unit_delete' u.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'unit_edit' u.pk %}" class="btn btn-xs btn-warning"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'unit_delete' u.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
         {% empty %}

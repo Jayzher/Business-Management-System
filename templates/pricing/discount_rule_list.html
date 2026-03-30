@@ -48,8 +48,8 @@
             {% endif %}
           </td>
           <td>
-            <a href="#" data-modal-url="{% url 'discount_rule_edit' rule.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
-            <a href="#" data-modal-url="{% url 'discount_rule_delete' rule.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'discount_rule_edit' rule.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'discount_rule_delete' rule.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
         {% empty %}

@@ -31,12 +31,9 @@
           <small>{{ request.user.email|default:request.user.username }}</small>
         </span>
         <div class="dropdown-divider"></div>
-        <form method="post" action="{% url 'logout' %}" id="navbar-logout-form">
-          {% csrf_token %}
-          <button type="submit" class="dropdown-item">
-            <i class="fas fa-sign-out-alt mr-2"></i> Logout
-          </button>
-        </form>
+        <a href="#" class="dropdown-item" id="navbar-logout-btn">
+          <i class="fas fa-sign-out-alt mr-2"></i> Logout
+        </a>
       </div>
     </li>
     <li class="nav-item">
@@ -46,4 +43,14 @@
     </li>
   </ul>
 </nav>
+<!-- Hidden logout form placed outside the navbar to avoid nesting inside page forms -->
+<form method="post" action="{% url 'logout' %}" id="navbar-logout-form" style="display:none;">
+  {% csrf_token %}
+</form>
+<script>
+document.getElementById('navbar-logout-btn').addEventListener('click', function(e) {
+  e.preventDefault();
+  document.getElementById('navbar-logout-form').submit();
+});
+</script>
 <!-- /.navbar -->

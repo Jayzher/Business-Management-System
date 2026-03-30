@@ -25,8 +25,8 @@
           <td>{{ wh.locations.count }}</td>
           <td>
             <a href="{% url 'warehouse_detail' wh.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
-            <a href="#" data-modal-url="{% url 'warehouse_edit' wh.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
-            <a href="#" data-modal-url="{% url 'warehouse_delete' wh.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'warehouse_edit' wh.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'warehouse_delete' wh.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
         {% empty %}

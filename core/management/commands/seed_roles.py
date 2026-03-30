@@ -16,6 +16,10 @@ DEFAULT_ROLES = [
         'description': 'Can approve/post documents, view reports, manage catalog and partners. Cannot manage users or system settings.',
     },
     {
+        'name': 'Manager (View Only)',
+        'description': 'Can view all modules but cannot create, edit, delete, or post any records. Read-only access across the system.',
+    },
+    {
         'name': 'Procurement Officer',
         'description': 'Can create/edit purchase orders and goods receipts. Can approve POs. Can view catalog and partners.',
     },

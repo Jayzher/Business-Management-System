@@ -41,10 +41,10 @@
             {% endif %}
           </td>
           <td>
-            <a href="#" data-modal-url="{% url 'customer_catalog_edit' cat.pk %}" data-modal-size="modal-xl"
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'customer_catalog_edit' cat.pk %}" data-modal-size="modal-xl"
                class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'customer_catalog_delete' cat.pk %}"
-               class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></a>
+               class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
         {% empty %}

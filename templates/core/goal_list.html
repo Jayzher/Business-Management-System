@@ -77,8 +77,8 @@
             {% if goal.assigned_to %}<span class="text-muted"> | {{ goal.assigned_to.get_short_name|default:goal.assigned_to.username }}</span>{% endif %}
           </small>
           <span>
-            <a href="#" data-modal-url="{% url 'goal_edit' goal.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
-            <a href="#" data-modal-url="{% url 'goal_delete' goal.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'goal_edit' goal.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'goal_delete' goal.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </span>
         </div>
       </div>

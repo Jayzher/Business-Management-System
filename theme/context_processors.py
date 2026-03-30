@@ -1,16 +1,56 @@
 def user_role_flags(request):
-    """Expose role flags to all templates."""
+    """Expose role flags and role set to all templates."""
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
-        return {'is_view_only': False}
+        return {'is_view_only': False, 'user_roles': set()}
     if user.is_superuser:
-        return {'is_view_only': False}
+        return {'is_view_only': False, 'user_roles': {'Admin'}}
     from accounts.decorators import _user_is_view_only
-    return {'is_view_only': _user_is_view_only(user)}
+    roles = set(user.user_roles.values_list('role__name', flat=True))
+    return {
+        'is_view_only': _user_is_view_only(user),
+        'user_roles': roles,
+    }
+
+
+_ALL = None  # sentinel: every role can see this item
+
+# Role → sidebar module access map.  _ALL means every authenticated user.
+# The set values must match accounts.Role.name exactly.
+_ADMIN_MANAGER = {'Admin', 'Manager', 'Manager (View Only)'}
+_ROLE_MAP = {
+    'Dashboard':   _ALL,
+    'Catalog':     _ALL,
+    'Partners':    {*_ADMIN_MANAGER, 'Procurement Officer', 'Sales Officer'},
+    'Warehouses':  {*_ADMIN_MANAGER, 'Procurement Officer', 'Warehouse Staff'},
+    'Procurement': {*_ADMIN_MANAGER, 'Procurement Officer'},
+    'Sales':       {*_ADMIN_MANAGER, 'Sales Officer'},
+    'Expenses':    _ADMIN_MANAGER,
+    'Supplies':    {*_ADMIN_MANAGER, 'Warehouse Staff'},
+    'Cash Flow':   _ADMIN_MANAGER,
+    'Services':    {*_ADMIN_MANAGER, 'Sales Officer'},
+    'Inventory':   {*_ADMIN_MANAGER, 'Procurement Officer', 'Warehouse Staff'},
+    'POS':         {*_ADMIN_MANAGER, 'POS Cashier', 'Sales Officer'},
+    'Pricing':     {*_ADMIN_MANAGER, 'Sales Officer'},
+    'QR Codes':    {*_ADMIN_MANAGER, 'Warehouse Staff'},
+    'Reports':     {*_ADMIN_MANAGER, 'Sales Officer', 'Procurement Officer'},
+    'Target Goals': _ADMIN_MANAGER,
+    'Dictionary':  _ALL,
+    'Settings':    {'Admin'},
+}
 
 
 def sidebar_menu(request):
-    """Provide sidebar menu items to all templates."""
+    """Provide sidebar menu items to all templates, filtered by user role."""
+    user = getattr(request, 'user', None)
+    if user and user.is_authenticated:
+        if user.is_superuser:
+            user_roles = {'Admin'}
+        else:
+            user_roles = set(user.user_roles.values_list('role__name', flat=True))
+    else:
+        user_roles = set()
+
     menu = [
         {
             'label': 'Dashboard',
@@ -45,7 +85,7 @@ def sidebar_menu(request):
             'tour_id': 'nav-warehouses',
             'children': [
                 {'label': 'Warehouses', 'url': '/warehouses/', 'active_prefix': '/warehouses', 'icon': 'fas fa-warehouse'},
-                {'label': 'Locations', 'url': '/warehouses/locations/', 'active_prefix': '/warehouses/locations', 'icon': 'fas fa-location-dot'},
+                {'label': 'Locations', 'url': '/warehouses/locations/', 'active_prefix': '/warehouses/locations', 'icon': 'fas fa-map-marker-alt'},
             ],
         },
         {
@@ -64,7 +104,7 @@ def sidebar_menu(request):
             'tour_id': 'nav-sales',
             'children': [
                 {'label': 'Sales Orders', 'url': '/sales/orders/', 'active_prefix': '/sales/orders', 'icon': 'fas fa-file-invoice'},
-                {'label': 'Deliveries', 'url': '/sales/deliveries/', 'active_prefix': '/sales/deliveries', 'icon': 'fas fa-truck-fast'},
+                {'label': 'Deliveries', 'url': '/sales/deliveries/', 'active_prefix': '/sales/deliveries', 'icon': 'fas fa-shipping-fast'},
                 {'label': 'Pickups', 'url': '/sales/pickups/', 'active_prefix': '/sales/pickups', 'icon': 'fas fa-shopping-basket'},
                 {'label': 'Sales Returns', 'url': '/sales/returns/', 'active_prefix': '/sales/returns', 'icon': 'fas fa-undo'},
                 {'label': 'Invoices', 'url': '/core/invoices/', 'active_prefix': '/core/invoices', 'icon': 'fas fa-file-invoice-dollar'},
@@ -76,7 +116,7 @@ def sidebar_menu(request):
             'icon': 'fas fa-receipt',
             'tour_id': 'nav-expenses',
             'children': [
-                {'label': 'Expense Listing', 'url': '/core/expenses/', 'active_prefix': '/core/expenses', 'icon': 'fas fa-clipboard-list-check'},
+                {'label': 'Expense Listing', 'url': '/core/expenses/', 'active_prefix': '/core/expenses', 'icon': 'fas fa-list-alt'},
                 {'label': 'Expense Categories', 'url': '/core/expense-categories/', 'active_prefix': '/core/expense-categories', 'icon': 'fas fa-layer-group'},
             ],
         },
@@ -86,7 +126,7 @@ def sidebar_menu(request):
             'tour_id': 'nav-supplies',
             'children': [
                 {'label': 'Supply Items', 'url': '/core/supplies/', 'active_prefix': '/core/supplies', 'icon': 'fas fa-box-open'},
-                {'label': 'Movements', 'url': '/core/supply-movements/', 'active_prefix': '/core/supply-movements', 'icon': 'fas fa-right-left'},
+                {'label': 'Movements', 'url': '/core/supply-movements/', 'active_prefix': '/core/supply-movements', 'icon': 'fas fa-exchange-alt'},
                 {'label': 'Supply Categories', 'url': '/core/supply-categories/', 'active_prefix': '/core/supply-categories', 'icon': 'fas fa-tags'},
             ],
         },
@@ -114,11 +154,11 @@ def sidebar_menu(request):
             'tour_id': 'nav-inventory',
             'children': [
                 {'label': 'Item Inventory', 'url': '/inventory/inventory/', 'active_prefix': '/inventory/inventory', 'icon': 'fas fa-boxes'},
-                {'label': 'Stock Movements', 'url': '/inventory/moves/', 'active_prefix': '/inventory/moves', 'icon': 'fas fa-arrows-rotate'},
-                {'label': 'Transfers', 'url': '/inventory/transfers/', 'active_prefix': '/inventory/transfers', 'icon': 'fas fa-right-left'},
+                {'label': 'Stock Movements', 'url': '/inventory/moves/', 'active_prefix': '/inventory/moves', 'icon': 'fas fa-sync-alt'},
+                {'label': 'Transfers', 'url': '/inventory/transfers/', 'active_prefix': '/inventory/transfers', 'icon': 'fas fa-random'},
                 {'label': 'Adjustments', 'url': '/inventory/adjustments/', 'active_prefix': '/inventory/adjustments', 'icon': 'fas fa-sliders-h'},
                 {'label': 'Damaged Stock', 'url': '/inventory/damaged/', 'active_prefix': '/inventory/damaged', 'icon': 'fas fa-ban'},
-                {'label': 'Inv → Supply', 'url': '/inventory/supply-transfers/', 'active_prefix': '/inventory/supply-transfers', 'icon': 'fas fa-arrow-right-to-bracket'},
+                {'label': 'Inv → Supply', 'url': '/inventory/supply-transfers/', 'active_prefix': '/inventory/supply-transfers', 'icon': 'fas fa-sign-in-alt'},
             ],
         },
         {
@@ -127,7 +167,7 @@ def sidebar_menu(request):
             'tour_id': 'nav-pos',
             'children': [
                 {'label': 'Registers', 'url': '/pos/registers/', 'active_prefix': '/pos/registers', 'icon': 'fas fa-cash-register'},
-                {'label': 'Shifts', 'url': '/pos/shifts/', 'active_prefix': '/pos/shifts', 'icon': 'fas fa-clock-rotate-left'},
+                {'label': 'Shifts', 'url': '/pos/shifts/', 'active_prefix': '/pos/shifts', 'icon': 'fas fa-history'},
                 {'label': 'Receipts', 'url': '/pos/receipts/', 'active_prefix': '/pos/receipts', 'icon': 'fas fa-receipt'},
             ],
         },
@@ -161,8 +201,8 @@ def sidebar_menu(request):
                 {'label': 'Expense Report', 'url': '/reports/expenses/', 'active_prefix': '/reports/expenses', 'icon': 'fas fa-wallet'},
                 {'label': 'Financial Statement', 'url': '/reports/financial-statement/', 'active_prefix': '/reports/financial-statement', 'icon': 'fas fa-file-invoice-dollar'},
                 {'label': 'Profit Margin', 'url': '/reports/profit-margin/', 'active_prefix': '/reports/profit-margin', 'icon': 'fas fa-chart-area'},
-                {'label': 'Stock On Hand', 'url': '/reports/stock-on-hand/', 'active_prefix': '/reports/stock-on-hand', 'icon': 'fas fa-boxes-stacked'},
-                {'label': 'Low Stock', 'url': '/reports/low-stock/', 'active_prefix': '/reports/low-stock', 'icon': 'fas fa-triangle-exclamation'},
+                {'label': 'Stock On Hand', 'url': '/reports/stock-on-hand/', 'active_prefix': '/reports/stock-on-hand', 'icon': 'fas fa-boxes'},
+                {'label': 'Low Stock', 'url': '/reports/low-stock/', 'active_prefix': '/reports/low-stock', 'icon': 'fas fa-exclamation-triangle'},
                 {'label': 'Stock Aging', 'url': '/reports/stock-aging/', 'active_prefix': '/reports/stock-aging', 'icon': 'fas fa-clock'},
             ],
         },
@@ -183,13 +223,24 @@ def sidebar_menu(request):
         {
             'label': 'Settings',
             'icon': 'fas fa-cog',
-            'url': '/core/settings/',
-            'active_prefix': '/core/settings',
             'tour_id': 'nav-settings',
+            'children': [
+                {'label': 'Business Profile', 'url': '/core/settings/', 'active_prefix': '/core/settings/', 'icon': 'fas fa-building'},
+                {'label': 'Tests & Syncs', 'url': '/core/settings/tests-syncs/', 'active_prefix': '/core/settings/tests-syncs', 'icon': 'fas fa-vial'},
+            ],
         },
     ]
 
-    # Mark active items 
+    # ── Filter menu by user role ────────────────────────────────────────
+    if user_roles:
+        filtered = []
+        for item in menu:
+            allowed = _ROLE_MAP.get(item['label'], _ALL)
+            if allowed is _ALL or user_roles & allowed:
+                filtered.append(item)
+        menu = filtered
+
+    # Mark active items
     path = request.path if hasattr(request, 'path') else ''
     for item in menu:
         if 'children' in item:

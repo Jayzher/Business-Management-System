@@ -15,6 +15,7 @@
       </div>
       <div class="info">
         <a href="#" class="d-block text-light">{{ request.user.get_full_name|default:request.user.username }}</a>
+        {% if user_roles %}<small class="d-block text-muted" style="font-size:.72rem;margin-top:2px;">{% for r in user_roles %}{{ r }}{% if not forloop.last %}, {% endif %}{% endfor %}</small>{% endif %}
       </div>
     </div>
 
@@ -32,7 +33,7 @@
               {% for child in item.children %}
               <li class="nav-item">
                 <a href="{{ child.url }}" class="nav-link{% if child.is_active %} active{% endif %}">
-                  <i class="nav-icon child-icon {{ child.icon|default:'far fa-circle' }}"></i>
+                  <i class="nav-icon child-icon {{ child.icon|default:'fas fa-circle' }}"></i>
                   <p class="child-label">{{ child.label }}</p>
                 </a>
               </li>

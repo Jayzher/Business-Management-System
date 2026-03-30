@@ -5,6 +5,8 @@ from core import import_views
 urlpatterns = [
     # Settings
     path('settings/', views.settings_view, name='settings'),
+    path('settings/tests-syncs/', views.tests_syncs_view, name='tests_syncs'),
+    path('settings/tests-syncs/run/', views.run_sync_action, name='run_sync_action'),
 
     # Sales Channels
     path('channels/', views.channel_list, name='channel_list'),

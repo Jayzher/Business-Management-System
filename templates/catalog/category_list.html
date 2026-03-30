@@ -24,8 +24,8 @@
           <td>{{ cat.name }}</td>
           <td>{{ cat.parent.name|default:"-" }}</td>
           <td>
-            <a href="#" data-modal-url="{% url 'category_edit' cat.pk %}" class="btn btn-xs btn-warning"><i class="fas fa-edit"></i></a>
-            <a href="#" data-modal-url="{% url 'category_delete' cat.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'category_edit' cat.pk %}" class="btn btn-xs btn-warning"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'category_delete' cat.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
         {% empty %}
