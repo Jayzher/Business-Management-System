@@ -61,6 +61,9 @@ def login_view(request):
     return render(request, 'accounts/login.html')
 
 
+from django.views.decorators.http import require_POST
+
+@require_POST
 def logout_view(request):
     logout(request)
     return redirect('login')

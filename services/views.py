@@ -7,8 +7,8 @@ from django.db.models import Prefetch
 from django.utils import timezone
 
 from services.models import CustomerService, ServiceLine, ServiceOtherMaterial, ServiceBundle, ServiceStatus, ServicePaymentStatus
-from services.forms import (
 from accounts.decorators import write_denied_for_viewer
+from services.forms import (
     CustomerServiceForm, CustomerServiceEditForm,
     ServiceLineFormSet, ServiceOtherMaterialFormSet, ServiceBundleFormSet,
 )
