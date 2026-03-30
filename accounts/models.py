@@ -16,7 +16,7 @@ class User(AbstractUser):
 
 
 class Role(TimeStampedModel):
-    """Application-level roles (Admin, Warehouse Manager, Encoder, Checker, Viewer)."""
+    """Application-level roles (Admin, Manager, Manager (View Only), Procurement Officer, Sales Officer, Warehouse Staff, POS Cashier)."""
     name = models.CharField(max_length=50, unique=True)
     description = models.TextField(blank=True, default='')
 

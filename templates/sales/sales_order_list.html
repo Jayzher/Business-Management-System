@@ -36,8 +36,8 @@
           <td>{{ order.created_by.get_full_name|default:order.created_by.username }}</td>
           <td>
             <a href="{% url 'sales_order_detail' order.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
-            {% if order.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'sales_order_edit' order.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>{% endif %}
-            <a href="#" data-modal-url="{% url 'sales_order_delete' order.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+            {% if not is_view_only %}{% if order.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'sales_order_edit' order.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>{% endif %}
+            <a href="#" data-modal-url="{% url 'sales_order_delete' order.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
         {% empty %}

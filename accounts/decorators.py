@@ -90,6 +90,21 @@ def pos_access(view_func):
     return role_required('Admin', 'Manager', 'Manager (View Only)', 'POS Cashier')(view_func)
 
 
+def services_access(view_func):
+    """Admin, Manager, or Sales Officer."""
+    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Sales Officer')(view_func)
+
+
+def reports_access(view_func):
+    """Admin, Manager, Sales Officer, or Procurement Officer."""
+    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Sales Officer', 'Procurement Officer')(view_func)
+
+
+def cashflow_access(view_func):
+    """Admin or Manager only."""
+    return role_required('Admin', 'Manager', 'Manager (View Only)')(view_func)
+
+
 # ── DRF Permission class ─────────────────────────────────────────────────
 
 from rest_framework.permissions import BasePermission

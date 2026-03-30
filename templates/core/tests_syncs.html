@@ -1,0 +1,280 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+{% block title %}Tests & Syncs{% endblock %}
+{% block page_title %}Tests & Syncs{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'settings' %}">Settings</a></li>
+<li class="breadcrumb-item active">Tests & Syncs</li>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .ts-card { border:none; box-shadow:0 0 12px rgba(0,0,0,.06); border-radius:10px; overflow:hidden; transition:transform .15s; }
+  .ts-card:hover { transform:translateY(-2px); box-shadow:0 4px 18px rgba(0,0,0,.1); }
+  .ts-card .card-header { padding:.6rem 1rem; border-bottom:2px solid #e9ecef; }
+  .ts-card .card-header .card-title { font-size:.88rem; font-weight:700; margin:0; }
+  .ts-stat { text-align:center; padding:.6rem .4rem; }
+  .ts-stat .ts-num { font-size:1.5rem; font-weight:800; line-height:1.1; }
+  .ts-stat .ts-label { font-size:.72rem; color:#6c757d; text-transform:uppercase; letter-spacing:.4px; margin-top:2px; }
+  .ts-action-card { border:none; border-radius:10px; box-shadow:0 1px 8px rgba(0,0,0,.06); transition:all .15s; }
+  .ts-action-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.12); transform:translateY(-1px); }
+  .ts-action-card .card-body { padding:.8rem 1rem; }
+  .ts-action-card .ts-action-title { font-size:.9rem; font-weight:700; }
+  .ts-action-card .ts-action-desc { font-size:.78rem; color:#6c757d; margin:.3rem 0 .5rem; }
+  .ts-action-icon { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:.95rem; flex-shrink:0; }
+  .ts-output-box { display:none; margin-top:.6rem; background:#1e1e2e; color:#cdd6f4; border-radius:8px; padding:.6rem .8rem; font-family:'Fira Code','Courier New',monospace; font-size:.72rem; line-height:1.5; max-height:300px; overflow-y:auto; white-space:pre-wrap; word-break:break-word; }
+  .ts-output-box.show { display:block; }
+  .ts-section-title { font-size:.82rem; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:#6c757d; margin-bottom:.6rem; padding-bottom:.3rem; border-bottom:2px solid #e9ecef; }
+  .ts-badge-ok { background:#d1fae5; color:#065f46; }
+  .ts-badge-warn { background:#fef3c7; color:#92400e; }
+  .ts-badge-err { background:#fee2e2; color:#991b1b; }
+  .spinner-border-sm { width:1rem; height:1rem; border-width:.15em; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- ── Diagnostics Row ──────────────────────────────────────────────────── -->
+<div class="row mb-3">
+  <div class="col-lg-3 col-sm-6 mb-3">
+    <div class="card ts-card h-100">
+      <div class="card-header bg-white"><h3 class="card-title"><i class="fas fa-users me-2 text-primary"></i>Users & Roles</h3></div>
+      <div class="card-body p-2">
+        <div class="row text-center">
+          <div class="col-4 ts-stat">
+            <div class="ts-num text-primary">{{ diag.total_users }}</div>
+            <div class="ts-label">Users</div>
+          </div>
+          <div class="col-4 ts-stat">
+            <div class="ts-num text-success">{{ diag.users_with_roles }}</div>
+            <div class="ts-label">With Role</div>
+          </div>
+          <div class="col-4 ts-stat">
+            <div class="ts-num {% if diag.users_no_roles > 0 %}text-warning{% else %}text-muted{% endif %}">{{ diag.users_no_roles }}</div>
+            <div class="ts-label">No Role</div>
+          </div>
+        </div>
+        <div class="px-2 pb-1">
+          <small class="text-muted">Roles: </small>
+          {% for r in diag.roles %}<span class="badge bg-light text-dark me-1 mb-1" style="font-size:.7rem;">{{ r }}</span>{% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-3 col-sm-6 mb-3">
+    <div class="card ts-card h-100">
+      <div class="card-header bg-white"><h3 class="card-title"><i class="fas fa-box me-2 text-info"></i>Catalog</h3></div>
+      <div class="card-body p-2">
+        <div class="row text-center">
+          <div class="col-3 ts-stat">
+            <div class="ts-num text-info">{{ diag.items_total }}</div>
+            <div class="ts-label">Items</div>
+          </div>
+          <div class="col-3 ts-stat">
+            <div class="ts-num text-secondary">{{ diag.categories_total }}</div>
+            <div class="ts-label">Cats</div>
+          </div>
+          <div class="col-3 ts-stat">
+            <div class="ts-num text-secondary">{{ diag.units_total }}</div>
+            <div class="ts-label">Units</div>
+          </div>
+          <div class="col-3 ts-stat">
+            <div class="ts-num text-secondary">{{ diag.conversions_total }}</div>
+            <div class="ts-label">Convs</div>
+          </div>
+        </div>
+        <div class="px-2 pb-1">
+          {% if diag.items_no_selling > 0 %}
+            <span class="badge ts-badge-warn"><i class="fas fa-exclamation-triangle me-1"></i>{{ diag.items_no_selling }} items missing selling_unit</span>
+          {% else %}
+            <span class="badge ts-badge-ok"><i class="fas fa-check me-1"></i>All items have selling_unit</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-3 col-sm-6 mb-3">
+    <div class="card ts-card h-100">
+      <div class="card-header bg-white"><h3 class="card-title"><i class="fas fa-warehouse me-2 text-success"></i>Inventory</h3></div>
+      <div class="card-body p-2">
+        <div class="row text-center">
+          <div class="col-4 ts-stat">
+            <div class="ts-num text-success">{{ diag.balance_rows }}</div>
+            <div class="ts-label">Balances</div>
+          </div>
+          <div class="col-4 ts-stat">
+            <div class="ts-num text-secondary">{{ diag.move_total }}</div>
+            <div class="ts-label">Moves</div>
+          </div>
+          <div class="col-4 ts-stat">
+            <div class="ts-num {% if diag.negative_balances > 0 %}text-danger{% else %}text-muted{% endif %}">{{ diag.negative_balances }}</div>
+            <div class="ts-label">Negative</div>
+          </div>
+        </div>
+        <div class="px-2 pb-1">
+          {% if diag.negative_balances > 0 %}
+            <span class="badge ts-badge-err"><i class="fas fa-exclamation-circle me-1"></i>{{ diag.negative_balances }} negative balance(s)</span>
+          {% else %}
+            <span class="badge ts-badge-ok"><i class="fas fa-check me-1"></i>No negative balances</span>
+          {% endif %}
+          <small class="text-muted d-block mt-1">{{ diag.warehouses_total }} warehouses, {{ diag.locations_total }} locations</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-3 col-sm-6 mb-3">
+    <div class="card ts-card h-100">
+      <div class="card-header bg-white"><h3 class="card-title"><i class="fas fa-file-invoice-dollar me-2 text-warning"></i>Invoices</h3></div>
+      <div class="card-body p-2">
+        <div class="row text-center">
+          <div class="col-4 ts-stat">
+            <div class="ts-num text-warning">{{ diag.invoices_total }}</div>
+            <div class="ts-label">Total</div>
+          </div>
+          <div class="col-4 ts-stat">
+            <div class="ts-num {% if diag.invoices_no_cogs > 0 %}text-danger{% else %}text-muted{% endif %}">{{ diag.invoices_no_cogs }}</div>
+            <div class="ts-label">No COGS</div>
+          </div>
+          <div class="col-4 ts-stat">
+            <div class="ts-num {% if diag.invoices_no_payment > 0 %}text-danger{% else %}text-muted{% endif %}">{{ diag.invoices_no_payment }}</div>
+            <div class="ts-label">No Pay</div>
+          </div>
+        </div>
+        <div class="px-2 pb-1">
+          {% if diag.invoices_no_cogs > 0 or diag.invoices_no_payment > 0 %}
+            <span class="badge ts-badge-warn"><i class="fas fa-exclamation-triangle me-1"></i>Run Sync to fix</span>
+          {% else %}
+            <span class="badge ts-badge-ok"><i class="fas fa-check me-1"></i>All invoices healthy</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Actions ──────────────────────────────────────────────────────────── -->
+<div class="row">
+  <!-- Tests Column -->
+  <div class="col-lg-4 mb-3">
+    <div class="ts-section-title"><i class="fas fa-vial me-1"></i> Tests & Diagnostics</div>
+    {% for a in test_actions %}
+    <div class="card ts-action-card mb-2" data-action="{{ a.key }}">
+      <div class="card-body d-flex align-items-start gap-3">
+        <div class="ts-action-icon bg-{{ a.color }} text-white"><i class="{{ a.icon }}"></i></div>
+        <div class="flex-grow-1">
+          <div class="ts-action-title">{{ a.label }}</div>
+          <div class="ts-action-desc">{{ a.description }}</div>
+          <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}">
+            <i class="fas fa-play me-1"></i> Run
+          </button>
+        </div>
+      </div>
+      <div class="ts-output-box" id="output-{{ a.key }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Sync Column -->
+  <div class="col-lg-4 mb-3">
+    <div class="ts-section-title"><i class="fas fa-sync me-1"></i> Sync Operations</div>
+    {% for a in sync_actions %}
+    <div class="card ts-action-card mb-2" data-action="{{ a.key }}">
+      <div class="card-body d-flex align-items-start gap-3">
+        <div class="ts-action-icon bg-{{ a.color }} text-white"><i class="{{ a.icon }}"></i></div>
+        <div class="flex-grow-1">
+          <div class="ts-action-title">{{ a.label }}</div>
+          <div class="ts-action-desc">{{ a.description }}</div>
+          <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}">
+            <i class="fas fa-play me-1"></i> Run
+          </button>
+        </div>
+      </div>
+      <div class="ts-output-box" id="output-{{ a.key }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Seed Column -->
+  <div class="col-lg-4 mb-3">
+    <div class="ts-section-title"><i class="fas fa-seedling me-1"></i> Seed Data</div>
+    {% for a in seed_actions %}
+    <div class="card ts-action-card mb-2" data-action="{{ a.key }}">
+      <div class="card-body d-flex align-items-start gap-3">
+        <div class="ts-action-icon bg-{{ a.color }} text-white"><i class="{{ a.icon }}"></i></div>
+        <div class="flex-grow-1">
+          <div class="ts-action-title">{{ a.label }}</div>
+          <div class="ts-action-desc">{{ a.description }}</div>
+          <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}">
+            <i class="fas fa-play me-1"></i> Run
+          </button>
+        </div>
+      </div>
+      <div class="ts-output-box" id="output-{{ a.key }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="mb-3">
+  <a href="{% url 'settings' %}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> Back to Settings</a>
+</div>
+{% endblock %}
+
+{% block extra_js %}{{ block.super }}
+<script>
+(function(){
+  var runUrl = "{% url 'run_sync_action' %}";
+  var csrfToken = '{{ csrf_token }}';
+
+  document.querySelectorAll('.ts-run-btn').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.preventDefault();
+      var action = this.dataset.action;
+      var outBox = document.getElementById('output-' + action);
+      var origHtml = this.innerHTML;
+
+      // Confirm dangerous actions
+      if (action === 'resync_inventory') {
+        if (!confirm('This will modify StockBalance and StockMove records. Are you sure?')) return;
+      }
+
+      // UI: disable + spinner
+      this.disabled = true;
+      this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Running...';
+      outBox.textContent = 'Running...';
+      outBox.classList.add('show');
+
+      fetch(runUrl, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': csrfToken,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'action=' + encodeURIComponent(action),
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var text = data.output || '';
+        if (data.error) text += '\n[ERROR] ' + data.error;
+        outBox.textContent = text || '(no output)';
+        if (data.ok) {
+          outBox.style.borderLeft = '3px solid #22c55e';
+        } else {
+          outBox.style.borderLeft = '3px solid #ef4444';
+        }
+      })
+      .catch(function(err){
+        outBox.textContent = '[NETWORK ERROR] ' + err.message;
+        outBox.style.borderLeft = '3px solid #ef4444';
+      })
+      .finally(function(){
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}
