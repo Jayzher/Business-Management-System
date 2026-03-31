@@ -1,5 +1,5 @@
 from django.contrib import admin
-from procurement.models import PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine
+from procurement.models import PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine, SupplierCatalogEntry
 
 
 class PurchaseOrderLineInline(admin.TabularInline):
@@ -26,3 +26,10 @@ class GoodsReceiptAdmin(admin.ModelAdmin):
     list_filter = ['status', 'supplier', 'warehouse']
     search_fields = ['document_number', 'supplier__name', 'lines__item__code', 'lines__item__name']
     inlines = [GoodsReceiptLineInline]
+
+
+@admin.register(SupplierCatalogEntry)
+class SupplierCatalogEntryAdmin(admin.ModelAdmin):
+    list_display = ['supplier', 'item', 'unit', 'unit_price', 'currency', 'last_po_date', 'last_po_number']
+    list_filter = ['supplier', 'currency']
+    search_fields = ['supplier__name', 'item__name', 'item__code', 'last_po_number']
