@@ -298,7 +298,9 @@ def post_transfer(transfer, user):
 @transaction.atomic
 def post_adjustment(adjustment, user):
     """
-    Post a Stock Adjustment: creates ADJUST StockMoves for differences.
+    Post a Stock Adjustment: sets stock TO the adjusted qty (qty_counted).
+    Uses the current real balance at posting time so the result is accurate
+    even if other transactions occurred after the adjustment was created.
     """
     from core.models import DocumentStatus
 
@@ -309,12 +311,21 @@ def post_adjustment(adjustment, user):
     moves = []
 
     for line in adjustment.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        raw_diff = line.qty_counted - line.qty_system
-        if raw_diff == 0:
+        # Convert the adjusted (counted) qty to base/stock units
+        base_adjusted = convert_to_base_unit(line.qty_counted, line.unit, line.item.stock_unit, item=line.item)
+
+        # Get the CURRENT actual balance (already in base units)
+        current_balance = (
+            StockBalance.objects
+            .filter(item=line.item, location=line.location)
+            .values_list('qty_on_hand', flat=True)
+            .first()
+        ) or Decimal('0')
+
+        # Compute the real delta needed to SET balance to the adjusted qty
+        base_diff = base_adjusted - current_balance
+        if base_diff == 0:
             continue
-        base_diff = convert_to_base_unit(abs(raw_diff), line.unit, line.item.stock_unit, item=line.item)
-        if raw_diff < 0:
-            base_diff = -base_diff
 
         move = StockMove(
             move_type=MoveType.ADJUST,
@@ -326,7 +337,7 @@ def post_adjustment(adjustment, user):
             reference_type='StockAdjustment',
             reference_id=adjustment.pk,
             reference_number=adjustment.document_number,
-            notes=f"Adjustment: system={line.qty_system}, counted={line.qty_counted}",
+            notes=f"Adjusted to {line.qty_counted} {line.unit.abbreviation} (system was {line.qty_system}, current was {current_balance})",
             status=MoveStatus.POSTED,
             created_by=user,
             posted_by=user,

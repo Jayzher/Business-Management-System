@@ -1,0 +1,155 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+
+{% block title %}Supplier Catalog{% endblock %}
+{% block page_title %}Supplier Price Comparison{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Supplier Catalog</li>{% endblock %}
+
+{% block extra_css %}
+<style>
+.sc-cheapest { background: #d4edda !important; font-weight: 700; }
+.sc-matrix th, .sc-matrix td { vertical-align: middle; font-size: .85rem; }
+.sc-matrix thead th { position: sticky; top: 0; z-index: 2; background: #f8f9fa; border-bottom: 2px solid #dee2e6; }
+.sc-supplier-header { writing-mode: horizontal-tb; white-space: nowrap; font-size: .78rem; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.sc-table-wrap { max-height: 75vh; overflow: auto; }
+.sc-price-cell { text-align: right; min-width: 95px; }
+.sc-price-cell .sc-po-ref { font-size: .68rem; color: #888; display: block; }
+.sc-item-code { font-weight: 600; white-space: normal; word-break: break-word; min-width: 90px; }
+.sc-item-name { font-size: .82rem; color: #555; white-space: normal; max-width: 200px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- KPI -->
+<div class="row">
+  <div class="col-lg-4 col-md-6">
+    <div class="small-box bg-info">
+      <div class="inner"><h3>{{ total_items }}</h3><p>Items with Supplier Prices</p></div>
+      <div class="icon"><i class="fas fa-box"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-4 col-md-6">
+    <div class="small-box bg-success">
+      <div class="inner"><h3>{{ total_suppliers }}</h3><p>Suppliers</p></div>
+      <div class="icon"><i class="fas fa-truck"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-4 col-md-6">
+    <div class="small-box bg-primary">
+      <div class="inner"><h3>{{ total_entries }}</h3><p>Price Entries</p></div>
+      <div class="icon"><i class="fas fa-tags"></i></div>
+    </div>
+  </div>
+</div>
+
+<div class="card card-outline card-primary">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-balance-scale mr-1"></i> Supplier Price Comparison Matrix</h3>
+    <div class="card-tools">
+      {% if not is_view_only %}
+      <a href="#" data-modal-url="{% url 'supplier_catalog_sync' %}" class="btn btn-sm btn-success mr-1">
+        <i class="fas fa-sync-alt mr-1"></i> Sync from POs
+      </a>
+      <a href="#" data-modal-url="{% url 'supplier_catalog_sync_grn' %}" class="btn btn-sm btn-warning mr-1">
+        <i class="fas fa-truck-loading mr-1"></i> Sync from GRNs
+      </a>
+      <a href="#" data-modal-url="{% url 'supplier_catalog_create' %}" class="btn btn-sm btn-primary">
+        <i class="fas fa-plus mr-1"></i> Add Entry
+      </a>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body pb-0">
+    <form method="get" class="row g-2 align-items-end mb-3">
+      <div class="col-md-3">
+        <label class="small">Supplier</label>
+        <select name="supplier" class="form-control form-control-sm">
+          <option value="">All Suppliers</option>
+          {% for sup in all_suppliers %}
+          <option value="{{ sup.pk }}" {% if selected_supplier == sup.pk|stringformat:"d" %}selected{% endif %}>{{ sup.code }} - {{ sup.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="small">Item Type</label>
+        <select name="type" class="form-control form-control-sm">
+          <option value="">All Types</option>
+          <option value="RAW" {% if current_type == "RAW" %}selected{% endif %}>Raw Material</option>
+          <option value="FINISHED" {% if current_type == "FINISHED" %}selected{% endif %}>Finished Product</option>
+          <option value="SERVICE" {% if current_type == "SERVICE" %}selected{% endif %}>Service</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="small">Search</label>
+        <input type="text" name="q" value="{{ search }}" class="form-control form-control-sm" placeholder="Item name or code...">
+      </div>
+      <div class="col-md-2">
+        <label class="small">&nbsp;</label>
+        <div>
+          <button type="submit" class="btn btn-sm btn-primary mr-1"><i class="fas fa-filter mr-1"></i> Filter</button>
+          <a href="{% url 'supplier_catalog_list' %}" class="btn btn-sm btn-secondary">Clear</a>
+        </div>
+      </div>
+    </form>
+  </div>
+  <div class="card-body p-0">
+   <div class="sc-table-wrap">
+    <table class="table table-bordered table-hover table-sm sc-matrix" id="report-table">
+      <thead class="thead-light">
+        <tr>
+          <th style="min-width:80px;">Item Code</th>
+          <th style="min-width:150px;">Item Name</th>
+          <th>Category</th>
+          <th>Unit</th>
+          {% for sup in suppliers %}
+          <th class="text-center sc-supplier-header" title="{{ sup.name }}">{{ sup.name }}<br><small class="text-muted">{{ sup.code }}</small></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="sc-item-code"><a href="{% url 'item_detail' row.item.pk %}">{{ row.item.code }}</a></td>
+          <td class="sc-item-name">{{ row.item.name }}</td>
+          <td><small>{{ row.item.category.name }}</small></td>
+          <td><small>{{ row.item.default_unit.abbreviation }}</small></td>
+          {% for cell in row.cells %}
+          <td class="sc-price-cell {% if cell.is_cheapest %}sc-cheapest{% endif %}">
+            {% if cell.entry %}
+              {{ cell.entry.unit_price|floatformat:2 }}
+              {% if cell.entry.last_po_number %}
+              <span class="sc-po-ref">{{ cell.entry.last_po_number }}</span>
+              {% endif %}
+              {% if not is_view_only %}
+              <a href="#" data-modal-url="{% url 'supplier_catalog_edit' cell.entry.pk %}" class="text-muted" title="Edit" style="font-size:.7rem;"><i class="fas fa-pen"></i></a>
+              {% endif %}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="{{ suppliers.count|add:4 }}" class="text-center text-muted py-4">
+            <i class="fas fa-inbox mr-2"></i>No supplier catalog entries found.
+            {% if not is_view_only %}
+            <br><a href="#" data-modal-url="{% url 'supplier_catalog_sync' %}" class="btn btn-sm btn-success mt-2">
+              <i class="fas fa-sync-alt mr-1"></i> Sync from Past POs
+            </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+   </div>
+  </div>
+</div>
+
+<div class="alert alert-info small">
+  <i class="fas fa-info-circle mr-1"></i>
+  <strong>Green highlighted</strong> cells indicate the cheapest offer for each item.
+  Click <strong>Sync from POs</strong> to import prices from your past Purchase Orders.
+</div>
+{% endblock %}

@@ -9,12 +9,14 @@ from rest_framework.response import Response
 from procurement.models import (
     PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine,
     PurchaseReturn, PurchaseReturnLine, GoodsReceiptAttachment,
+    SupplierCatalogEntry,
 )
 from procurement.serializers import PurchaseOrderSerializer, GoodsReceiptSerializer
 from procurement.forms import (
     PurchaseOrderForm, PurchaseOrderLineFormSet,
     GoodsReceiptForm, GoodsReceiptLineFormSet, GoodsReceiptAttachmentForm,
     PurchaseReturnForm, PurchaseReturnLineFormSet,
+    SupplierCatalogEntryForm,
 )
 from django.utils import timezone
 from inventory.services import post_goods_receipt, cancel_document
@@ -476,3 +478,341 @@ def purchase_return_delete_view(request, pk):
         messages.success(request, f'Purchase Return {pr.document_number} deleted.')
         return redirect('purchase_return_list')
     return render(request, 'core/confirm_delete.html', {'object': pr, 'cancel_url': 'purchase_return_list'})
+
+
+# ── Supplier Catalog ───────────────────────────────────────────────────────
+
+@login_required
+@procurement_access
+def supplier_catalog_list_view(request):
+    """
+    Matrix view: rows = items, columns = suppliers.
+    Each cell shows that supplier's unit price for the item.
+    The cheapest price per item is highlighted.
+    """
+    from catalog.models import Item
+    from partners.models import Supplier
+    from django.db.models import Min
+    from collections import defaultdict
+
+    supplier_id = request.GET.get('supplier', '')
+    item_type = request.GET.get('type', '')
+    search = request.GET.get('q', '')
+
+    entries_qs = SupplierCatalogEntry.objects.select_related(
+        'supplier', 'item', 'item__category', 'unit',
+    ).all()
+
+    if supplier_id:
+        entries_qs = entries_qs.filter(supplier_id=supplier_id)
+    if item_type:
+        entries_qs = entries_qs.filter(item__item_type=item_type)
+    if search:
+        from django.db.models import Q
+        entries_qs = entries_qs.filter(
+            Q(item__code__icontains=search) | Q(item__name__icontains=search)
+        )
+
+    # Build the matrix data
+    # Collect all suppliers and items that appear in entries
+    price_map = {}      # {(item_id, supplier_id): entry}
+    item_ids = set()
+    supplier_ids = set()
+
+    for entry in entries_qs:
+        price_map[(entry.item_id, entry.supplier_id)] = entry
+        item_ids.add(entry.item_id)
+        supplier_ids.add(entry.supplier_id)
+
+    # Get ordered objects
+    suppliers = Supplier.objects.filter(pk__in=supplier_ids).order_by('name')
+    items = Item.objects.filter(pk__in=item_ids).select_related('category', 'default_unit').order_by('code')
+
+    # Find cheapest per item
+    cheapest_map = {}  # item_id -> min unit_price
+    for entry in entries_qs:
+        key = entry.item_id
+        if key not in cheapest_map or entry.unit_price < cheapest_map[key]:
+            cheapest_map[key] = entry.unit_price
+
+    # Build rows
+    rows = []
+    for item in items:
+        cells = []
+        for sup in suppliers:
+            entry = price_map.get((item.pk, sup.pk))
+            is_cheapest = (
+                entry is not None
+                and cheapest_map.get(item.pk) is not None
+                and entry.unit_price == cheapest_map[item.pk]
+            )
+            cells.append({
+                'entry': entry,
+                'is_cheapest': is_cheapest,
+            })
+        rows.append({
+            'item': item,
+            'cells': cells,
+        })
+
+    # For filter dropdowns
+    all_suppliers = Supplier.objects.order_by('name')
+
+    return render(request, 'procurement/supplier_catalog_list.html', {
+        'rows': rows,
+        'suppliers': suppliers,
+        'all_suppliers': all_suppliers,
+        'selected_supplier': supplier_id,
+        'current_type': item_type,
+        'search': search,
+        'total_items': len(rows),
+        'total_suppliers': suppliers.count(),
+        'total_entries': len(price_map),
+    })
+
+
+@login_required
+@procurement_access
+def supplier_catalog_by_supplier_view(request):
+    """
+    Per-supplier view: lists all catalog entries for a selected supplier.
+    """
+    from partners.models import Supplier
+
+    supplier_id = request.GET.get('supplier', '')
+    search = request.GET.get('q', '')
+
+    entries = SupplierCatalogEntry.objects.select_related(
+        'supplier', 'item', 'item__category', 'unit',
+    ).order_by('item__code')
+
+    if supplier_id:
+        entries = entries.filter(supplier_id=supplier_id)
+    if search:
+        from django.db.models import Q
+        entries = entries.filter(
+            Q(item__code__icontains=search) | Q(item__name__icontains=search)
+        )
+
+    all_suppliers = Supplier.objects.order_by('name')
+
+    return render(request, 'procurement/supplier_catalog_by_supplier.html', {
+        'entries': entries,
+        'all_suppliers': all_suppliers,
+        'selected_supplier': supplier_id,
+        'search': search,
+    })
+
+
+@login_required
+@procurement_access
+@write_denied_for_viewer
+def supplier_catalog_create_view(request):
+    if request.method == 'POST':
+        form = SupplierCatalogEntryForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Supplier catalog entry created.')
+            return redirect('supplier_catalog_list')
+    else:
+        form = SupplierCatalogEntryForm()
+    return render(request, 'procurement/supplier_catalog_form.html', {
+        'form': form, 'title': 'Add Supplier Catalog Entry',
+    })
+
+
+@login_required
+@procurement_access
+@write_denied_for_viewer
+def supplier_catalog_edit_view(request, pk):
+    entry = get_object_or_404(SupplierCatalogEntry, pk=pk)
+    if request.method == 'POST':
+        form = SupplierCatalogEntryForm(request.POST, instance=entry)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Supplier catalog entry updated.')
+            return redirect('supplier_catalog_list')
+    else:
+        form = SupplierCatalogEntryForm(instance=entry)
+    return render(request, 'procurement/supplier_catalog_form.html', {
+        'form': form, 'title': 'Edit Supplier Catalog Entry',
+    })
+
+
+@login_required
+@procurement_access
+@write_denied_for_viewer
+def supplier_catalog_delete_view(request, pk):
+    entry = get_object_or_404(SupplierCatalogEntry, pk=pk)
+    if request.method == 'POST':
+        entry.delete()
+        messages.success(request, 'Supplier catalog entry deleted.')
+        return redirect('supplier_catalog_list')
+    return render(request, 'core/confirm_delete.html', {
+        'object': entry, 'cancel_url': 'supplier_catalog_list',
+    })
+
+
+@login_required
+@procurement_access
+@write_denied_for_viewer
+def supplier_catalog_sync_view(request):
+    """
+    Sync supplier catalog from past PO data.
+    For each POSTED or APPROVED PO line, upsert the latest unit_price into SupplierCatalogEntry.
+    """
+    if request.method == 'POST':
+        from decimal import Decimal
+
+        # Get all PO lines from posted/approved POs
+        po_lines = (
+            PurchaseOrderLine.objects
+            .filter(purchase_order__status__in=['POSTED', 'APPROVED'])
+            .select_related('purchase_order__supplier', 'item', 'unit')
+            .order_by('purchase_order__order_date')
+        )
+
+        created_count = 0
+        updated_count = 0
+
+        for line in po_lines:
+            if not line.unit_price or line.unit_price <= 0:
+                continue
+
+            po = line.purchase_order
+            entry, created = SupplierCatalogEntry.objects.update_or_create(
+                supplier=po.supplier,
+                item=line.item,
+                unit=line.unit,
+                defaults={
+                    'unit_price': line.unit_price,
+                    'currency': po.currency or 'PHP',
+                    'last_po_date': po.order_date,
+                    'last_po_number': po.document_number,
+                },
+            )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+        messages.success(
+            request,
+            f'Sync complete: {created_count} new entries created, '
+            f'{updated_count} entries updated from past PO data.',
+        )
+        return redirect('supplier_catalog_list')
+
+    # GET: show confirmation page
+    po_count = (
+        PurchaseOrder.objects
+        .filter(status__in=['POSTED', 'APPROVED'])
+        .count()
+    )
+    line_count = (
+        PurchaseOrderLine.objects
+        .filter(
+            purchase_order__status__in=['POSTED', 'APPROVED'],
+            unit_price__gt=0,
+        )
+        .count()
+    )
+    return render(request, 'procurement/supplier_catalog_sync.html', {
+        'po_count': po_count,
+        'line_count': line_count,
+    })
+
+
+@login_required
+@procurement_access
+@write_denied_for_viewer
+def supplier_catalog_sync_grn_view(request):
+    """
+    Sync supplier catalog from GRN data (posted GRNs linked to POs).
+    Always keeps the latest price based on receipt_date.
+    """
+    if request.method == 'POST':
+        # Get all posted GRN lines that have an associated PO
+        grn_lines = (
+            GoodsReceiptLine.objects
+            .filter(
+                goods_receipt__status='POSTED',
+                goods_receipt__purchase_order__isnull=False,
+            )
+            .select_related(
+                'goods_receipt__supplier',
+                'goods_receipt__purchase_order',
+                'item', 'unit',
+            )
+            .order_by('goods_receipt__receipt_date')
+        )
+
+        created_count = 0
+        updated_count = 0
+
+        for grn_line in grn_lines:
+            grn = grn_line.goods_receipt
+            # Match this GRN line to the PO line for the price
+            po_line = (
+                PurchaseOrderLine.objects
+                .filter(
+                    purchase_order=grn.purchase_order,
+                    item=grn_line.item,
+                    unit=grn_line.unit,
+                )
+                .first()
+            )
+            if not po_line or not po_line.unit_price or po_line.unit_price <= 0:
+                continue
+
+            # Only update if this GRN is newer than what's stored
+            existing = SupplierCatalogEntry.objects.filter(
+                supplier=grn.supplier,
+                item=grn_line.item,
+                unit=grn_line.unit,
+            ).first()
+
+            if existing and existing.last_po_date and existing.last_po_date >= grn.receipt_date:
+                continue  # existing entry is from a newer or same-date source
+
+            entry, created = SupplierCatalogEntry.objects.update_or_create(
+                supplier=grn.supplier,
+                item=grn_line.item,
+                unit=grn_line.unit,
+                defaults={
+                    'unit_price': po_line.unit_price,
+                    'currency': grn.purchase_order.currency or 'PHP',
+                    'last_po_date': grn.receipt_date,
+                    'last_po_number': grn.document_number,
+                },
+            )
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+        messages.success(
+            request,
+            f'GRN Sync complete: {created_count} new entries created, '
+            f'{updated_count} entries updated from Goods Receipts.',
+        )
+        return redirect('supplier_catalog_list')
+
+    # GET: show confirmation page
+    grn_count = (
+        GoodsReceipt.objects
+        .filter(status='POSTED', purchase_order__isnull=False)
+        .count()
+    )
+    grn_line_count = (
+        GoodsReceiptLine.objects
+        .filter(
+            goods_receipt__status='POSTED',
+            goods_receipt__purchase_order__isnull=False,
+        )
+        .count()
+    )
+    return render(request, 'procurement/supplier_catalog_sync_grn.html', {
+        'grn_count': grn_count,
+        'grn_line_count': grn_line_count,
+    })

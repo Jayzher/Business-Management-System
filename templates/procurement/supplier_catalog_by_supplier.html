@@ -1,0 +1,93 @@
+{% extends "theme/base.html" %}
+{% load humanize %}
+
+{% block title %}Supplier Catalog — By Supplier{% endblock %}
+{% block page_title %}Supplier Catalog — By Supplier{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'supplier_catalog_list' %}">Supplier Catalog</a></li>
+<li class="breadcrumb-item active">By Supplier</li>
+{% endblock %}
+
+{% block content %}
+<div class="card card-outline card-primary">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-truck mr-1"></i> Supplier Price List</h3>
+    <div class="card-tools">
+      {% if not is_view_only %}
+      <a href="#" data-modal-url="{% url 'supplier_catalog_create' %}" class="btn btn-sm btn-primary">
+        <i class="fas fa-plus mr-1"></i> Add Entry
+      </a>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body pb-0">
+    <form method="get" class="row g-2 align-items-end mb-3">
+      <div class="col-md-3">
+        <label class="small">Supplier</label>
+        <select name="supplier" class="form-control form-control-sm">
+          <option value="">All Suppliers</option>
+          {% for sup in all_suppliers %}
+          <option value="{{ sup.pk }}" {% if selected_supplier == sup.pk|stringformat:"d" %}selected{% endif %}>{{ sup.code }} - {{ sup.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="small">Search</label>
+        <input type="text" name="q" value="{{ search }}" class="form-control form-control-sm" placeholder="Item name or code...">
+      </div>
+      <div class="col-md-2">
+        <label class="small">&nbsp;</label>
+        <div>
+          <button type="submit" class="btn btn-sm btn-primary mr-1"><i class="fas fa-filter mr-1"></i> Filter</button>
+          <a href="{% url 'supplier_catalog_by_supplier' %}" class="btn btn-sm btn-secondary">Clear</a>
+        </div>
+      </div>
+    </form>
+  </div>
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover table-striped wis-table" id="report-table">
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Item Code</th>
+          <th>Item Name</th>
+          <th>Category</th>
+          <th class="text-right">Unit Price</th>
+          <th>Unit</th>
+          <th>Currency</th>
+          <th>Lead Time</th>
+          <th>Last PO</th>
+          <th>Last PO Date</th>
+          <th>Notes</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td><strong>{{ entry.supplier.code }}</strong> — {{ entry.supplier.name }}</td>
+          <td><a href="{% url 'item_detail' entry.item.pk %}">{{ entry.item.code }}</a></td>
+          <td>{{ entry.item.name }}</td>
+          <td>{{ entry.item.category.name }}</td>
+          <td class="text-right font-weight-bold">{{ entry.unit_price|floatformat:2 }}</td>
+          <td>{{ entry.unit.abbreviation }}</td>
+          <td>{{ entry.currency }}</td>
+          <td>{% if entry.lead_time_days %}{{ entry.lead_time_days }} days{% else %}—{% endif %}</td>
+          <td><small>{{ entry.last_po_number|default:"—" }}</small></td>
+          <td>{{ entry.last_po_date|date:"M d, Y"|default:"—" }}</td>
+          <td><small>{{ entry.notes|default:"—"|truncatechars:30 }}</small></td>
+          <td>
+            {% if not is_view_only %}
+            <a href="#" data-modal-url="{% url 'supplier_catalog_edit' entry.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
+            <a href="#" data-modal-url="{% url 'supplier_catalog_delete' entry.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="12" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No entries found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

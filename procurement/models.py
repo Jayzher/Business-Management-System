@@ -109,3 +109,53 @@ class PurchaseReturnLine(models.Model):
 
     def __str__(self):
         return f"PR Line: {self.item.code} x{self.qty}"
+
+
+class SupplierCatalogEntry(models.Model):
+    """
+    A single supplier's price for a specific item.
+    Populated manually or synced from past PO data.
+    """
+    supplier = models.ForeignKey(
+        'partners.Supplier', on_delete=models.CASCADE, related_name='catalog_entries',
+    )
+    item = models.ForeignKey('catalog.Item', on_delete=models.CASCADE, related_name='supplier_entries')
+    unit = models.ForeignKey('catalog.Unit', on_delete=models.PROTECT)
+    unit_price = models.DecimalField(max_digits=15, decimal_places=4)
+    currency = models.CharField(max_length=10, default='PHP')
+    lead_time_days = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Typical delivery lead time in days.',
+    )
+    last_po_date = models.DateField(
+        null=True, blank=True,
+        help_text='Date of the most recent PO this price was sourced from.',
+    )
+    last_po_number = models.CharField(
+        max_length=50, blank=True, default='',
+        help_text='Reference PO document number.',
+    )
+    notes = models.TextField(blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['item__code', 'unit_price']
+        unique_together = [('supplier', 'item', 'unit')]
+        verbose_name = 'Supplier Catalog Entry'
+        verbose_name_plural = 'Supplier Catalog Entries'
+
+    @property
+    def is_cheapest(self):
+        """Return True if this entry has the lowest price for this item+unit combo."""
+        cheapest = (
+            SupplierCatalogEntry.objects
+            .filter(item=self.item, unit=self.unit)
+            .order_by('unit_price')
+            .values_list('pk', flat=True)
+            .first()
+        )
+        return cheapest == self.pk
+
+    def __str__(self):
+        return f"{self.supplier.name} → {self.item.code}: {self.unit_price}/{self.unit.abbreviation}"
