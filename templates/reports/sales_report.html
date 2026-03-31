@@ -28,9 +28,9 @@
       <div class="col-md-2">
         <label class="small">&nbsp;</label>
         <div class="d-flex flex-wrap">
-          <button type="submit" class="btn btn-primary btn-sm mr-1 mb-1"><i class="fas fa-filter mr-1"></i> Apply</button>
-          <button type="button" class="btn btn-sm btn-success mr-1 mb-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
-          <button type="button" class="btn btn-sm btn-outline-danger mb-1 wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+          <button type="submit" class="btn btn-primary btn-sm me-1 mb-1"><i class="fas fa-filter me-1"></i> Apply</button>
+          <button type="button" class="btn btn-sm btn-success me-1 mb-1 wis-export-excel"><i class="fas fa-file-excel me-1"></i> Excel</button>
+          <button type="button" class="btn btn-sm btn-outline-danger mb-1 wis-export-pdf"><i class="fas fa-file-pdf me-1"></i> PDF</button>
         </div>
       </div>
     </form>
@@ -70,13 +70,13 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header bg-dark text-white">
-        <h5 class="modal-title"><i class="fas fa-calculator mr-1"></i> Calculation Breakdown (Accounting Formulas)</h5>
+        <h5 class="modal-title"><i class="fas fa-calculator me-1"></i> Calculation Breakdown (Accounting Formulas)</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <p class="text-muted small mb-3">All figures below use standard accounting formulas. Values are for the selected date range.</p>
 
-        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-coins text-success mr-1"></i> Revenue</h6>
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-coins text-success me-1"></i> Revenue</h6>
         <table class="table table-sm table-bordered mb-3">
           <tbody>
             <tr><td class="fw-bold" style="width:50%;">POS Revenue</td><td class="text-end font-monospace">{{ formulas.pos_revenue|floatformat:2|intcomma }}</td></tr>
@@ -88,7 +88,7 @@
           </tbody>
         </table>
 
-        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-boxes text-danger mr-1"></i> Cost of Goods Sold (COGS)</h6>
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-boxes text-danger me-1"></i> Cost of Goods Sold (COGS)</h6>
         <table class="table table-sm table-bordered mb-3">
           <tbody>
             <tr><td class="fw-bold" style="width:50%;">POS COGS <small class="text-muted">(&#931; item.cost_price &times; qty)</small></td><td class="text-end font-monospace">{{ formulas.cogs_pos|floatformat:2|intcomma }}</td></tr>
@@ -97,7 +97,7 @@
           </tbody>
         </table>
 
-        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-chart-line text-primary mr-1"></i> Profitability</h6>
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-chart-line text-primary me-1"></i> Profitability</h6>
         <table class="table table-sm table-bordered mb-3">
           <tbody>
             <tr class="table-primary"><td class="fw-bold" style="width:50%;">Gross Profit = Total Revenue &minus; COGS</td><td class="text-end font-monospace fw-bold">{{ formulas.gross_profit|floatformat:2|intcomma }}</td></tr>
@@ -105,7 +105,7 @@
           </tbody>
         </table>
 
-        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-tags text-info mr-1"></i> Other</h6>
+        <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-tags text-info me-1"></i> Other</h6>
         <table class="table table-sm table-bordered mb-0">
           <tbody>
             <tr><td class="fw-bold" style="width:50%;">Total Discounts (POS)</td><td class="text-end font-monospace">{{ formulas.total_discount|floatformat:2|intcomma }}</td></tr>
@@ -124,13 +124,13 @@
 <div class="row">
   <div class="col-md-8">
     <div class="card">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-area mr-1"></i> Revenue Trend ({{ group_by|title }})</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-area me-1"></i> Revenue Trend ({{ group_by|title }})</h3></div>
       <div class="card-body"><canvas id="revChart" height="220"></canvas></div>
     </div>
   </div>
   <div class="col-md-4">
     <div class="card">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-pie mr-1"></i> By Channel</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-pie me-1"></i> By Channel</h3></div>
       <div class="card-body"><canvas id="channelChart" height="220"></canvas></div>
     </div>
   </div>
@@ -140,16 +140,16 @@
 <div class="row">
   <div class="col-md-6">
     <div class="card">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-calendar mr-1"></i> {{ group_by|title }} Breakdown</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-calendar me-1"></i> {{ group_by|title }} Breakdown</h3></div>
       <div class="card-body table-responsive p-0">
         <table class="table table-hover table-sm text-nowrap">
-          <thead><tr><th>Period</th><th class="text-right">Revenue</th><th class="text-right">Sales</th></tr></thead>
+          <thead><tr><th>Period</th><th class="text-end">Revenue</th><th class="text-end">Sales</th></tr></thead>
           <tbody>
             {% for row in date_rows %}
             <tr>
               <td>{% if group_by == "daily" %}{{ row.period|date:"M d, Y" }}{% else %}{{ row.period|date:"F Y" }}{% endif %}</td>
-              <td class="text-right">{{ row.revenue|floatformat:2|intcomma }}</td>
-              <td class="text-right">{{ row.count }}</td>
+              <td class="text-end">{{ row.revenue|floatformat:2|intcomma }}</td>
+              <td class="text-end">{{ row.count }}</td>
             </tr>
             {% empty %}<tr><td colspan="3" class="text-center text-muted">No data</td></tr>{% endfor %}
           </tbody>
@@ -159,18 +159,18 @@
   </div>
   <div class="col-md-6">
     <div class="card">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-trophy mr-1"></i> Top Items Sold</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-trophy me-1"></i> Top Items Sold</h3></div>
       <div class="card-body table-responsive p-0">
         <table class="table table-hover table-sm text-nowrap">
-          <thead><tr><th>#</th><th>Code</th><th>Name</th><th class="text-right">Qty</th><th class="text-right">Revenue</th></tr></thead>
+          <thead><tr><th>#</th><th>Code</th><th>Name</th><th class="text-end">Qty</th><th class="text-end">Revenue</th></tr></thead>
           <tbody>
             {% for it in top_items %}
             <tr>
               <td>{{ forloop.counter }}</td>
               <td><strong>{{ it.item__code }}</strong></td>
               <td>{{ it.item__name }}</td>
-              <td class="text-right">{{ it.total_qty|floatformat:2 }}</td>
-              <td class="text-right">{{ it.total_revenue|floatformat:2|intcomma }}</td>
+              <td class="text-end">{{ it.total_qty|floatformat:2 }}</td>
+              <td class="text-end">{{ it.total_revenue|floatformat:2|intcomma }}</td>
             </tr>
             {% empty %}<tr><td colspan="5" class="text-center text-muted">No data</td></tr>{% endfor %}
           </tbody>

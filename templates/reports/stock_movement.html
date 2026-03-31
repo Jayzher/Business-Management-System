@@ -10,7 +10,7 @@
 {% block content %}
 <div class="card card-outline card-info">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-exchange-alt mr-2 text-info"></i> Stock Movements</h3>
+    <h3 class="card-title"><i class="fas fa-exchange-alt me-2 text-info"></i> Stock Movements</h3>
   </div>
   <div class="card-body pb-0">
     <form method="get" class="row g-2 align-items-end mb-3">
@@ -43,10 +43,10 @@
       <div class="col-md-3">
         <label class="small">&nbsp;</label>
         <div class="d-flex flex-wrap">
-          <button type="submit" class="btn btn-sm btn-primary mr-1 mb-1"><i class="fas fa-filter mr-1"></i>Filter</button>
-          <a href="{% url 'report_stock_movement' %}" class="btn btn-sm btn-secondary mr-1 mb-1">Clear</a>
-          <button type="button" class="btn btn-sm btn-success mr-1 mb-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
-          <button type="button" class="btn btn-sm btn-outline-danger mb-1 wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+          <button type="submit" class="btn btn-sm btn-primary me-1 mb-1"><i class="fas fa-filter me-1"></i>Filter</button>
+          <a href="{% url 'report_stock_movement' %}" class="btn btn-sm btn-secondary me-1 mb-1">Clear</a>
+          <button type="button" class="btn btn-sm btn-success me-1 mb-1 wis-export-excel"><i class="fas fa-file-excel me-1"></i> Excel</button>
+          <button type="button" class="btn btn-sm btn-outline-danger mb-1 wis-export-pdf"><i class="fas fa-file-pdf me-1"></i> PDF</button>
         </div>
       </div>
     </form>
@@ -59,7 +59,7 @@
           <th>Type</th>
           <th>Image</th>
           <th>Item</th>
-          <th class="text-right">Qty</th>
+          <th class="text-end">Qty</th>
           <th>Unit</th>
           <th>From</th>
           <th>To</th>
@@ -90,7 +90,7 @@
             {% endif %}
           </td>
           <td><a href="{% url 'item_detail' move.item.pk %}">{{ move.item.code }}</a> <small class="text-muted">{{ move.item.name }}</small></td>
-          <td class="text-right">{{ move.qty|floatformat:2 }}</td>
+          <td class="text-end">{{ move.qty|floatformat:2 }}</td>
           <td>{{ move.unit.abbreviation }}</td>
           <td>{{ move.from_location.code|default:"-" }}</td>
           <td>{{ move.to_location.code|default:"-" }}</td>
@@ -98,7 +98,7 @@
           <td>{{ move.created_by.get_full_name|default:move.created_by.username }}</td>
         </tr>
         {% empty %}
-        <tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No movements found matching filters.</td></tr>
+        <tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No movements found matching filters.</td></tr>
         {% endfor %}
       </tbody>
     </table>

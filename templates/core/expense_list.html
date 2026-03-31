@@ -7,10 +7,10 @@
 {% block content %}
 <div class="card">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-receipt mr-1"></i> Expenses</h3>
+    <h3 class="card-title"><i class="fas fa-receipt me-1"></i> Expenses</h3>
     {% if not is_view_only %}<div class="card-tools">
-      <a href="#" data-modal-url="{% url 'expense_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
-      <a href="#" data-modal-url="{% url 'expense_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> Record Expense</a>
+      <a href="#" data-modal-url="{% url 'expense_import' %}" class="btn btn-sm btn-success me-1"><i class="fas fa-file-import me-1"></i> Import CSV</a>
+      <a href="#" data-modal-url="{% url 'expense_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> Record Expense</a>
     </div>{% endif %}
   </div>
   <div class="card-body">
@@ -25,7 +25,7 @@
       </div>
       <div class="col-md-2"><input type="date" name="date_from" class="form-control form-control-sm" value="{{ filters.date_from }}" placeholder="From"></div>
       <div class="col-md-2"><input type="date" name="date_to" class="form-control form-control-sm" value="{{ filters.date_to }}" placeholder="To"></div>
-      <div class="col-md-2"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-filter mr-1"></i> Filter</button></div>
+      <div class="col-md-2"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-filter me-1"></i> Filter</button></div>
     </form>
     <div class="alert alert-info py-2 mb-3">
       <strong>Total:</strong> {{ total|floatformat:2|intcomma }}
@@ -42,12 +42,12 @@
             <span class="badge bg-secondary">{{ exp.category.name }}</span>
             {% if exp.category.is_cogs %}<span class="badge bg-warning ms-1">COGS</span>{% else %}<span class="badge bg-info ms-1">OPEX</span>{% endif %}
           </td>
-          <td class="text-right"><strong>&#8369; {{ exp.amount|floatformat:2|intcomma }}</strong></td>
+          <td class="text-end"><strong>&#8369; {{ exp.amount|floatformat:2|intcomma }}</strong></td>
           <td>{{ exp.vendor|default:"-" }}</td>
           <td><small>{{ exp.reference_no|default:"-" }}</small></td>
           <td><small>{{ exp.memo|truncatewords:8 }}</small></td>
           <td>{{ exp.created_by.get_short_name|default:exp.created_by.username }}</td>
-          <td class="text-right">
+          <td class="text-end">
             {% if not is_view_only %}<a href="#" data-modal-url="{% url 'expense_edit' exp.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'expense_delete' exp.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>

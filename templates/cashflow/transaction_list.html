@@ -7,13 +7,13 @@
 {% block content %}
 <div class="card p-2">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-money-bill-wave mr-1"></i> Cash Flow Transactions</h3>
+    <h3 class="card-title"><i class="fas fa-money-bill-wave me-1"></i> Cash Flow Transactions</h3>
     <div class="card-tools">
-      <a href="{% url 'cashflow_log_list' %}" class="btn btn-sm btn-outline-secondary mr-1"><i class="fas fa-history mr-1"></i> Logs</a>
-      {% if not is_view_only %}<button type="button" class="btn btn-sm btn-outline-warning mr-1" id="btn-sync-cashflow">
-        <i class="fas fa-sync-alt mr-1"></i> Sync Cash Flow
+      <a href="{% url 'cashflow_log_list' %}" class="btn btn-sm btn-outline-secondary me-1"><i class="fas fa-history me-1"></i> Logs</a>
+      {% if not is_view_only %}<button type="button" class="btn btn-sm btn-outline-warning me-1" id="btn-sync-cashflow">
+        <i class="fas fa-sync-alt me-1"></i> Sync Cash Flow
       </button>
-      <a href="#" data-modal-url="{% url 'cashflow_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Transaction</a>{% endif %}
+      <a href="#" data-modal-url="{% url 'cashflow_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> New Transaction</a>{% endif %}
     </div>
   </div>
   <div class="card-body">
@@ -44,7 +44,7 @@
       </div>
       <div class="col-md-2"><input type="date" name="date_from" class="form-control form-control-sm" value="{{ filters.date_from }}" placeholder="From"></div>
       <div class="col-md-2"><input type="date" name="date_to" class="form-control form-control-sm" value="{{ filters.date_to }}" placeholder="To"></div>
-      <div class="col-md-2"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-filter mr-1"></i> Filter</button></div>
+      <div class="col-md-2"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-filter me-1"></i> Filter</button></div>
     </form>
 
     <div class="row mb-3">
@@ -107,7 +107,7 @@
             {% endif %}
           </td>
           <td><span class="badge bg-secondary">{{ txn.get_category_display }}</span></td>
-          <td class="text-right"><strong>&#8369; {{ txn.amount|floatformat:2|intcomma }}</strong></td>
+          <td class="text-end"><strong>&#8369; {{ txn.amount|floatformat:2|intcomma }}</strong></td>
           <td><small>{{ txn.reason|truncatewords:6 }}</small></td>
           <td><small>{{ txn.get_payment_method_display }}</small></td>
           <td>
@@ -120,11 +120,11 @@
             {% if txn.is_auto_generated %}
               {% if txn.source_type == 'WeeklySalesRevenue' %}
                 <span class="badge bg-primary" title="Auto-synced weekly gross profit (Revenue − COGS)">
-                  <i class="fas fa-chart-line mr-1"></i>Weekly Sales
+                  <i class="fas fa-chart-line me-1"></i>Weekly Sales
                 </span>
               {% else %}
                 <span class="badge bg-info" title="Auto-generated from {{ txn.source_type }} #{{ txn.source_id }}">
-                  <i class="fas fa-robot mr-1"></i>{{ txn.source_type }}
+                  <i class="fas fa-robot me-1"></i>{{ txn.source_type }}
                 </span>
               {% endif %}
             {% else %}
@@ -132,7 +132,7 @@
             {% endif %}
           </td>
           <td>{{ txn.created_by.get_short_name|default:txn.created_by.username }}</td>
-          <td class="text-right">
+          <td class="text-end">
             <a href="{% url 'cashflow_detail' txn.pk %}" class="btn btn-xs btn-outline-info"><i class="fas fa-eye"></i></a>
             {% if not is_view_only %}{% if txn.status == 'PENDING' or txn.status == 'REJECTED' %}
             <a href="#" data-modal-url="{% url 'cashflow_edit' txn.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
@@ -168,7 +168,7 @@
     }).then(function(result) {
       if (!result.isConfirmed) return;
       btn.disabled = true;
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Syncing…';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Syncing…';
       fetch('{% url "cashflow_sync" %}', {
         method: 'POST',
         headers: {
@@ -206,7 +206,7 @@
       })
       .finally(function() {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i> Sync Cash Flow';
+        btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i> Sync Cash Flow';
       });
     });
   });

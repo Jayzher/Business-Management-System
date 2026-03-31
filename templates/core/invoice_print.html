@@ -18,7 +18,7 @@
     table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
     th { background: #f4f6f9; color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; border-bottom: 2px solid #dee2e6; text-align: left; }
     td { padding: 7px 10px; border-bottom: 1px solid #eee; }
-    .text-right { text-align: right; }
+    .text-end { text-align: right; }
     .totals td { border-bottom: none; padding: 4px 10px; }
     .totals .grand { font-size: 16px; font-weight: 700; color: #007bff; border-top: 2px solid #007bff; padding-top: 8px; }
     .footer { margin-top: 30px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
@@ -55,7 +55,7 @@
 
   <table>
     <thead>
-      <tr><th>#</th><th>Code</th><th>Description</th><th class="text-right">Qty</th><th>Unit</th><th class="text-right">Price</th><th class="text-right">Disc.</th><th class="text-right">Total</th></tr>
+      <tr><th>#</th><th>Code</th><th>Description</th><th class="text-end">Qty</th><th>Unit</th><th class="text-end">Price</th><th class="text-end">Disc.</th><th class="text-end">Total</th></tr>
     </thead>
     <tbody>
       {% for line in invoice.lines.all %}
@@ -64,22 +64,22 @@
         <td>{{ forloop.counter }}</td>
         <td><strong>BUNDLE</strong></td>
         <td><strong>{{ line.item_name }}</strong></td>
-        <td class="text-right">{{ line.qty|floatformat:2 }}</td>
+        <td class="text-end">{{ line.qty|floatformat:2 }}</td>
         <td>{{ line.unit }}</td>
-        <td class="text-right">{{ line.unit_price|floatformat:2|intcomma }}</td>
-        <td class="text-right">{{ line.discount|floatformat:2|intcomma }}</td>
-        <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
+        <td class="text-end">{{ line.unit_price|floatformat:2|intcomma }}</td>
+        <td class="text-end">{{ line.discount|floatformat:2|intcomma }}</td>
+        <td class="text-end"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
       </tr>
       {% else %}
       <tr>
         <td>{{ forloop.counter }}</td>
         <td>{{ line.item_code }}</td>
         <td>{{ line.item_name }}</td>
-        <td class="text-right">{{ line.qty|floatformat:2 }}</td>
+        <td class="text-end">{{ line.qty|floatformat:2 }}</td>
         <td>{{ line.unit }}</td>
-        <td class="text-right">{{ line.unit_price|floatformat:2|intcomma }}</td>
-        <td class="text-right">{{ line.discount|floatformat:2|intcomma }}</td>
-        <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
+        <td class="text-end">{{ line.unit_price|floatformat:2|intcomma }}</td>
+        <td class="text-end">{{ line.discount|floatformat:2|intcomma }}</td>
+        <td class="text-end"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
       </tr>
       {% endif %}
       {% endfor %}
@@ -87,10 +87,10 @@
   </table>
 
   <table class="totals" style="width:350px;margin-left:auto;">
-    <tr><td class="text-right">Subtotal</td><td class="text-right">{{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
-    {% if invoice.discount_total %}<tr><td class="text-right">Discount</td><td class="text-right">({{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
-    {% if invoice.tax_total %}<tr><td class="text-right">Tax</td><td class="text-right">{{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
-    <tr><td class="text-right grand">TOTAL ({{ profile.currency }})</td><td class="text-right grand">{{ invoice.grand_total|floatformat:2|intcomma }}</td></tr>
+    <tr><td class="text-end">Subtotal</td><td class="text-end">{{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
+    {% if invoice.discount_total %}<tr><td class="text-end">Discount</td><td class="text-end">({{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
+    {% if invoice.tax_total %}<tr><td class="text-end">Tax</td><td class="text-end">{{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
+    <tr><td class="text-end grand">TOTAL ({{ profile.currency }})</td><td class="text-end grand">{{ invoice.grand_total|floatformat:2|intcomma }}</td></tr>
   </table>
 
   {% if invoice.notes %}<p style="margin-top:15px;"><strong>Notes:</strong> {{ invoice.notes }}</p>{% endif %}

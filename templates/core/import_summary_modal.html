@@ -7,7 +7,7 @@
 <div class="card">
   <div class="card-header {% if result.errors %}bg-warning{% else %}bg-success{% endif %}">
     <h3 class="card-title text-white">
-      <i class="fas {% if result.errors %}fa-exclamation-triangle{% else %}fa-check-circle{% endif %} mr-2"></i>
+      <i class="fas {% if result.errors %}fa-exclamation-triangle{% else %}fa-check-circle{% endif %} me-2"></i>
       Import Summary
     </h3>
   </div>
@@ -55,7 +55,7 @@
     <!-- Success Message -->
     {% if result.success_count > 0 %}
     <div class="alert alert-success d-flex align-items-center mb-3">
-      <i class="fas fa-check-circle fa-2x mr-3"></i>
+      <i class="fas fa-check-circle fa-2x me-3"></i>
       <div>
         <strong>Successfully processed {{ result.success_count }} record{{ result.success_count|pluralize }}!</strong>
         <br>
@@ -69,7 +69,7 @@
     <div class="card card-danger card-outline mb-3">
       <div class="card-header">
         <h5 class="card-title mb-0">
-          <i class="fas fa-times-circle mr-1"></i>
+          <i class="fas fa-times-circle me-1"></i>
           Failed Imports ({{ result.errors|length }})
         </h5>
       </div>
@@ -87,10 +87,10 @@
               {% for error in result.errors %}
               <tr class="table-danger">
                 <td class="text-center align-middle">
-                  <span class="badge badge-danger">{{ error.row_num }}</span>
+                  <span class="badge bg-danger">{{ error.row_num }}</span>
                 </td>
                 <td class="align-middle">
-                  <i class="fas fa-exclamation-circle text-danger mr-1"></i>
+                  <i class="fas fa-exclamation-circle text-danger me-1"></i>
                   <strong class="text-danger">{{ error.message }}</strong>
                 </td>
                 <td class="align-middle">
@@ -98,7 +98,7 @@
                   <div class="d-flex flex-wrap" style="gap: 4px; max-width: 400px;">
                     {% for key, val in error.row_data.items %}
                     {% if val %}
-                    <span class="badge badge-light border text-dark" title="{{ key }}">
+                    <span class="badge bg-light text-dark border text-dark" title="{{ key }}">
                       <span class="text-muted" style="font-size:0.65rem;">{{ key|truncatechars:20 }}:</span>
                       {{ val|truncatechars:25 }}
                     </span>
@@ -117,7 +117,7 @@
       </div>
       <div class="card-footer bg-light">
         <small class="text-muted">
-          <i class="fas fa-info-circle mr-1"></i>
+          <i class="fas fa-info-circle me-1"></i>
           Review the errors above, fix the highlighted rows in your CSV file, and try importing again.
         </small>
       </div>
@@ -129,7 +129,7 @@
     <div class="card card-warning card-outline mb-3">
       <div class="card-header">
         <h5 class="card-title mb-0">
-          <i class="fas fa-exclamation-triangle mr-1"></i> 
+          <i class="fas fa-exclamation-triangle me-1"></i> 
           Warnings ({{ result.warnings|length }})
         </h5>
       </div>
@@ -145,7 +145,7 @@
             <tbody>
               {% for warning in result.warnings %}
               <tr>
-                <td class="text-center"><span class="badge badge-warning">{{ forloop.counter }}</span></td>
+                <td class="text-center"><span class="badge bg-warning text-dark">{{ forloop.counter }}</span></td>
                 <td><small class="text-warning">{{ warning }}</small></td>
               </tr>
               {% endfor %}
@@ -159,7 +159,7 @@
     <!-- No Issues Message -->
     {% if not result.errors and not result.warnings and result.success_count > 0 %}
     <div class="alert alert-info mb-0">
-      <i class="fas fa-info-circle mr-2"></i>
+      <i class="fas fa-info-circle me-2"></i>
       All records were imported successfully with no errors or warnings.
     </div>
     {% endif %}
@@ -167,14 +167,14 @@
     <!-- Complete Failure Message -->
     {% if result.success_count == 0 and result.errors %}
     <div class="alert alert-danger mb-0">
-      <i class="fas fa-exclamation-triangle mr-2"></i>
+      <i class="fas fa-exclamation-triangle me-2"></i>
       <strong>Import failed!</strong> No records were imported. Please review the errors above and correct your CSV file.
     </div>
     {% endif %}
   </div>
   <div class="card-footer d-flex justify-content-end gap-2">
     <a href="{{ cancel_url }}" class="btn btn-primary">
-      <i class="fas fa-check mr-1"></i> Done
+      <i class="fas fa-check me-1"></i> Done
     </a>
   </div>
 </div>

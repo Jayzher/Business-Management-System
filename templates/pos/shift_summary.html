@@ -55,10 +55,10 @@
       <div class="card-header"><h3 class="card-title">Actions</h3></div>
       <div class="card-body">
         {% if shift.status == 'OPEN' %}
-        <a href="{% url 'pos_terminal' shift_id=shift.pk %}" class="btn btn-primary btn-block mb-2"><i class="fas fa-cash-register mr-1"></i> Go to Terminal</a>
-        <a href="{% url 'pos_shift_close' pk=shift.pk %}" class="btn btn-warning btn-block mb-2"><i class="fas fa-lock mr-1"></i> Close Shift</a>
+        <a href="{% url 'pos_terminal' shift_id=shift.pk %}" class="btn btn-primary w-100 mb-2"><i class="fas fa-cash-register me-1"></i> Go to Terminal</a>
+        <a href="{% url 'pos_shift_close' pk=shift.pk %}" class="btn btn-warning w-100 mb-2"><i class="fas fa-lock me-1"></i> Close Shift</a>
         {% endif %}
-        <a href="{% url 'pos_shift_list' %}" class="btn btn-secondary btn-block"><i class="fas fa-arrow-left mr-1"></i> Back to Shifts</a>
+        <a href="{% url 'pos_shift_list' %}" class="btn btn-secondary w-100"><i class="fas fa-arrow-left me-1"></i> Back to Shifts</a>
       </div>
     </div>
   </div>

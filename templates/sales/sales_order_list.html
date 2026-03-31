@@ -7,10 +7,10 @@
 {% block content %}
 <div class="card">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-file-invoice-dollar mr-1"></i> Sales Orders</h3>
+    <h3 class="card-title"><i class="fas fa-file-invoice-dollar me-1"></i> Sales Orders</h3>
     {% if not is_view_only %}<div class="card-tools">
-      <a href="#" data-modal-url="{% url 'sales_order_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
-      <a href="#" data-modal-url="{% url 'sales_order_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New SO</a>
+      <a href="#" data-modal-url="{% url 'sales_order_import' %}" class="btn btn-sm btn-success me-1"><i class="fas fa-file-import me-1"></i> Import CSV</a>
+      <a href="#" data-modal-url="{% url 'sales_order_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> New SO</a>
     </div>{% endif %}
   </div>
   <div class="card-body table-responsive">

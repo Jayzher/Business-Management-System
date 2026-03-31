@@ -10,11 +10,11 @@
 {% block content %}
 <div class="card card-outline card-warning">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-exclamation-triangle text-warning mr-2"></i> Low Stock Alerts</h3>
+    <h3 class="card-title"><i class="fas fa-exclamation-triangle text-warning me-2"></i> Low Stock Alerts</h3>
     <div class="card-tools">
-      <span class="badge bg-warning text-dark mr-2">{{ rows|length }} item{{ rows|length|pluralize }}</span>
-      <button type="button" class="btn btn-sm btn-success mr-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
-      <button type="button" class="btn btn-sm btn-outline-danger wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+      <span class="badge bg-warning text-dark me-2">{{ rows|length }} item{{ rows|length|pluralize }}</span>
+      <button type="button" class="btn btn-sm btn-success me-1 wis-export-excel"><i class="fas fa-file-excel me-1"></i> Excel</button>
+      <button type="button" class="btn btn-sm btn-outline-danger wis-export-pdf"><i class="fas fa-file-pdf me-1"></i> PDF</button>
     </div>
   </div>
   <div class="card-body table-responsive p-0">
@@ -25,9 +25,9 @@
           <th>Item Code</th>
           <th>Item Name</th>
           <th>Unit</th>
-          <th class="text-right">Reorder Point</th>
-          <th class="text-right">On Hand</th>
-          <th class="text-right">Deficit</th>
+          <th class="text-end">Reorder Point</th>
+          <th class="text-end">On Hand</th>
+          <th class="text-end">Deficit</th>
           <th style="min-width:120px;">Stock Level</th>
           <th>Status</th>
         </tr>
@@ -45,9 +45,9 @@
           <td><a href="{% url 'item_detail' row.item.pk %}">{{ row.item.code }}</a></td>
           <td>{{ row.item.name }}</td>
           <td>{{ row.item.default_unit.abbreviation }}</td>
-          <td class="text-right">{{ row.item.reorder_point|floatformat:2 }}</td>
-          <td class="text-right">{{ row.qty_on_hand|floatformat:2 }}</td>
-          <td class="text-right text-danger font-weight-bold">{{ row.deficit|floatformat:2 }}</td>
+          <td class="text-end">{{ row.item.reorder_point|floatformat:2 }}</td>
+          <td class="text-end">{{ row.qty_on_hand|floatformat:2 }}</td>
+          <td class="text-end text-danger fw-bold">{{ row.deficit|floatformat:2 }}</td>
           <td>
             <div class="progress progress-sm" style="height:8px;" title="{{ row.stock_pct|floatformat:0 }}%">
               <div class="progress-bar {% if row.stock_pct <= 0 %}bg-danger{% elif row.stock_pct < 50 %}bg-warning{% else %}bg-info{% endif %}" style="width:{{ row.stock_pct|floatformat:0 }}%"></div>
@@ -62,7 +62,7 @@
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="9" class="text-center text-muted py-4"><i class="fas fa-check-circle mr-2 text-success"></i>All items are above reorder point.</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4"><i class="fas fa-check-circle me-2 text-success"></i>All items are above reorder point.</td></tr>
         {% endfor %}
       </tbody>
     </table>

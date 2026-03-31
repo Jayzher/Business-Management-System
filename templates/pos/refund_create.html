@@ -40,14 +40,14 @@
       </table>
     </div>
     <div class="card-body">
-      <div class="form-group">
+      <div class="mb-3">
         <label class="form-label">Reason</label>
         <textarea name="reason" class="form-control" rows="2" placeholder="Reason for refund..."></textarea>
       </div>
     </div>
     <div class="card-footer">
-      <button type="submit" class="btn btn-warning"><i class="fas fa-undo mr-1"></i> Process Refund</button>
-      <a href="{% url 'pos_receipt_detail' pk=original_sale.pk %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i> Cancel</a>
+      <button type="submit" class="btn btn-warning"><i class="fas fa-undo me-1"></i> Process Refund</button>
+      <a href="{% url 'pos_receipt_detail' pk=original_sale.pk %}" class="btn btn-secondary"><i class="fas fa-times me-1"></i> Cancel</a>
     </div>
   </div>
 </form>

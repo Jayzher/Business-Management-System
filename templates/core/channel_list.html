@@ -6,8 +6,8 @@
 {% block content %}
 <div class="card">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-broadcast-tower mr-1"></i> Sales Channels</h3>
-    {% if not is_view_only %}<div class="card-tools"><a href="#" data-modal-url="{% url 'channel_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Channel</a></div>{% endif %}
+    <h3 class="card-title"><i class="fas fa-broadcast-tower me-1"></i> Sales Channels</h3>
+    {% if not is_view_only %}<div class="card-tools"><a href="#" data-modal-url="{% url 'channel_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> New Channel</a></div>{% endif %}
   </div>
   <div class="card-body table-responsive">
     <table class="table table-hover table-striped text-nowrap wis-table">
@@ -18,7 +18,7 @@
           <td><strong>{{ ch.code }}</strong></td>
           <td>{{ ch.name }}</td>
           <td>{{ ch.description|truncatewords:10 }}</td>
-          <td class="text-right">
+          <td class="text-end">
             {% if not is_view_only %}<a href="#" data-modal-url="{% url 'channel_edit' ch.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'channel_delete' ch.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>

@@ -13,7 +13,7 @@
   <div class="col-lg-8">
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-money-bill-wave mr-1"></i> Transaction Details</h3>
+        <h3 class="card-title"><i class="fas fa-money-bill-wave me-1"></i> Transaction Details</h3>
       </div>
       <div class="card-body p-0">
         <table class="table doc-detail-table mb-0">
@@ -30,8 +30,8 @@
           <tr>
             <th>Type</th>
             <td>
-              {% if txn.flow_type == 'CASH_IN' %}<span class="badge bg-success"><i class="fas fa-arrow-down mr-1"></i>Cash In</span>
-              {% else %}<span class="badge bg-danger"><i class="fas fa-arrow-up mr-1"></i>Cash Out</span>{% endif %}
+              {% if txn.flow_type == 'CASH_IN' %}<span class="badge bg-success"><i class="fas fa-arrow-down me-1"></i>Cash In</span>
+              {% else %}<span class="badge bg-danger"><i class="fas fa-arrow-up me-1"></i>Cash Out</span>{% endif %}
             </td>
           </tr>
           <tr><th>Category</th><td><span class="badge bg-info">{{ txn.get_category_display }}</span></td></tr>
@@ -59,7 +59,7 @@
     <!-- ── Activity Log ──────────────────────────────────────────── -->
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-history mr-1"></i> Activity Log</h3>
+        <h3 class="card-title"><i class="fas fa-history me-1"></i> Activity Log</h3>
       </div>
       <div class="card-body p-0">
         <table class="table table-sm table-striped mb-0">
@@ -93,43 +93,43 @@
   <div class="col-lg-4">
     <div class="card card-primary card-outline">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-bolt mr-1"></i> Actions</h3>
+        <h3 class="card-title"><i class="fas fa-bolt me-1"></i> Actions</h3>
       </div>
       <div class="card-body">
         {% if txn.status == 'PENDING' %}
         <form method="post" action="{% url 'cashflow_approve' txn.pk %}" class="mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-success btn-block"><i class="fas fa-check mr-1"></i> Approve</button>
+          <button type="submit" class="btn btn-success w-100"><i class="fas fa-check me-1"></i> Approve</button>
         </form>
         <form method="post" action="{% url 'cashflow_reject' txn.pk %}" class="mb-2" id="reject-form">
           {% csrf_token %}
-          <div class="form-group mb-2">
+          <div class="mb-2">
             {{ reject_form.rejection_reason }}
           </div>
-          <button type="submit" class="btn btn-danger btn-block"><i class="fas fa-times mr-1"></i> Reject</button>
+          <button type="submit" class="btn btn-danger w-100"><i class="fas fa-times me-1"></i> Reject</button>
         </form>
         <hr>
-        <a href="#" data-modal-url="{% url 'cashflow_edit' txn.pk %}" class="btn btn-info btn-block mb-2"><i class="fas fa-edit mr-1"></i> Edit</a>
-        <a href="#" data-modal-url="{% url 'cashflow_delete' txn.pk %}" class="btn btn-outline-danger btn-block mb-2"><i class="fas fa-trash mr-1"></i> Delete</a>
+        <a href="#" data-modal-url="{% url 'cashflow_edit' txn.pk %}" class="btn btn-info w-100 mb-2"><i class="fas fa-edit me-1"></i> Edit</a>
+        <a href="#" data-modal-url="{% url 'cashflow_delete' txn.pk %}" class="btn btn-outline-danger w-100 mb-2"><i class="fas fa-trash me-1"></i> Delete</a>
         {% endif %}
 
         {% if txn.status == 'REJECTED' %}
-        <a href="#" data-modal-url="{% url 'cashflow_edit' txn.pk %}" class="btn btn-info btn-block mb-2"><i class="fas fa-edit mr-1"></i> Edit & Resubmit</a>
-        <a href="#" data-modal-url="{% url 'cashflow_delete' txn.pk %}" class="btn btn-outline-danger btn-block mb-2"><i class="fas fa-trash mr-1"></i> Delete</a>
+        <a href="#" data-modal-url="{% url 'cashflow_edit' txn.pk %}" class="btn btn-info w-100 mb-2"><i class="fas fa-edit me-1"></i> Edit & Resubmit</a>
+        <a href="#" data-modal-url="{% url 'cashflow_delete' txn.pk %}" class="btn btn-outline-danger w-100 mb-2"><i class="fas fa-trash me-1"></i> Delete</a>
         {% endif %}
 
         {% if txn.status != 'CANCELLED' %}
         <form method="post" action="{% url 'cashflow_cancel' txn.pk %}">
           {% csrf_token %}
-          <button type="submit" class="btn btn-outline-secondary btn-block"
+          <button type="submit" class="btn btn-outline-secondary w-100"
                   onclick="return confirm('Cancel this transaction?');">
-            <i class="fas fa-ban mr-1"></i> Cancel Transaction
+            <i class="fas fa-ban me-1"></i> Cancel Transaction
           </button>
         </form>
         {% endif %}
       </div>
       <div class="card-footer">
-        <a href="{% url 'cashflow_list' %}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left mr-1"></i> Back to List</a>
+        <a href="{% url 'cashflow_list' %}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i> Back to List</a>
       </div>
     </div>
   </div>

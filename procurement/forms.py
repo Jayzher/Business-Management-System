@@ -69,13 +69,14 @@ PurchaseOrderLineFormSet = inlineformset_factory(
 class GoodsReceiptForm(forms.ModelForm):
     class Meta:
         model = GoodsReceipt
-        fields = ['document_number', 'purchase_order', 'supplier', 'warehouse', 'receipt_date', 'notes']
+        fields = ['document_number', 'purchase_order', 'supplier', 'warehouse', 'receipt_date', 'delivery_charges', 'notes']
         widgets = {
             'document_number': forms.TextInput(attrs={'class': 'form-control'}),
             'purchase_order': forms.Select(attrs={'class': 'form-control'}),
             'supplier': forms.Select(attrs={'class': 'form-control'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
             'receipt_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'delivery_charges': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0', 'placeholder': '0.00'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
         help_texts = {
@@ -84,6 +85,7 @@ class GoodsReceiptForm(forms.ModelForm):
             'supplier': 'Vendor delivering the goods.',
             'warehouse': 'Warehouse where goods are being received.',
             'receipt_date': 'Actual date goods were received.',
+            'delivery_charges': 'Optional delivery/freight charges. Will be allocated across items and included in COGS.',
             'notes': 'Remarks about this receipt (condition, discrepancies).',
         }
 

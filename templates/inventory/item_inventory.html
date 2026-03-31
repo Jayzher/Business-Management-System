@@ -34,10 +34,10 @@
 <!-- Filters -->
 <div class="card card-outline card-primary">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-boxes mr-2"></i> Full Item Inventory</h3>
+    <h3 class="card-title"><i class="fas fa-boxes me-2"></i> Full Item Inventory</h3>
     <div class="card-tools">
-      <button type="button" class="btn btn-sm btn-success mr-1 wis-export-excel"><i class="fas fa-file-excel mr-1"></i> Excel</button>
-      <button type="button" class="btn btn-sm btn-outline-danger wis-export-pdf"><i class="fas fa-file-pdf mr-1"></i> PDF</button>
+      <button type="button" class="btn btn-sm btn-success me-1 wis-export-excel"><i class="fas fa-file-excel me-1"></i> Excel</button>
+      <button type="button" class="btn btn-sm btn-outline-danger wis-export-pdf"><i class="fas fa-file-pdf me-1"></i> PDF</button>
     </div>
   </div>
   <div class="card-body pb-0">
@@ -67,7 +67,7 @@
       <div class="col-md-2">
         <label class="small">&nbsp;</label>
         <div>
-          <button type="submit" class="btn btn-sm btn-primary mr-1"><i class="fas fa-filter mr-1"></i> Filter</button>
+          <button type="submit" class="btn btn-sm btn-primary me-1"><i class="fas fa-filter me-1"></i> Filter</button>
           <a href="{% url 'item_inventory' %}" class="btn btn-sm btn-secondary">Clear</a>
         </div>
       </div>
@@ -83,11 +83,11 @@
           <th>Type</th>
           <th>Category</th>
           <th>Unit</th>
-          <th class="text-right">On Hand</th>
-          <th class="text-right">Reserved</th>
-          <th class="text-right">Available</th>
-          <th class="text-right">Cost Price</th>
-          <th class="text-right">Value</th>
+          <th class="text-end">On Hand</th>
+          <th class="text-end">Reserved</th>
+          <th class="text-end">Available</th>
+          <th class="text-end">Cost Price</th>
+          <th class="text-end">Value</th>
           <th>Status</th>
         </tr>
       </thead>
@@ -110,11 +110,11 @@
           </td>
           <td>{{ row.item.category.name }}</td>
           <td>{{ row.item.default_unit.abbreviation }}</td>
-          <td class="text-right">{{ row.on_hand|floatformat:2 }}</td>
-          <td class="text-right">{{ row.reserved|floatformat:2 }}</td>
-          <td class="text-right font-weight-bold {% if row.available > 0 %}text-success{% elif row.available == 0 %}text-warning{% else %}text-danger{% endif %}">{{ row.available|floatformat:2 }}</td>
-          <td class="text-right">{{ row.item.cost_price|floatformat:2 }}</td>
-          <td class="text-right">{{ row.value|floatformat:2|intcomma }}</td>
+          <td class="text-end">{{ row.on_hand|floatformat:2 }}</td>
+          <td class="text-end">{{ row.reserved|floatformat:2 }}</td>
+          <td class="text-end fw-bold {% if row.available > 0 %}text-success{% elif row.available == 0 %}text-warning{% else %}text-danger{% endif %}">{{ row.available|floatformat:2 }}</td>
+          <td class="text-end">{{ row.item.cost_price|floatformat:2 }}</td>
+          <td class="text-end">{{ row.value|floatformat:2|intcomma }}</td>
           <td>
             {% if row.on_hand <= 0 %}
               <span class="badge bg-danger">Out of Stock</span>
@@ -126,16 +126,16 @@
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="12" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No items found.</td></tr>
+        <tr><td colspan="12" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No items found.</td></tr>
         {% endfor %}
       </tbody>
       {% if rows %}
       <tfoot>
-        <tr class="font-weight-bold bg-light">
-          <td colspan="6" class="text-right">Totals:</td>
-          <td class="text-right">{{ grand_on_hand|floatformat:2 }}</td>
+        <tr class="fw-bold bg-light">
+          <td colspan="6" class="text-end">Totals:</td>
+          <td class="text-end">{{ grand_on_hand|floatformat:2 }}</td>
           <td></td><td></td><td></td>
-          <td class="text-right">{{ grand_value|floatformat:2|intcomma }}</td>
+          <td class="text-end">{{ grand_value|floatformat:2|intcomma }}</td>
           <td></td>
         </tr>
       </tfoot>

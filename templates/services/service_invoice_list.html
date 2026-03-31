@@ -10,9 +10,9 @@
 {% block content %}
 <div class="card">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-file-invoice-dollar mr-2 text-purple"></i>Service Invoices</h3>
+    <h3 class="card-title"><i class="fas fa-file-invoice-dollar me-2 text-purple"></i>Service Invoices</h3>
     <div class="card-tools d-flex align-items-center gap-2">
-      <form method="get" class="mr-2">
+      <form method="get" class="me-2">
         <select name="paid" class="form-control form-control-sm" onchange="this.form.submit()" style="min-width:140px;">
           <option value="">All Statuses</option>
           <option value="1" {% if paid_filter == '1' %}selected{% endif %}>Paid</option>
@@ -20,7 +20,7 @@
         </select>
       </form>
       <a href="{% url 'service_list' %}" class="btn btn-sm btn-secondary">
-        <i class="fas fa-tools mr-1"></i>Services
+        <i class="fas fa-tools me-1"></i>Services
       </a>
     </div>
   </div>
@@ -30,24 +30,24 @@
     <div class="row text-center">
       <div class="col-md-3">
         <div class="small text-muted">Total Invoices</div>
-        <div class="font-weight-bold">{{ invoices|length }}</div>
+        <div class="fw-bold">{{ invoices|length }}</div>
       </div>
       <div class="col-md-3">
         <div class="small text-muted">Total Revenue</div>
-        <div class="font-weight-bold text-success">{{ total_revenue|floatformat:2|intcomma }}</div>
+        <div class="fw-bold text-success">{{ total_revenue|floatformat:2|intcomma }}</div>
       </div>
       <div class="col-md-3">
         <div class="small text-muted">Paid</div>
-        <div class="font-weight-bold text-success">
+        <div class="fw-bold text-success">
           {% with paid_count=invoices|length %}{{ invoices|length }}{% endwith %}
         </div>
       </div>
       <div class="col-md-3">
         <div class="small text-muted">Filter</div>
         <div>
-          {% if paid_filter == '1' %}<span class="badge badge-success">Paid Only</span>
-          {% elif paid_filter == '0' %}<span class="badge badge-secondary">Unpaid Only</span>
-          {% else %}<span class="badge badge-info">All</span>{% endif %}
+          {% if paid_filter == '1' %}<span class="badge bg-success">Paid Only</span>
+          {% elif paid_filter == '0' %}<span class="badge bg-secondary">Unpaid Only</span>
+          {% else %}<span class="badge bg-info">All</span>{% endif %}
         </div>
       </div>
     </div>
@@ -62,8 +62,8 @@
           <th>Customer</th>
           <th>Service(s)</th>
           <th>Status</th>
-          <th class="text-right">Grand Total</th>
-          <th class="text-right">Balance Due</th>
+          <th class="text-end">Grand Total</th>
+          <th class="text-end">Balance Due</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -71,8 +71,8 @@
         {% for inv in invoices %}
         <tr>
           <td>
-            <a href="{% url 'service_invoice_detail' inv.pk %}" class="font-weight-bold">
-              <i class="fas fa-file-invoice-dollar mr-1 text-purple"></i>{{ inv.invoice_number }}
+            <a href="{% url 'service_invoice_detail' inv.pk %}" class="fw-bold">
+              <i class="fas fa-file-invoice-dollar me-1 text-purple"></i>{{ inv.invoice_number }}
             </a>
           </td>
           <td>{{ inv.date|date:"M d, Y" }}</td>
@@ -80,27 +80,27 @@
           <td>
             {% for svc in inv.customer_services.all %}
               <a href="{% url 'service_detail' svc.pk %}" class="badge" style="background:#6f42c1;color:#fff;">
-                <i class="fas fa-tools mr-1"></i>{{ svc.service_number }}
+                <i class="fas fa-tools me-1"></i>{{ svc.service_number }}
               </a>
             {% endfor %}
           </td>
           <td>
             {% if inv.is_void %}
-              <span class="badge badge-danger">Void</span>
+              <span class="badge bg-danger">Void</span>
             {% elif inv.is_paid %}
-              <span class="badge badge-success">Paid</span>
+              <span class="badge bg-success">Paid</span>
             {% else %}
               {% with bal=inv.balance_due %}
               {% if bal < inv.grand_total and bal > 0 %}
-                <span class="badge badge-warning">Partial</span>
+                <span class="badge bg-warning text-dark">Partial</span>
               {% else %}
-                <span class="badge badge-secondary">Unpaid</span>
+                <span class="badge bg-secondary">Unpaid</span>
               {% endif %}
               {% endwith %}
             {% endif %}
           </td>
-          <td class="text-right font-weight-bold">{{ inv.grand_total|floatformat:2|intcomma }}</td>
-          <td class="text-right {% if inv.balance_due > 0 and not inv.is_paid %}text-danger{% else %}text-success{% endif %}">
+          <td class="text-end fw-bold">{{ inv.grand_total|floatformat:2|intcomma }}</td>
+          <td class="text-end {% if inv.balance_due > 0 and not inv.is_paid %}text-danger{% else %}text-success{% endif %}">
             {{ inv.balance_due|floatformat:2|intcomma }}
           </td>
           <td>
@@ -130,7 +130,7 @@
   </div>
   <div class="card-footer">
     <a href="{% url 'service_list' %}" class="btn btn-sm btn-secondary">
-      <i class="fas fa-arrow-left mr-1"></i>Back to Services
+      <i class="fas fa-arrow-left me-1"></i>Back to Services
     </a>
   </div>
 </div>

@@ -6,8 +6,8 @@
 {% block content %}
 <div class="card">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-layer-group mr-1"></i> Expense Categories</h3>
-    {% if not is_view_only %}<div class="card-tools"><a href="#" data-modal-url="{% url 'expense_category_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Category</a></div>{% endif %}
+    <h3 class="card-title"><i class="fas fa-layer-group me-1"></i> Expense Categories</h3>
+    {% if not is_view_only %}<div class="card-tools"><a href="#" data-modal-url="{% url 'expense_category_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> New Category</a></div>{% endif %}
   </div>
   <div class="card-body table-responsive">
     <table class="table table-hover text-nowrap wis-table">
@@ -19,7 +19,7 @@
           <td>{{ cat.name }}</td>
           <td>{% if cat.is_cogs %}<span class="badge bg-warning">COGS</span>{% else %}-{% endif %}</td>
           <td>{{ cat.description|truncatewords:10 }}</td>
-          <td class="text-right">
+          <td class="text-end">
             {% if not is_view_only %}<a href="#" data-modal-url="{% url 'expense_category_edit' cat.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'expense_category_delete' cat.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>

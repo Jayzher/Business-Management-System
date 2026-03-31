@@ -161,7 +161,7 @@
             <h1 class="m-0">{% block page_title %}Dashboard{% endblock %}</h1>
           </div>
           <div class="col-sm-6">
-            <ol class="breadcrumb float-sm-right">
+            <ol class="breadcrumb float-sm-end">
               <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Home</a></li>
               {% block breadcrumb %}{% endblock %}
             </ol>
@@ -1189,7 +1189,7 @@ function wisSoLoadCustomerCatalog($form, customerId) {
       });
       /* Show a subtle toast */
       if (window.WIS && typeof WIS.toast === 'function') {
-        WIS.toast('<i class="fas fa-user-tag mr-1"></i>Customer price catalog applied: ' + data.customer_name + (data.effective_date ? ' (' + data.effective_date + ')' : ''), 'info');
+        WIS.toast('<i class="fas fa-user-tag me-1"></i>Customer price catalog applied: ' + data.customer_name + (data.effective_date ? ' (' + data.effective_date + ')' : ''), 'info');
       }
     } else {
       $form.find('#formset-body .formset-row').each(function() {
@@ -1463,7 +1463,7 @@ function wisSoBundlePreviewTable(items) {
 
   return '' +
     '<div class="d-flex align-items-center justify-content-between mb-2">' +
-      '<div><span class="badge bg-primary">' + items.length + ' items</span><span class="text-muted small ml-2">PriceList prices override catalog selling prices</span></div>' +
+      '<div><span class="badge bg-primary">' + items.length + ' items</span><span class="text-muted small ms-2">PriceList prices override catalog selling prices</span></div>' +
     '</div>' +
     '<div class="table-responsive">' +
       '<table class="table table-sm table-hover mb-0">' +
@@ -2001,7 +2001,7 @@ WIS.initServiceOtherMaterials = function(root) {
     $.getJSON(apiBase + plId + '/items/', function(data) {
       if (data && data.items && data.items.length) {
         var html = '<table class="table table-sm table-bordered table-striped mb-0">';
-        html += '<thead class="thead-light"><tr><th scope="col" style="width:40px;">#</th><th scope="col">Item</th><th scope="col" style="width:80px;">Unit</th><th scope="col" class="text-right" style="width:120px;">Price / set</th></tr></thead><tbody>';
+        html += '<thead class="thead-light"><tr><th scope="col" style="width:40px;">#</th><th scope="col">Item</th><th scope="col" style="width:80px;">Unit</th><th scope="col" class="text-end" style="width:120px;">Price / set</th></tr></thead><tbody>';
         var total = 0;
         $.each(data.items, function(i, it) {
           var p = parseFloat(it.price) || 0;
@@ -2009,10 +2009,10 @@ WIS.initServiceOtherMaterials = function(root) {
           html += '<tr><td class="text-muted">' + (i + 1) + '</td>';
           html += '<td>' + (it.item_name || '') + '</td>';
           html += '<td>' + (it.unit_abbr || '') + '</td>';
-          html += '<td class="text-right">₱' + p.toFixed(2) + '</td></tr>';
+          html += '<td class="text-end">₱' + p.toFixed(2) + '</td></tr>';
         });
-        html += '<tr class="table-primary font-weight-bold"><td colspan="3">Bundle Unit Price (1 set)</td>';
-        html += '<td class="text-right">₱' + total.toFixed(2) + '</td></tr></tbody></table>';
+        html += '<tr class="table-primary fw-bold"><td colspan="3">Bundle Unit Price (1 set)</td>';
+        html += '<td class="text-end">₱' + total.toFixed(2) + '</td></tr></tbody></table>';
         html += '<div class="text-start mt-3">';
         html += '<div class="small text-muted">Qty: ' + qty + '</div>';
         html += '<div class="small text-muted">Unit Price / Set: ₱' + total.toFixed(2) + '</div>';
@@ -2067,7 +2067,7 @@ WIS.initServiceOtherMaterials = function(root) {
 
       var total = 0;
       var html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">';
-      html += '<thead class="thead-light"><tr><th style="width:40px;">#</th><th>Item</th><th style="width:90px;">Unit</th><th class="text-right" style="width:130px;">Price / set</th></tr></thead><tbody>';
+      html += '<thead class="thead-light"><tr><th style="width:40px;">#</th><th>Item</th><th style="width:90px;">Unit</th><th class="text-end" style="width:130px;">Price / set</th></tr></thead><tbody>';
       $.each(data.items, function(i, it) {
         var price = parseFloat(it.price) || 0;
         total += price;
@@ -2075,7 +2075,7 @@ WIS.initServiceOtherMaterials = function(root) {
         html += '<td class="text-muted">' + (i + 1) + '</td>';
         html += '<td>' + (it.item_name || '') + '</td>';
         html += '<td>' + (it.unit_abbr || '') + '</td>';
-        html += '<td class="text-right">₱' + price.toFixed(2) + '</td>';
+        html += '<td class="text-end">₱' + price.toFixed(2) + '</td>';
         html += '</tr>';
       });
       html += '</tbody></table></div>';
@@ -2094,7 +2094,7 @@ WIS.initServiceOtherMaterials = function(root) {
     }).fail(function() {
       Swal.update({
         title: bundleName,
-        html: '<div class="text-danger py-5 text-center"><i class="fas fa-exclamation-triangle mr-1"></i>Failed to load bundle items.</div>',
+        html: '<div class="text-danger py-5 text-center"><i class="fas fa-exclamation-triangle me-1"></i>Failed to load bundle items.</div>',
         showConfirmButton: true,
         confirmButtonText: 'Close'
       });
@@ -2184,7 +2184,7 @@ $(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
 
     var total = 0;
     var html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">';
-    html += '<thead class="thead-light"><tr><th style="width:40px;">#</th><th>Item</th><th style="width:90px;">Unit</th><th class="text-right" style="width:130px;">Price / set</th></tr></thead><tbody>';
+    html += '<thead class="thead-light"><tr><th style="width:40px;">#</th><th>Item</th><th style="width:90px;">Unit</th><th class="text-end" style="width:130px;">Price / set</th></tr></thead><tbody>';
     $.each(data.items, function(i, it) {
       var price = parseFloat(it.price) || 0;
       total += price;
@@ -2192,7 +2192,7 @@ $(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
       html += '<td class="text-muted">' + (i + 1) + '</td>';
       html += '<td>' + (it.item_name || '') + '</td>';
       html += '<td>' + (it.unit_abbr || '') + '</td>';
-      html += '<td class="text-right">₱' + price.toFixed(2) + '</td>';
+      html += '<td class="text-end">₱' + price.toFixed(2) + '</td>';
       html += '</tr>';
     });
     html += '</tbody></table></div>';
@@ -2211,7 +2211,7 @@ $(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
   }).fail(function() {
     Swal.update({
       title: bundleName,
-      html: '<div class="text-danger py-5 text-center"><i class="fas fa-exclamation-triangle mr-1"></i>Failed to load bundle items.</div>',
+      html: '<div class="text-danger py-5 text-center"><i class="fas fa-exclamation-triangle me-1"></i>Failed to load bundle items.</div>',
       showConfirmButton: true,
       confirmButtonText: 'Close'
     });

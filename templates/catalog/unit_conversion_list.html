@@ -10,10 +10,10 @@
 {% block content %}
 <div class="card">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-exchange-alt mr-2"></i>Unit Conversion Rules</h3>
+    <h3 class="card-title"><i class="fas fa-exchange-alt me-2"></i>Unit Conversion Rules</h3>
     {% if not is_view_only %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'unit_conversion_create' %}" class="btn btn-sm btn-primary">
-        <i class="fas fa-plus mr-1"></i> New Conversion
+        <i class="fas fa-plus me-1"></i> New Conversion
       </a>
     </div>{% endif %}
   </div>
@@ -46,20 +46,20 @@
           </td>
           <td>
             {% if c.item %}
-              <span class="badge badge-info">{{ c.item.code }}</span>
+              <span class="badge bg-info">{{ c.item.code }}</span>
               <small class="text-muted">{{ c.item.name|truncatechars:25 }}</small>
             {% else %}
-              <span class="badge badge-secondary">Global</span>
+              <span class="badge bg-secondary">Global</span>
             {% endif %}
           </td>
           <td>
-            <span class="badge badge-light">{{ c.from_unit.get_category_display }}</span>
+            <span class="badge bg-light text-dark">{{ c.from_unit.get_category_display }}</span>
           </td>
           <td>
             {% if c.is_active %}
-              <span class="badge badge-success">Active</span>
+              <span class="badge bg-success">Active</span>
             {% else %}
-              <span class="badge badge-danger">Inactive</span>
+              <span class="badge bg-danger">Inactive</span>
             {% endif %}
           </td>
           <td>
@@ -84,7 +84,7 @@
     </table>
   </div>
   <div class="card-footer text-muted small">
-    <i class="fas fa-info-circle mr-1"></i>
+    <i class="fas fa-info-circle me-1"></i>
     <strong>Global</strong> conversions apply to all items. <strong>Item-specific</strong> conversions override the global factor for a single product.
     Both directions are supported &mdash; if you define <code>1 roll = 50 m</code>, the system can also compute how many rolls are in a given number of meters.
   </div>
