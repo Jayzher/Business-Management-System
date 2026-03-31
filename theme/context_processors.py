@@ -96,6 +96,7 @@ def sidebar_menu(request):
                 {'label': 'Purchase Orders', 'url': '/procurement/purchase-orders/', 'active_prefix': '/procurement/purchase-orders', 'icon': 'fas fa-clipboard-list'},
                 {'label': 'Goods Receipts', 'url': '/procurement/goods-receipts/', 'active_prefix': '/procurement/goods-receipts', 'icon': 'fas fa-inbox'},
                 {'label': 'Purchase Returns', 'url': '/procurement/purchase-returns/', 'active_prefix': '/procurement/purchase-returns', 'icon': 'fas fa-undo-alt'},
+                {'label': 'Supplier Catalog', 'url': '/procurement/supplier-catalog/', 'active_prefix': '/procurement/supplier-catalog', 'icon': 'fas fa-balance-scale'},
             ],
         },
         {

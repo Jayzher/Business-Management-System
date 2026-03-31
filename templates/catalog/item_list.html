@@ -8,6 +8,11 @@
 {% block extra_css %}
 <style>
 /* ── Toolbar ─────────────────────────────────────────────── */
+#catalog-toolbar {
+  position: sticky;
+  top: 57px;   /* height of AdminLTE fixed navbar */
+  z-index: 100;
+}
 #catalog-toolbar .select2-container--default .select2-selection--single {
   height: calc(1.8125rem + 2px);
   padding: 0 .5rem;

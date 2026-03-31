@@ -3,6 +3,7 @@ from django.forms import inlineformset_factory
 from procurement.models import (
     PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine,
     PurchaseReturn, PurchaseReturnLine, GoodsReceiptAttachment,
+    SupplierCatalogEntry,
 )
 
 
@@ -176,3 +177,18 @@ PurchaseReturnLineFormSet = inlineformset_factory(
     form=PurchaseReturnLineForm,
     extra=1, can_delete=True,
 )
+
+
+class SupplierCatalogEntryForm(forms.ModelForm):
+    class Meta:
+        model = SupplierCatalogEntry
+        fields = ['supplier', 'item', 'unit', 'unit_price', 'currency', 'lead_time_days', 'notes']
+        widgets = {
+            'supplier': forms.Select(attrs={'class': 'form-control'}),
+            'item': forms.Select(attrs={'class': 'form-control'}),
+            'unit': forms.Select(attrs={'class': 'form-control'}),
+            'unit_price': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'min': '0'}),
+            'currency': forms.TextInput(attrs={'class': 'form-control'}),
+            'lead_time_days': forms.NumberInput(attrs={'class': 'form-control', 'min': '0', 'placeholder': 'Days'}),
+            'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
+        }

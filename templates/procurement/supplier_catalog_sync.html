@@ -1,0 +1,56 @@
+{% extends "theme/base.html" %}
+
+{% block title %}Sync Supplier Catalog from POs{% endblock %}
+{% block page_title %}Sync Supplier Catalog{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'supplier_catalog_list' %}">Supplier Catalog</a></li>
+<li class="breadcrumb-item active">Sync from POs</li>
+{% endblock %}
+
+{% block content %}
+<div class="card card-outline card-success">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-sync-alt mr-1"></i> Sync Supplier Catalog from Purchase Orders</h3>
+  </div>
+  <div class="card-body">
+    <div class="alert alert-info">
+      <i class="fas fa-info-circle mr-1"></i>
+      This will scan all <strong>Approved</strong> and <strong>Posted</strong> Purchase Orders and import supplier prices into the Supplier Catalog.
+    </div>
+
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <div class="info-box bg-light">
+          <span class="info-box-icon bg-primary"><i class="fas fa-clipboard-list"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Eligible POs</span>
+            <span class="info-box-number">{{ po_count }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="info-box bg-light">
+          <span class="info-box-icon bg-success"><i class="fas fa-list"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">PO Lines with Prices</span>
+            <span class="info-box-number">{{ line_count }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p>For each supplier + item + unit combination, the <strong>latest PO price</strong> will be used. Existing entries will be updated if a newer PO is found.</p>
+
+    <form method="post">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-success btn-lg"
+              onclick="return confirm('This will sync {{ line_count }} PO line(s) into the Supplier Catalog. Existing entries will be updated with latest prices. Continue?')">
+        <i class="fas fa-sync-alt mr-1"></i> Start Sync
+      </button>
+      <a href="{% url 'supplier_catalog_list' %}" class="btn btn-secondary btn-lg ml-2">
+        <i class="fas fa-times mr-1"></i> Cancel
+      </a>
+    </form>
+  </div>
+</div>
+{% endblock %}
