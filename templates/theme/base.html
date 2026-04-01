@@ -613,49 +613,34 @@ function wisHandleFormSubmit(e) {
         return;
       }
       
-      /* Form with validation errors */
-      var newForm = doc.querySelector('form');
-      if (newForm) {
-        form.innerHTML = newForm.innerHTML;
-        var csrfInput = form.querySelector('input[name="csrfmiddlewaretoken"]');
-        if (!csrfInput) {
-          var h = document.createElement('input');
-          h.type = 'hidden'; h.name = 'csrfmiddlewaretoken'; h.value = getCookie('csrftoken');
-          form.appendChild(h);
-        }
-        var modalInput = form.querySelector('input[name="_modal"]');
-        if (!modalInput) {
-          var h = document.createElement('input');
-          h.type = 'hidden'; h.name = '_modal'; h.value = '1';
-          form.appendChild(h);
-        }
-        /* Ensure formset DELETE checkboxes and IDs remain wired */
-        var hiddenFields = doc.querySelectorAll('input[type="hidden"]');
-        hiddenFields.forEach(function(h) {
-          if (!form.querySelector('input[name="' + h.name + '"]')) {
-            var clone = h.cloneNode(true);
-            form.appendChild(clone);
+      /* Form with validation errors — re-render entire modal body like initial load */
+      var content = wisExtractContent(data);
+      if (content) {
+        wisModalBody.innerHTML = '<div class="p-3">' + content.body + '</div>';
+        var newForm = wisModalBody.querySelector('form');
+        if (newForm) {
+          if (!newForm.action || newForm.action === window.location.href) newForm.action = url;
+          /* Ensure _modal hidden field */
+          if (!newForm.querySelector('input[name="_modal"]')) {
+            var h = document.createElement('input');
+            h.type = 'hidden'; h.name = '_modal'; h.value = '1';
+            newForm.appendChild(h);
           }
-        });
-        form.addEventListener('submit', wisHandleFormSubmit);
-        var newHeaders = doc.querySelectorAll('h3, h4');
-        if (newHeaders.length && form.previousElementSibling) {
-          form.previousElementSibling.innerHTML = newHeaders[0].innerHTML;
+          /* Ensure CSRF token */
+          if (!newForm.querySelector('input[name="csrfmiddlewaretoken"]')) {
+            var h = document.createElement('input');
+            h.type = 'hidden'; h.name = 'csrfmiddlewaretoken'; h.value = getCookie('csrftoken');
+            newForm.appendChild(h);
+          }
+          /* Bind AJAX submit and re-init all widgets */
+          newForm.addEventListener('submit', wisHandleFormSubmit);
+          newForm.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) { new bootstrap.Tooltip(el); });
+          wisInitFormsetFlags();
+          wisInitSelect2(newForm);
+          wisAdjustmentInit(newForm);
+          if (WIS.initServiceOtherMaterials) WIS.initServiceOtherMaterials(wisModalBody);
         }
-        /* Rebind events for the new form */
-        var scripts = doc.querySelectorAll('script');
-        scripts.forEach(function(s) {
-          var h = document.createElement('script');
-          if (s.src) { h.src = s.src; } else { h.textContent = s.textContent; }
-          form.appendChild(h);
-        });
-        /* Re-attach handler to nested forms if any */
-        var nestedForms = form.querySelectorAll('form');
-        nestedForms.forEach(function(nf) {
-          nf.addEventListener('submit', wisHandleFormSubmit);
-        });
         Swal.fire({ icon: 'warning', title: 'Validation', text: 'Please fix the errors below.' });
-        if (form && form.dataset) { form.dataset.wisSubmitting = '0'; }
       }
     }
   })
