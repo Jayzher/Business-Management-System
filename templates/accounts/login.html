@@ -26,11 +26,15 @@
         {% csrf_token %}
         <div class="input-group mb-3">
           <input type="text" name="username" class="form-control" placeholder="Username" required autofocus>
-          <span class="input-group-text"><i class="fas fa-user"></i></span>
+          <div class="input-group-append">
+            <div class="input-group-text"><span class="fas fa-user"></span></div>
+          </div>
         </div>
         <div class="input-group mb-3">
           <input type="password" name="password" class="form-control" placeholder="Password" required>
-          <span class="input-group-text"><i class="fas fa-lock"></i></span>
+          <div class="input-group-append">
+            <div class="input-group-text"><span class="fas fa-lock"></span></div>
+          </div>
         </div>
         <div class="row">
           <div class="col-8">
@@ -40,7 +44,7 @@
             </div>
           </div>
           <div class="col-4">
-            <button type="submit" class="btn btn-primary w-100">Sign In</button>
+            <button type="submit" class="btn btn-primary btn-block">Sign In</button>
           </div>
         </div>
       </form>

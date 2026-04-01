@@ -21,10 +21,10 @@
   <div class="card-footer d-flex justify-content-end gap-2">
     <form method="post" style="display:inline;">
       {% csrf_token %}
-      <button type="submit" class="btn btn-danger"><i class="fas fa-trash me-1"></i> Yes, Delete</button>
+      <button type="submit" class="btn btn-danger"><i class="fas fa-trash mr-1"></i> Yes, Delete</button>
     </form>
     <a href="{% url 'customer_catalog_list' %}" class="btn btn-secondary">
-      <i class="fas fa-times me-1"></i> Cancel
+      <i class="fas fa-times mr-1"></i> Cancel
     </a>
   </div>
 </div>

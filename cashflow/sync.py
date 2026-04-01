@@ -290,7 +290,6 @@ def sync_procurement_cashflow(user):
         .prefetch_related('lines__item', 'lines__unit')
     ):
         total = Decimal('0')
-        delivery_charges = grn.delivery_charges or Decimal('0')
         for line in grn.lines.all():
             unit_price = Decimal('0')
             if grn.purchase_order_id:
@@ -305,7 +304,6 @@ def sync_procurement_cashflow(user):
             if unit_price == 0:
                 unit_price = getattr(line.item, 'cost_price', None) or Decimal('0')
             total += line.qty * unit_price
-        total += delivery_charges
 
         if total <= 0:
             continue

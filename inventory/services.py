@@ -96,43 +96,26 @@ def post_goods_receipt(grn, user):
 
     StockMove.objects.bulk_create(moves)
 
-    # Weighted average cost update (includes allocated delivery charges)
+    # Weighted average cost update
     from catalog.models import Item
-    delivery_charges = grn.delivery_charges or Decimal('0')
-    # Allocate delivery charges proportionally across lines by line value
-    grn_lines = list(grn.lines.select_related('item').all())
-    line_values = {}
-    total_line_value = Decimal('0')
-    for line in grn_lines:
-        po_unit_price = Decimal('0')
-        if grn.purchase_order:
-            po_line = grn.purchase_order.lines.filter(item=line.item).first()
-            if po_line:
-                po_unit_price = po_line.unit_price
-        if po_unit_price == 0:
-            po_unit_price = line.item.cost_price or Decimal('0')
-        lv = line.qty * po_unit_price
-        line_values[line.pk] = {'unit_price': po_unit_price, 'value': lv}
-        total_line_value += lv
-
-    for line in grn_lines:
+    for line in grn.lines.select_related('item').all():
         item = line.item
         if item.cost_price is None:
             item.cost_price = Decimal('0')
         total_existing_qty = sum(
             b.qty_on_hand for b in StockBalance.objects.filter(item=item)
         )
+        # total_existing_qty already includes the qty we just added
         old_qty = total_existing_qty - line.qty
         if old_qty + line.qty > 0:
-            po_unit_price = line_values[line.pk]['unit_price']
-            # Allocate delivery charges proportionally
-            allocated_charge = Decimal('0')
-            if delivery_charges > 0 and total_line_value > 0:
-                allocated_charge = delivery_charges * (line_values[line.pk]['value'] / total_line_value)
-            effective_unit_price = po_unit_price + (allocated_charge / line.qty if line.qty else Decimal('0'))
-            if effective_unit_price > 0:
+            po_unit_price = Decimal('0')
+            if grn.purchase_order:
+                po_line = grn.purchase_order.lines.filter(item=line.item).first()
+                if po_line:
+                    po_unit_price = po_line.unit_price
+            if po_unit_price > 0:
                 old_value = old_qty * item.cost_price
-                new_value = line.qty * effective_unit_price
+                new_value = line.qty * po_unit_price
                 item.cost_price = (old_value + new_value) / (old_qty + line.qty)
                 item.save(update_fields=['cost_price', 'updated_at'])
 

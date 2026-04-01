@@ -24,7 +24,7 @@
 {% block doc_table %}
 <table>
   <thead>
-    <tr><th>#</th><th>Item Code</th><th>Description</th><th>Location</th><th class="text-end">Qty</th><th>Unit</th></tr>
+    <tr><th>#</th><th>Item Code</th><th>Description</th><th>Location</th><th class="text-right">Qty</th><th>Unit</th></tr>
   </thead>
   <tbody>
     {% for line in regular_lines %}
@@ -33,7 +33,7 @@
       <td>{{ line.item.code }}</td>
       <td>{{ line.item.name }}</td>
       <td>{{ line.location }}</td>
-      <td class="text-end">{{ line.qty|decimal2 }}</td>
+      <td class="text-right">{{ line.qty|decimal2 }}</td>
       <td>{{ line.unit.abbreviation }}</td>
     </tr>
     {% endfor %}
@@ -43,7 +43,7 @@
       <td><i class="fas fa-layer-group" style="color:#6f42c1;"></i> BUNDLE</td>
       <td><strong>{{ bundle.name }}</strong></td>
       <td>—</td>
-      <td class="text-end">{{ bundle.qty|decimal2 }}</td>
+      <td class="text-right">{{ bundle.qty|decimal2 }}</td>
       <td>set</td>
     </tr>
     {% endfor %}

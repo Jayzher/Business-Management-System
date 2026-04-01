@@ -14,7 +14,7 @@
 <div class="row">
   <div class="col-lg-6">
     <div class="card">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-file-alt me-2 text-primary"></i>PO Details</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-file-alt mr-2 text-primary"></i>PO Details</h3></div>
       <div class="card-body p-0">
         <table class="table table-bordered mb-0 doc-detail-table">
           <tr><th>PO #</th><td><strong>{{ order.document_number }}</strong></td></tr>
@@ -35,7 +35,7 @@
   </div>
   <div class="col-lg-6">
     <div class="card">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle me-2 text-secondary"></i>Additional Info</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle mr-2 text-secondary"></i>Additional Info</h3></div>
       <div class="card-body p-0">
         <table class="table table-bordered mb-0 doc-detail-table">
           <tr><th>Created By</th><td>{{ order.created_by.get_full_name|default:order.created_by.username }}</td></tr>
@@ -50,7 +50,7 @@
 </div>
 
 <div class="card">
-  <div class="card-header"><h3 class="card-title"><i class="fas fa-list me-2 text-success"></i>Order Lines</h3></div>
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-list mr-2 text-success"></i>Order Lines</h3></div>
   <div class="card-body table-responsive p-0">
     <table class="table table-hover detail-lines-table mb-0">
       <thead>
@@ -68,7 +68,7 @@
           <td class="text-end">{{ line.line_total|currency }}</td>
         </tr>
         {% empty %}
-        <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No lines added yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

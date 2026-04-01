@@ -22,24 +22,24 @@
     <div class="card card-outline card-primary">
       <div class="card-header d-flex justify-content-between align-items-center">
         <h3 class="card-title mb-0">
-          <i class="fas fa-file-invoice me-1"></i> Invoice Details
+          <i class="fas fa-file-invoice mr-1"></i> Invoice Details
           {% if invoice.payment_status == 'PAID' %}
-            <span class="badge badge-paid ms-2">PAID</span>
+            <span class="badge badge-paid ml-2">PAID</span>
           {% elif invoice.payment_status == 'PARTIAL' %}
-            <span class="badge badge-partial ms-2">PARTIAL PAYMENT</span>
+            <span class="badge badge-partial ml-2">PARTIAL PAYMENT</span>
           {% else %}
-            <span class="badge badge-unpaid ms-2">UNPAID</span>
+            <span class="badge badge-unpaid ml-2">UNPAID</span>
           {% endif %}
         </h3>
         <div>
-          <a href="{% url 'invoice_print' invoice.pk %}" class="btn btn-sm btn-outline-primary" target="_blank"><i class="fas fa-print me-1"></i> Print</a>
+          <a href="{% url 'invoice_print' invoice.pk %}" class="btn btn-sm btn-outline-primary" target="_blank"><i class="fas fa-print mr-1"></i> Print</a>
           {% if not invoice.is_paid %}
           <form method="post" action="{% url 'invoice_mark_paid' invoice.pk %}" class="d-inline">
             {% csrf_token %}
-            <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Mark this invoice as fully paid?')"><i class="fas fa-check-circle me-1"></i> Mark Paid</button>
+            <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Mark this invoice as fully paid?')"><i class="fas fa-check-circle mr-1"></i> Mark Paid</button>
           </form>
           {% endif %}
-          <a href="{% url 'invoice_list' %}" class="btn btn-sm btn-secondary"><i class="fas fa-arrow-left me-1"></i> Back</a>
+          <a href="{% url 'invoice_list' %}" class="btn btn-sm btn-secondary"><i class="fas fa-arrow-left mr-1"></i> Back</a>
         </div>
       </div>
 
@@ -62,7 +62,7 @@
         <p class="small text-danger mb-1"><strong>Balance Due: &#8369;{{ balance_due|floatformat:2|intcomma }}</strong></p>
         {% endif %}
         {% if invoice.is_paid and invoice.paid_date %}
-        <p class="small text-success mb-1"><i class="fas fa-check-circle me-1"></i>Fully paid on {{ invoice.paid_date|date:"M d, Y" }}</p>
+        <p class="small text-success mb-1"><i class="fas fa-check-circle mr-1"></i>Fully paid on {{ invoice.paid_date|date:"M d, Y" }}</p>
         {% endif %}
       </div>
       {% endif %}
@@ -76,7 +76,7 @@
             <p class="mb-0">{{ profile.phone }}</p>
             {% if profile.tin %}<p class="mb-0">TIN: {{ profile.tin }}</p>{% endif %}
           </div>
-          <div class="col-md-6 text-end">
+          <div class="col-md-6 text-right">
             <h3 class="text-primary">INVOICE</h3>
             <p class="mb-0"><strong>INV-{{ invoice.invoice_number }}</strong></p>
             <p class="mb-0">Date: {{ invoice.date|date:"M d, Y" }}</p>
@@ -96,43 +96,43 @@
 
         <table class="table table-bordered">
           <thead class="table-light">
-            <tr><th>#</th><th>Code</th><th>Description</th><th class="text-end">Qty</th><th>Unit</th><th class="text-end">Price</th><th class="text-end">Disc.</th><th class="text-end">Total</th></tr>
+            <tr><th>#</th><th>Code</th><th>Description</th><th class="text-right">Qty</th><th>Unit</th><th class="text-right">Price</th><th class="text-right">Disc.</th><th class="text-right">Total</th></tr>
           </thead>
           <tbody>
             {% for line in invoice.lines.all %}
             {% if line.unit == 'bundle' %}
             <tr class="table-active" style="background:#dbeeff;">
               <td class="align-middle">{{ forloop.counter }}</td>
-              <td class="align-middle"><span class="badge bg-primary">BUNDLE</span></td>
-              <td class="align-middle"><strong><i class="fas fa-layer-group me-1 text-primary"></i>{{ line.item_name }}</strong></td>
-              <td class="text-end align-middle">{{ line.qty|floatformat:2 }}</td>
+              <td class="align-middle"><span class="badge badge-primary">BUNDLE</span></td>
+              <td class="align-middle"><strong><i class="fas fa-layer-group mr-1 text-primary"></i>{{ line.item_name }}</strong></td>
+              <td class="text-right align-middle">{{ line.qty|floatformat:2 }}</td>
               <td class="align-middle text-muted">bundle</td>
-              <td class="text-end align-middle">{{ line.unit_price|floatformat:2|intcomma }}</td>
-              <td class="text-end align-middle">{{ line.discount|floatformat:2|intcomma }}</td>
-              <td class="text-end align-middle"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
+              <td class="text-right align-middle">{{ line.unit_price|floatformat:2|intcomma }}</td>
+              <td class="text-right align-middle">{{ line.discount|floatformat:2|intcomma }}</td>
+              <td class="text-right align-middle"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
             </tr>
             {% else %}
             <tr>
               <td>{{ forloop.counter }}</td>
               <td>{{ line.item_code }}</td>
               <td>{{ line.item_name }}</td>
-              <td class="text-end">{{ line.qty|floatformat:2 }}</td>
+              <td class="text-right">{{ line.qty|floatformat:2 }}</td>
               <td>{{ line.unit }}</td>
-              <td class="text-end">{{ line.unit_price|floatformat:2|intcomma }}</td>
-              <td class="text-end">{{ line.discount|floatformat:2|intcomma }}</td>
-              <td class="text-end"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
+              <td class="text-right">{{ line.unit_price|floatformat:2|intcomma }}</td>
+              <td class="text-right">{{ line.discount|floatformat:2|intcomma }}</td>
+              <td class="text-right"><strong>{{ line.line_total|floatformat:2|intcomma }}</strong></td>
             </tr>
             {% endif %}
             {% endfor %}
           </tbody>
           <tfoot>
-            <tr><td colspan="7" class="text-end"><strong>Subtotal</strong></td><td class="text-end">&#8369; {{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
-            {% if invoice.discount_total %}<tr><td colspan="7" class="text-end">Discount</td><td class="text-end text-danger">(&#8369; {{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
-            {% if invoice.tax_total %}<tr><td colspan="7" class="text-end">Tax</td><td class="text-end">&#8369; {{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
-            <tr class="table-primary"><td colspan="7" class="text-end"><strong>Grand Total</strong></td><td class="text-end"><strong>&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
-            <tr class="table-success"><td colspan="7" class="text-end"><strong>Total Paid</strong></td><td class="text-end text-success"><strong>&#8369; {{ total_paid|floatformat:2|intcomma }}</strong></td></tr>
+            <tr><td colspan="7" class="text-right"><strong>Subtotal</strong></td><td class="text-right">&#8369; {{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
+            {% if invoice.discount_total %}<tr><td colspan="7" class="text-right">Discount</td><td class="text-right text-danger">(&#8369; {{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
+            {% if invoice.tax_total %}<tr><td colspan="7" class="text-right">Tax</td><td class="text-right">&#8369; {{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
+            <tr class="table-primary"><td colspan="7" class="text-right"><strong>Grand Total</strong></td><td class="text-right"><strong>&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
+            <tr class="table-success"><td colspan="7" class="text-right"><strong>Total Paid</strong></td><td class="text-right text-success"><strong>&#8369; {{ total_paid|floatformat:2|intcomma }}</strong></td></tr>
             {% if not invoice.is_paid %}
-            <tr class="table-warning"><td colspan="7" class="text-end"><strong>Balance Due</strong></td><td class="text-end text-danger"><strong>&#8369; {{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
+            <tr class="table-warning"><td colspan="7" class="text-right"><strong>Balance Due</strong></td><td class="text-right text-danger"><strong>&#8369; {{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
             {% endif %}
           </tfoot>
         </table>
@@ -148,15 +148,15 @@
 
     <!-- Payment History -->
     <div class="card card-outline card-success">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-history me-1"></i> Payment History</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-history mr-1"></i> Payment History</h3></div>
       <div class="card-body p-0">
         <table class="table table-sm mb-0">
           <thead class="table-light">
             <tr>
               <th>Date</th>
               <th>Method</th>
-              <th class="text-end">Amount</th>
-              <th class="text-end running-balance">Balance</th>
+              <th class="text-right">Amount</th>
+              <th class="text-right running-balance">Balance</th>
               <th></th>
             </tr>
           </thead>
@@ -170,8 +170,8 @@
                 {% if p.notes %}<br><small class="text-info"><i class="fas fa-comment-alt"></i> {{ p.notes }}</small>{% endif %}
               </td>
               <td><span class="badge bg-secondary">{{ p.get_method_display }}</span></td>
-              <td class="text-end text-success"><strong>&#8369; {{ p.amount|floatformat:2|intcomma }}</strong></td>
-              <td class="text-end running-balance">
+              <td class="text-right text-success"><strong>&#8369; {{ p.amount|floatformat:2|intcomma }}</strong></td>
+              <td class="text-right running-balance">
                 {% if p.balance_after > 0 %}
                   <span class="text-danger">&#8369; {{ p.balance_after|floatformat:2|intcomma }}</span>
                 {% else %}
@@ -197,7 +197,7 @@
           <tfoot class="table-light">
             <tr>
               <td colspan="2"><strong>Total Paid</strong></td>
-              <td class="text-end text-success"><strong>&#8369; {{ total_paid|floatformat:2|intcomma }}</strong></td>
+              <td class="text-right text-success"><strong>&#8369; {{ total_paid|floatformat:2|intcomma }}</strong></td>
               <td colspan="2"></td>
             </tr>
           </tfoot>
@@ -209,7 +209,7 @@
     <!-- Add Payment Form -->
     {% if not invoice.is_paid %}
     <div class="card card-outline card-info">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-plus-circle me-1"></i> Record Payment</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-plus-circle mr-1"></i> Record Payment</h3></div>
       <div class="card-body">
         <form method="post" action="{% url 'invoice_add_payment' invoice.pk %}">
           {% csrf_token %}
@@ -220,7 +220,7 @@
           <div class="mb-2">
             <label class="form-label small fw-bold">Amount <span class="text-danger">*</span></label>
             <div class="input-group input-group-sm">
-              <span class="input-group-text">&#8369;</span>
+              <div class="input-group-prepend"><span class="input-group-text">&#8369;</span></div>
               <input type="number" name="amount" class="form-control" step="0.01" min="0.01"
                      value="{{ balance_due|floatformat:2 }}" required>
             </div>
@@ -245,8 +245,8 @@
             <label class="form-label small fw-bold">Notes</label>
             <input type="text" name="notes" class="form-control form-control-sm" placeholder="Optional notes">
           </div>
-          <button type="submit" class="btn btn-success btn-sm w-100">
-            <i class="fas fa-check-circle me-1"></i> Record Payment
+          <button type="submit" class="btn btn-success btn-sm btn-block">
+            <i class="fas fa-check-circle mr-1"></i> Record Payment
           </button>
         </form>
       </div>
@@ -255,21 +255,21 @@
 
     <!-- Invoice Summary Card -->
     <div class="card card-outline card-secondary">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle me-1"></i> Summary</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle mr-1"></i> Summary</h3></div>
       <div class="card-body p-2">
         <table class="table table-sm mb-0">
-          <tr><td>Invoice Date</td><td class="text-end">{{ invoice.date|date:"M d, Y" }}</td></tr>
-          {% if invoice.due_date %}<tr><td>Due Date</td><td class="text-end {% if not invoice.is_paid and invoice.due_date < today_date %}text-danger{% endif %}">{{ invoice.due_date|date:"M d, Y" }}</td></tr>{% endif %}
-          <tr><td>Grand Total</td><td class="text-end"><strong>&#8369;{{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
-          <tr><td>Total Paid</td><td class="text-end text-success">&#8369; {{ total_paid|floatformat:2|intcomma }}</td></tr>
+          <tr><td>Invoice Date</td><td class="text-right">{{ invoice.date|date:"M d, Y" }}</td></tr>
+          {% if invoice.due_date %}<tr><td>Due Date</td><td class="text-right {% if not invoice.is_paid and invoice.due_date < today_date %}text-danger{% endif %}">{{ invoice.due_date|date:"M d, Y" }}</td></tr>{% endif %}
+          <tr><td>Grand Total</td><td class="text-right"><strong>&#8369;{{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
+          <tr><td>Total Paid</td><td class="text-right text-success">&#8369; {{ total_paid|floatformat:2|intcomma }}</td></tr>
           {% if not invoice.is_paid %}
-          <tr><td>Balance Due</td><td class="text-end text-danger"><strong>&#8369; {{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
+          <tr><td>Balance Due</td><td class="text-right text-danger"><strong>&#8369; {{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
           {% else %}
-          <tr><td>Paid On</td><td class="text-end">{{ invoice.paid_date|date:"M d, Y"|default:"—" }}</td></tr>
+          <tr><td>Paid On</td><td class="text-right">{{ invoice.paid_date|date:"M d, Y"|default:"—" }}</td></tr>
           {% endif %}
           <tr>
             <td>Status</td>
-            <td class="text-end">
+            <td class="text-right">
               {% if invoice.payment_status == 'PAID' %}
                 <span class="badge badge-paid">PAID</span>
               {% elif invoice.payment_status == 'PARTIAL' %}
@@ -287,33 +287,33 @@
     {% if invoice.grand_total_cogs > 0 %}
     {% with net_profit=invoice.grand_total|add:"-"|add:invoice.grand_total_cogs %}
     <div class="card card-outline card-info" id="svc-roi-pnl-card">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-line me-1 text-info"></i> ROI &amp; PNL</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-chart-line mr-1 text-info"></i> ROI &amp; PNL</h3></div>
       <div class="card-body p-2">
         <table class="table table-sm mb-0">
           <tr>
             <td>Revenue</td>
-            <td class="text-end text-success fw-bold">&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</td>
+            <td class="text-right text-success font-weight-bold">&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</td>
           </tr>
           <tr>
             <td>Total COGS</td>
-            <td class="text-end text-danger">&#8369; {{ invoice.grand_total_cogs|floatformat:2|intcomma }}</td>
+            <td class="text-right text-danger">&#8369; {{ invoice.grand_total_cogs|floatformat:2|intcomma }}</td>
           </tr>
           <tr class="{% if invoice.grand_total > invoice.grand_total_cogs %}table-success{% else %}table-danger{% endif %}">
             <td><strong>Gross Profit (PNL)</strong></td>
-            <td class="text-end fw-bold" id="inv-pnl-value">
+            <td class="text-right font-weight-bold" id="inv-pnl-value">
               &#8369; {% widthratio invoice.grand_total 1 1 as rev %}
               {{ invoice.grand_total|floatformat:2|intcomma }}
             </td>
           </tr>
           <tr class="table-info">
             <td><strong>ROI</strong></td>
-            <td class="text-end fw-bold" id="inv-roi-value">—</td>
+            <td class="text-right font-weight-bold" id="inv-roi-value">—</td>
           </tr>
         </table>
         <div class="mt-2">
           {% for svc in invoice.customer_services.all %}
-          <a href="{% url 'service_detail' svc.pk %}" class="btn btn-xs btn-outline-primary w-100 mb-1">
-            <i class="fas fa-tools me-1"></i> View Service {{ svc.service_number }}
+          <a href="{% url 'service_detail' svc.pk %}" class="btn btn-xs btn-outline-primary btn-block mb-1">
+            <i class="fas fa-tools mr-1"></i> View Service {{ svc.service_number }}
           </a>
           {% endfor %}
         </div>

@@ -14,7 +14,7 @@
   .wis-form-card .card-header { background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%); border-bottom: 2px solid #e9ecef; }
   .wis-form-card .card-footer { background: #f8f9fa; border-top: 2px solid #e9ecef; }
   .wis-form-row { display: flex; gap: 1rem; }
-  .wis-form-row > .mb-3 { flex: 1; min-width: 0; }
+  .wis-form-row > .form-group { flex: 1; min-width: 0; }
   @media (max-width: 576px) { .wis-form-row { flex-direction: column; gap: 0; } }
 </style>
 {% endblock %}
@@ -34,7 +34,7 @@
       {% endif %}
       {% block form_fields %}
       {% for field in form %}
-      <div class="mb-3">
+      <div class="form-group mb-3">
         <label for="{{ field.id_for_label }}" class="form-label">
           {{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}
           {% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}
@@ -57,9 +57,9 @@
       {% endblock %}
       {% block extra_form_fields %}{% endblock %}
     </div>
-    <div class="card-footer d-flex justify-content-end gap-2 pb-0 pe-0">
-      <a href="{% block cancel_url %}{% url 'dashboard' %}{% endblock %}" class="btn btn-outline-secondary"><i class="fas fa-times me-1"></i> Cancel</a>
-      <button type="submit" class="btn btn-primary"><i class="fas fa-save me-1"></i> {% block submit_label %}Save{% endblock %}</button>
+    <div class="card-footer d-flex justify-content-end gap-2 pb-0 pr-0">
+      <a href="{% block cancel_url %}{% url 'dashboard' %}{% endblock %}" class="btn btn-outline-secondary"><i class="fas fa-times mr-1"></i> Cancel</a>
+      <button type="submit" class="btn btn-primary"><i class="fas fa-save mr-1"></i> {% block submit_label %}Save{% endblock %}</button>
     </div>
   </form>
 </div>

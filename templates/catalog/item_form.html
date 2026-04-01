@@ -14,10 +14,10 @@
 {% block form_fields %}
 {# ── Identity row ─────────────────────────── #}
 <fieldset class="mb-4">
-  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-tag me-1"></i> Item Identity</legend>
+  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-tag mr-1"></i> Item Identity</legend>
   <div class="wis-form-row">
     {% for field in form %}{% if field.name == 'code' or field.name == 'name' %}
-    <div class="mb-3">
+    <div class="form-group mb-3">
       <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}{% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}</label>
       {{ field }}
       {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
@@ -26,7 +26,7 @@
   </div>
   <div class="wis-form-row">
     {% for field in form %}{% if field.name == 'item_type' or field.name == 'category' or field.name == 'default_unit' or field.name == 'selling_unit' %}
-    <div class="mb-3">
+    <div class="form-group mb-3">
       <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}{% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}</label>
       {{ field }}
       {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
@@ -37,10 +37,10 @@
 
 {# ── Pricing row ──────────────────────────── #}
 <fieldset class="mb-4">
-  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-peso-sign me-1"></i> Pricing</legend>
+  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-peso-sign mr-1"></i> Pricing</legend>
   <div class="wis-form-row">
     {% for field in form %}{% if field.name == 'cost_price' or field.name == 'selling_price' %}
-    <div class="mb-3">
+    <div class="form-group mb-3">
       <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}{% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}</label>
       {{ field }}
       {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
@@ -51,10 +51,10 @@
 
 {# ── Stock levels row ─────────────────────── #}
 <fieldset class="mb-4">
-  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-cubes me-1"></i> Stock Levels</legend>
+  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-cubes mr-1"></i> Stock Levels</legend>
   <div class="wis-form-row">
     {% for field in form %}{% if field.name == 'minimum_stock' or field.name == 'maximum_stock' or field.name == 'reorder_point' %}
-    <div class="mb-3">
+    <div class="form-group mb-3">
       <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}{% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}</label>
       {{ field }}
       {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
@@ -65,9 +65,9 @@
 
 {# ── Additional info ──────────────────────── #}
 <fieldset class="mb-2">
-  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-info-circle me-1"></i> Additional Info</legend>
+  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-info-circle mr-1"></i> Additional Info</legend>
   {% for field in form %}{% if field.name == 'barcode' or field.name == 'description' or field.name == 'image' %}
-  <div class="mb-3">
+  <div class="form-group mb-3">
     <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}{% if field.help_text %}<span class="help-tooltip" data-bs-toggle="tooltip" data-bs-placement="right" title="{{ field.help_text }}"><i class="fas fa-question-circle"></i></span>{% endif %}</label>
     {{ field }}
     {% if field.errors %}<div class="text-danger small mt-1">{% for e in field.errors %}{{ e }}{% endfor %}</div>{% endif %}
@@ -78,7 +78,7 @@
 
 {% block extra_form_fields %}
 <fieldset class="mb-2 formset-section">
-  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-ruler-combined me-1"></i> Unit Conversions</legend>
+  <legend class="h6 text-muted border-bottom pb-1 mb-3"><i class="fas fa-ruler-combined mr-1"></i> Unit Conversions</legend>
   <p class="text-muted small mb-3">Add one or more conversion units for this product item. These conversions are saved specifically for this item.</p>
   {% if formset.non_form_errors %}
   <div class="alert alert-danger py-2">

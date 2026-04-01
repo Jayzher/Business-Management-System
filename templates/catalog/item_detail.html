@@ -10,10 +10,10 @@
 
 {% block content %}
 <div class="mb-3 d-flex justify-content-between">
-  <a href="{% url 'item_list' %}" class="btn btn-secondary"><i class="fas fa-arrow-left me-1"></i> Back</a>
+  <a href="{% url 'item_list' %}" class="btn btn-secondary"><i class="fas fa-arrow-left mr-1"></i> Back</a>
   <div>
-    <a href="#" data-modal-url="{% url 'item_edit' item.pk %}" class="btn btn-warning me-1"><i class="fas fa-edit me-1"></i> Edit</a>
-    <a href="#" data-modal-url="{% url 'item_delete' item.pk %}" class="btn btn-danger"><i class="fas fa-trash me-1"></i> Delete</a>
+    <a href="#" data-modal-url="{% url 'item_edit' item.pk %}" class="btn btn-warning mr-1"><i class="fas fa-edit mr-1"></i> Edit</a>
+    <a href="#" data-modal-url="{% url 'item_delete' item.pk %}" class="btn btn-danger"><i class="fas fa-trash mr-1"></i> Delete</a>
   </div>
 </div>
 
@@ -49,7 +49,7 @@
   <!-- Item Details -->
   <div class="col-md-4">
     <div class="card card-outline card-primary">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle me-1"></i> Item Details</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle mr-1"></i> Item Details</h3></div>
       <div class="card-body p-0">
         {% if item.image %}
         <div class="text-center p-3 border-bottom">
@@ -74,14 +74,14 @@
     </div>
 
     <div class="card card-outline card-info">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-ruler-combined me-1"></i> Unit Conversions</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-ruler-combined mr-1"></i> Unit Conversions</h3></div>
       <div class="card-body table-responsive p-0">
         <table class="table table-sm mb-0">
           <thead>
             <tr>
               <th>From Unit</th>
               <th>To Unit</th>
-              <th class="text-end">Factor</th>
+              <th class="text-right">Factor</th>
             </tr>
           </thead>
           <tbody>
@@ -89,11 +89,11 @@
             <tr>
               <td>{{ conv.from_unit.name }} ({{ conv.from_unit.abbreviation }})</td>
               <td>{{ conv.to_unit.name }} ({{ conv.to_unit.abbreviation }})</td>
-              <td class="text-end">{{ conv.factor|floatformat:6 }}</td>
+              <td class="text-right">{{ conv.factor|floatformat:6 }}</td>
             </tr>
             {% empty %}
             <tr>
-              <td colspan="3" class="text-center text-muted py-3"><i class="fas fa-inbox me-1"></i> No item-specific conversion units configured.</td>
+              <td colspan="3" class="text-center text-muted py-3"><i class="fas fa-inbox mr-1"></i> No item-specific conversion units configured.</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -106,31 +106,31 @@
   <div class="col-md-8">
     <!-- Warehouse Summary -->
     <div class="card card-outline card-success">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-warehouse me-1"></i> Stock by Warehouse</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-warehouse mr-1"></i> Stock by Warehouse</h3></div>
       <div class="card-body table-responsive p-0">
         <table class="table table-hover text-nowrap mb-0">
           <thead>
-            <tr><th>Warehouse</th><th class="text-end">On Hand</th><th class="text-end">Reserved</th><th class="text-end">Available</th></tr>
+            <tr><th>Warehouse</th><th class="text-right">On Hand</th><th class="text-right">Reserved</th><th class="text-right">Available</th></tr>
           </thead>
           <tbody>
             {% for wh in warehouse_summary %}
             <tr>
-              <td><i class="fas fa-warehouse me-1 text-muted"></i> <strong>{{ wh.location__warehouse__code }}</strong> - {{ wh.location__warehouse__name }}</td>
-              <td class="text-end">{{ wh.total_on_hand|floatformat:2 }}</td>
-              <td class="text-end">{{ wh.total_reserved|floatformat:2 }}</td>
-              <td class="text-end fw-bold {% if wh.total_on_hand > wh.total_reserved %}text-success{% elif wh.total_on_hand == wh.total_reserved %}text-warning{% else %}text-danger{% endif %}">{{ wh.total_on_hand|floatformat:2 }}</td>
+              <td><i class="fas fa-warehouse mr-1 text-muted"></i> <strong>{{ wh.location__warehouse__code }}</strong> - {{ wh.location__warehouse__name }}</td>
+              <td class="text-right">{{ wh.total_on_hand|floatformat:2 }}</td>
+              <td class="text-right">{{ wh.total_reserved|floatformat:2 }}</td>
+              <td class="text-right font-weight-bold {% if wh.total_on_hand > wh.total_reserved %}text-success{% elif wh.total_on_hand == wh.total_reserved %}text-warning{% else %}text-danger{% endif %}">{{ wh.total_on_hand|floatformat:2 }}</td>
             </tr>
             {% empty %}
-            <tr><td colspan="4" class="text-center text-muted py-3"><i class="fas fa-inbox me-1"></i> No stock in any warehouse.</td></tr>
+            <tr><td colspan="4" class="text-center text-muted py-3"><i class="fas fa-inbox mr-1"></i> No stock in any warehouse.</td></tr>
             {% endfor %}
           </tbody>
           {% if warehouse_summary %}
           <tfoot>
-            <tr class="fw-bold bg-light">
+            <tr class="font-weight-bold bg-light">
               <td>TOTAL</td>
-              <td class="text-end">{{ totals.total_on_hand|floatformat:2 }}</td>
-              <td class="text-end">{{ totals.total_reserved|floatformat:2 }}</td>
-              <td class="text-end">{{ totals.total_available|floatformat:2 }}</td>
+              <td class="text-right">{{ totals.total_on_hand|floatformat:2 }}</td>
+              <td class="text-right">{{ totals.total_reserved|floatformat:2 }}</td>
+              <td class="text-right">{{ totals.total_available|floatformat:2 }}</td>
             </tr>
           </tfoot>
           {% endif %}
@@ -140,20 +140,20 @@
 
     <!-- Location Detail -->
     <div class="card card-outline card-info">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-map-marker-alt me-1"></i> Stock by Location</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-map-marker-alt mr-1"></i> Stock by Location</h3></div>
       <div class="card-body table-responsive p-0">
         <table class="table table-hover table-sm text-nowrap mb-0">
           <thead>
-            <tr><th>Warehouse</th><th>Location</th><th class="text-end">On Hand</th><th class="text-end">Reserved</th><th class="text-end">Available</th></tr>
+            <tr><th>Warehouse</th><th>Location</th><th class="text-right">On Hand</th><th class="text-right">Reserved</th><th class="text-right">Available</th></tr>
           </thead>
           <tbody>
             {% for bal in balances %}
             <tr>
               <td>{{ bal.location.warehouse.code }}</td>
               <td>{{ bal.location.code }}</td>
-              <td class="text-end">{{ bal.qty_on_hand|floatformat:2 }}</td>
-              <td class="text-end">{{ bal.qty_reserved|floatformat:2 }}</td>
-              <td class="text-end">{{ bal.qty_available|floatformat:2 }}</td>
+              <td class="text-right">{{ bal.qty_on_hand|floatformat:2 }}</td>
+              <td class="text-right">{{ bal.qty_reserved|floatformat:2 }}</td>
+              <td class="text-right">{{ bal.qty_available|floatformat:2 }}</td>
             </tr>
             {% empty %}
             <tr><td colspan="5" class="text-center text-muted py-3">No stock balances.</td></tr>
@@ -167,11 +167,11 @@
 
 <!-- Recent Stock Movements -->
 <div class="card card-outline card-secondary">
-  <div class="card-header"><h3 class="card-title"><i class="fas fa-exchange-alt me-1"></i> Recent Stock Movements</h3></div>
+  <div class="card-header"><h3 class="card-title"><i class="fas fa-exchange-alt mr-1"></i> Recent Stock Movements</h3></div>
   <div class="card-body table-responsive p-0">
     <table class="table table-hover text-nowrap mb-0">
       <thead>
-        <tr><th>Date</th><th>Type</th><th class="text-end">Qty</th><th>Unit</th><th>From</th><th>To</th><th>Reference</th><th>By</th></tr>
+        <tr><th>Date</th><th>Type</th><th class="text-right">Qty</th><th>Unit</th><th>From</th><th>To</th><th>Reference</th><th>By</th></tr>
       </thead>
       <tbody>
         {% for move in recent_moves %}
@@ -187,7 +187,7 @@
             {% elif move.move_type == 'RETURN_IN' %}<span class="badge" style="background:#6f42c1;color:#fff;">{{ move.get_move_type_display }}</span>
             {% else %}<span class="badge bg-secondary">{{ move.get_move_type_display }}</span>{% endif %}
           </td>
-          <td class="text-end">{{ move.qty|floatformat:2 }}</td>
+          <td class="text-right">{{ move.qty|floatformat:2 }}</td>
           <td>{{ move.unit.abbreviation }}</td>
           <td>{{ move.from_location.code|default:"-" }}</td>
           <td>{{ move.to_location.code|default:"-" }}</td>
@@ -195,7 +195,7 @@
           <td>{{ move.created_by.get_full_name|default:move.created_by.username }}</td>
         </tr>
         {% empty %}
-        <tr><td colspan="8" class="text-center text-muted py-3"><i class="fas fa-inbox me-1"></i> No movements recorded.</td></tr>
+        <tr><td colspan="8" class="text-center text-muted py-3"><i class="fas fa-inbox mr-1"></i> No movements recorded.</td></tr>
         {% endfor %}
       </tbody>
     </table>

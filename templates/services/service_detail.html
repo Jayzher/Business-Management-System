@@ -14,12 +14,12 @@
 
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-tools me-2 text-primary"></i>Service Details</h3>
+        <h3 class="card-title"><i class="fas fa-tools mr-2 text-primary"></i>Service Details</h3>
         <div class="card-tools">
-          {% if service.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
-          {% elif service.status == 'IN_PROGRESS' %}<span class="badge bg-warning text-dark">In Progress</span>
-          {% elif service.status == 'COMPLETED' %}<span class="badge bg-success">Completed</span>
-          {% else %}<span class="badge bg-danger">Cancelled</span>
+          {% if service.status == 'DRAFT' %}<span class="badge badge-secondary">Draft</span>
+          {% elif service.status == 'IN_PROGRESS' %}<span class="badge badge-warning">In Progress</span>
+          {% elif service.status == 'COMPLETED' %}<span class="badge badge-success">Completed</span>
+          {% else %}<span class="badge badge-danger">Cancelled</span>
           {% endif %}
         </div>
       </div>
@@ -42,9 +42,9 @@
           <tr><th>Notes</th><td>{{ service.notes }}</td></tr>
           {% endif %}
           <tr><th>Payment</th><td>
-            {% if service.payment_status == 'PAID' %}<span class="badge bg-success">Paid</span>
-            {% elif service.payment_status == 'PARTIAL' %}<span class="badge bg-warning text-dark">Partial</span>
-            {% else %}<span class="badge bg-secondary">Unpaid</span>{% endif %}
+            {% if service.payment_status == 'PAID' %}<span class="badge badge-success">Paid</span>
+            {% elif service.payment_status == 'PARTIAL' %}<span class="badge badge-warning">Partial</span>
+            {% else %}<span class="badge badge-secondary">Unpaid</span>{% endif %}
           </td></tr>
           {% if service.payment_status == 'PARTIAL' and service.partial_payment_amount_value > 0 %}
           <tr><th>Partial Payment Amount</th><td>₱{{ service.partial_payment_amount_value|floatformat:2|intcomma }}</td></tr>
@@ -55,7 +55,7 @@
           <tr><th>Completed By</th><td>{{ service.posted_by.get_full_name|default:service.posted_by.username }} &mdash; {{ service.posted_at|date:"M d, Y H:i" }}</td></tr>
           {% endif %}
           {% if service.invoice %}
-          <tr><th>Invoice</th><td><a href="{% url 'invoice_detail' service.invoice.pk %}"><i class="fas fa-file-invoice-dollar me-1"></i>{{ service.invoice.invoice_number }}</a></td></tr>
+          <tr><th>Invoice</th><td><a href="{% url 'invoice_detail' service.invoice.pk %}"><i class="fas fa-file-invoice-dollar mr-1"></i>{{ service.invoice.invoice_number }}</a></td></tr>
           {% endif %}
         </table>
       </div>
@@ -64,7 +64,7 @@
     <!-- Product Lines + P&L -->
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-boxes me-2 text-primary"></i>Product / Parts Used</h3>
+        <h3 class="card-title"><i class="fas fa-boxes mr-2 text-primary"></i>Product / Parts Used</h3>
       </div>
       <div class="card-body table-responsive p-0">
         <table class="table table-hover detail-lines-table mb-0">
@@ -72,10 +72,10 @@
             <tr>
               <th>Item</th>
               <th>Location</th>
-              <th class="text-end">Qty</th>
+              <th class="text-right">Qty</th>
               <th>Unit</th>
-              <th class="text-end">Selling Price</th>
-              <th class="text-end">Line Total</th>
+              <th class="text-right">Selling Price</th>
+              <th class="text-right">Line Total</th>
               <th>Notes</th>
             </tr>
           </thead>
@@ -84,20 +84,20 @@
             <tr>
               <td><span class="text-muted small">{{ row.line.item.code }}</span> {{ row.line.item.name }}</td>
               <td>{{ row.line.location|default:"—" }}</td>
-              <td class="text-end">{{ row.line.qty|floatformat:2 }}</td>
+              <td class="text-right">{{ row.line.qty|floatformat:2 }}</td>
               <td>{{ row.line.unit.abbreviation }}</td>
-              <td class="text-end">{{ row.line.unit_price|floatformat:2 }}</td>
-              <td class="text-end fw-bold">{{ row.selling|floatformat:2 }}</td>
+              <td class="text-right">{{ row.line.unit_price|floatformat:2 }}</td>
+              <td class="text-right font-weight-bold">{{ row.selling|floatformat:2 }}</td>
               <td>{{ row.line.notes|default:"" }}</td>
             </tr>
             {% empty %}
-            <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No product lines.</td></tr>
+            <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No product lines.</td></tr>
             {% endfor %}
           </tbody>
           <tfoot>
             <tr class="table-light">
-              <td colspan="5" class="text-end fw-bold">Product Lines Subtotal:</td>
-              <td class="text-end fw-bold">{{ service.product_lines_total|floatformat:2 }}</td>
+              <td colspan="5" class="text-right font-weight-bold">Product Lines Subtotal:</td>
+              <td class="text-right font-weight-bold">{{ service.product_lines_total|floatformat:2 }}</td>
               <td></td>
             </tr>
           </tfoot>
@@ -108,16 +108,16 @@
     <!-- Other Materials -->
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-layer-group me-2 text-warning"></i>Other Materials</h3>
+        <h3 class="card-title"><i class="fas fa-layer-group mr-2 text-warning"></i>Other Materials</h3>
       </div>
       <div class="card-body table-responsive p-0">
         <table class="table table-hover mb-0">
           <thead>
             <tr>
               <th>Item Name</th>
-              <th class="text-end">Qty</th>
-              <th class="text-end">Unit Price</th>
-              <th class="text-end">Total Price</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">Unit Price</th>
+              <th class="text-right">Total Price</th>
               <th>Vendor</th>
               <th>Notes</th>
             </tr>
@@ -126,21 +126,21 @@
             {% for mat in other_materials %}
             <tr>
               <td>{{ mat.item_name }}</td>
-              <td class="text-end">{{ mat.qty|floatformat:2 }}</td>
-              <td class="text-end">{{ mat.unit_price|floatformat:2 }}</td>
-              <td class="text-end fw-bold">{{ mat.line_total|floatformat:2 }}</td>
+              <td class="text-right">{{ mat.qty|floatformat:2 }}</td>
+              <td class="text-right">{{ mat.unit_price|floatformat:2 }}</td>
+              <td class="text-right font-weight-bold">{{ mat.line_total|floatformat:2 }}</td>
               <td>{{ mat.vendor|default:"—" }}</td>
               <td>{{ mat.notes|default:"" }}</td>
             </tr>
             {% empty %}
-            <tr><td colspan="6" class="text-center text-muted py-3"><i class="fas fa-layer-group me-1"></i>No other materials.</td></tr>
+            <tr><td colspan="6" class="text-center text-muted py-3"><i class="fas fa-layer-group mr-1"></i>No other materials.</td></tr>
             {% endfor %}
           </tbody>
           {% if other_materials %}
           <tfoot>
             <tr class="table-light">
-              <td colspan="3" class="text-end fw-bold">Other Materials Subtotal:</td>
-              <td class="text-end fw-bold">{{ service.other_materials_total|floatformat:2 }}</td>
+              <td colspan="3" class="text-right font-weight-bold">Other Materials Subtotal:</td>
+              <td class="text-right font-weight-bold">{{ service.other_materials_total|floatformat:2 }}</td>
               <td colspan="2"></td>
             </tr>
           </tfoot>
@@ -152,16 +152,16 @@
     <!-- Bundles / Package Sets -->
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-layer-group me-2 text-primary"></i>Bundles / Package Sets</h3>
+        <h3 class="card-title"><i class="fas fa-layer-group mr-2 text-primary"></i>Bundles / Package Sets</h3>
       </div>
       <div class="card-body table-responsive p-0">
         <table class="table table-hover mb-0">
           <thead>
             <tr>
               <th>Bundle / Set</th>
-              <th class="text-end">Qty</th>
-              <th class="text-end">Unit Price / Set</th>
-              <th class="text-end">Total Cost</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">Unit Price / Set</th>
+              <th class="text-right">Total Cost</th>
               <th class="text-center">Action</th>
             </tr>
           </thead>
@@ -169,9 +169,9 @@
             {% for b in service.bundles.all %}
             <tr>
               <td>{{ b.price_list.name }}</td>
-              <td class="text-end">{{ b.qty|floatformat:0 }}</td>
-              <td class="text-end">{{ b.bundle_unit_price|floatformat:2|intcomma }}</td>
-              <td class="text-end fw-bold text-danger">{{ b.bundle_total|floatformat:2|intcomma }}</td>
+              <td class="text-right">{{ b.qty|floatformat:0 }}</td>
+              <td class="text-right">{{ b.bundle_unit_price|floatformat:2|intcomma }}</td>
+              <td class="text-right font-weight-bold text-danger">{{ b.bundle_total|floatformat:2|intcomma }}</td>
               <td class="text-center">
                 <button type="button"
                         class="btn btn-sm btn-outline-info svc-bundle-detail-items-btn"
@@ -184,14 +184,14 @@
               </td>
             </tr>
             {% empty %}
-            <tr><td colspan="5" class="text-center text-muted py-3"><i class="fas fa-layer-group me-1"></i>No bundles applied.</td></tr>
+            <tr><td colspan="5" class="text-center text-muted py-3"><i class="fas fa-layer-group mr-1"></i>No bundles applied.</td></tr>
             {% endfor %}
           </tbody>
           {% if service.bundles.exists %}
           <tfoot>
             <tr class="table-light">
-              <td colspan="3" class="text-end fw-bold">Bundles Subtotal:</td>
-              <td class="text-end fw-bold text-danger">{{ service.bundles_total|floatformat:2|intcomma }}</td>
+              <td colspan="3" class="text-right font-weight-bold">Bundles Subtotal:</td>
+              <td class="text-right font-weight-bold text-danger">{{ service.bundles_total|floatformat:2|intcomma }}</td>
               <td></td>
             </tr>
           </tfoot>
@@ -203,33 +203,33 @@
     <!-- Pricing Breakdown -->
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-receipt me-2 text-success"></i>Pricing Breakdown</h3>
+        <h3 class="card-title"><i class="fas fa-receipt mr-2 text-success"></i>Pricing Breakdown</h3>
       </div>
       <div class="card-body p-0">
         <table class="table table-bordered mb-0">
           <tr class="table-primary">
             <td style="width:60%"><strong>Quotation</strong></td>
-            <td class="text-end fw-bold">{{ service.quotation_amount|floatformat:2|intcomma }}</td>
+            <td class="text-right font-weight-bold">{{ service.quotation_amount|floatformat:2|intcomma }}</td>
           </tr>
           <tr>
             <td class="text-danger">— Product Lines (cost)</td>
-            <td class="text-end text-danger">({{ service.product_lines_total|floatformat:2|intcomma }})</td>
+            <td class="text-right text-danger">({{ service.product_lines_total|floatformat:2|intcomma }})</td>
           </tr>
           <tr>
             <td class="text-danger">— Other Materials (cost)</td>
-            <td class="text-end text-danger">({{ service.other_materials_total|floatformat:2|intcomma }})</td>
+            <td class="text-right text-danger">({{ service.other_materials_total|floatformat:2|intcomma }})</td>
           </tr>
           {% for b in service.bundles.all %}
           <tr>
             <td class="text-danger">— Bundle: <strong>{{ b.price_list.name }}</strong> &times;{{ b.qty|floatformat:0 }}
               <small class="text-muted">(&#8369;{{ b.bundle_unit_price|floatformat:2|intcomma }}/set)</small>
             </td>
-            <td class="text-end text-danger">({{ b.bundle_total|floatformat:2|intcomma }})</td>
+            <td class="text-right text-danger">({{ b.bundle_total|floatformat:2|intcomma }})</td>
           </tr>
           {% endfor %}
           <tr class="table-light">
             <td><strong>Net (before discount)</strong></td>
-            <td class="text-end fw-bold">{{ service.subtotal|floatformat:2|intcomma }}</td>
+            <td class="text-right font-weight-bold">{{ service.subtotal|floatformat:2|intcomma }}</td>
           </tr>
           {% if service.discount_amount > 0 %}
           <tr>
@@ -237,12 +237,12 @@
               Discount
               <small class="text-muted">({{ service.get_discount_type_display }}{% if service.discount_type == 'PERCENT' %}: {{ service.discount_value }}%{% else %}: ₱{{ service.discount_value|floatformat:2 }}{% endif %})</small>
             </td>
-            <td class="text-end text-danger">({{ service.discount_amount|floatformat:2|intcomma }})</td>
+            <td class="text-right text-danger">({{ service.discount_amount|floatformat:2|intcomma }})</td>
           </tr>
           {% endif %}
           <tr class="table-success">
             <td><strong>Grand Total</strong></td>
-            <td class="text-end fw-bold">{{ service.grand_total|floatformat:2|intcomma }}</td>
+            <td class="text-right font-weight-bold">{{ service.grand_total|floatformat:2|intcomma }}</td>
           </tr>
         </table>
       </div>
@@ -257,15 +257,15 @@
     <!-- Actions -->
     <div class="card card-primary card-outline">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-cogs me-2"></i>Actions</h3>
+        <h3 class="card-title"><i class="fas fa-cogs mr-2"></i>Actions</h3>
       </div>
       <div class="card-body">
 
         {% if service.status == 'DRAFT' %}
         <form method="post" action="{% url 'service_start' service.pk %}" class="mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-warning w-100">
-            <i class="fas fa-play me-1"></i>Mark In Progress
+          <button type="submit" class="btn btn-warning btn-block">
+            <i class="fas fa-play mr-1"></i>Mark In Progress
           </button>
         </form>
         {% endif %}
@@ -273,36 +273,36 @@
         {% if service.status == 'DRAFT' or service.status == 'IN_PROGRESS' %}
         <form method="post" action="{% url 'service_complete' service.pk %}" class="mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-success w-100"
+          <button type="submit" class="btn btn-success btn-block"
             onclick="return confirm('Complete this service? This will deduct inventory and generate an invoice.')">
-            <i class="fas fa-check-circle me-1"></i>Complete Service
+            <i class="fas fa-check-circle mr-1"></i>Complete Service
           </button>
         </form>
         <a href="#" data-modal-url="{% url 'service_edit' service.pk %}" data-modal-size="modal-xl"
-           class="btn btn-warning w-100 mb-2">
-          <i class="fas fa-edit me-1"></i>Edit
+           class="btn btn-warning btn-block mb-2">
+          <i class="fas fa-edit mr-1"></i>Edit
         </a>
         <form method="post" action="{% url 'service_cancel' service.pk %}" class="mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-outline-danger w-100"
+          <button type="submit" class="btn btn-outline-danger btn-block"
             onclick="return confirm('Cancel this service? This cannot be undone.')">
-            <i class="fas fa-ban me-1"></i>Cancel Service
+            <i class="fas fa-ban mr-1"></i>Cancel Service
           </button>
         </form>
         <a href="#" data-modal-url="{% url 'service_delete' service.pk %}"
-           class="btn btn-danger w-100 mb-2">
-          <i class="fas fa-trash me-1"></i>Delete
+           class="btn btn-danger btn-block mb-2">
+          <i class="fas fa-trash mr-1"></i>Delete
         </a>
         {% endif %}
 
         {% if service.status == 'COMPLETED' and service.invoice %}
-        <a href="{% url 'invoice_detail' service.invoice.pk %}" class="btn btn-info w-100 mb-2">
-          <i class="fas fa-file-invoice-dollar me-1"></i>View Invoice
+        <a href="{% url 'invoice_detail' service.invoice.pk %}" class="btn btn-info btn-block mb-2">
+          <i class="fas fa-file-invoice-dollar mr-1"></i>View Invoice
         </a>
         {% endif %}
 
-        <a href="{% url 'service_list' %}" class="btn btn-secondary w-100">
-          <i class="fas fa-arrow-left me-1"></i>Back to List
+        <a href="{% url 'service_list' %}" class="btn btn-secondary btn-block">
+          <i class="fas fa-arrow-left mr-1"></i>Back to List
         </a>
       </div>
     </div>
@@ -310,45 +310,45 @@
     <!-- Summary -->
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-calculator me-2 text-primary"></i>Summary</h3>
+        <h3 class="card-title"><i class="fas fa-calculator mr-2 text-primary"></i>Summary</h3>
       </div>
       <div class="card-body p-0">
         <table class="table table-bordered mb-0 doc-detail-table">
           <tr>
             <th>Status</th>
             <td>
-              {% if service.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
-              {% elif service.status == 'IN_PROGRESS' %}<span class="badge bg-warning text-dark">In Progress</span>
-              {% elif service.status == 'COMPLETED' %}<span class="badge bg-success">Completed</span>
-              {% else %}<span class="badge bg-danger">Cancelled</span>
+              {% if service.status == 'DRAFT' %}<span class="badge badge-secondary">Draft</span>
+              {% elif service.status == 'IN_PROGRESS' %}<span class="badge badge-warning">In Progress</span>
+              {% elif service.status == 'COMPLETED' %}<span class="badge badge-success">Completed</span>
+              {% else %}<span class="badge badge-danger">Cancelled</span>
               {% endif %}
             </td>
           </tr>
           <tr>
             <th>Payment</th>
             <td>
-              {% if service.payment_status == 'PAID' %}<span class="badge bg-success">Paid</span>
-              {% elif service.payment_status == 'PARTIAL' %}<span class="badge bg-warning text-dark">Partial</span>
-              {% else %}<span class="badge bg-secondary">Unpaid</span>{% endif %}
+              {% if service.payment_status == 'PAID' %}<span class="badge badge-success">Paid</span>
+              {% elif service.payment_status == 'PARTIAL' %}<span class="badge badge-warning">Partial</span>
+              {% else %}<span class="badge badge-secondary">Unpaid</span>{% endif %}
             </td>
           </tr>
           {% if service.payment_status == 'PARTIAL' and service.partial_payment_amount_value > 0 %}
-          <tr><th>Initial Paid</th><td class="text-end">{{ service.partial_payment_amount_value|floatformat:2 }}</td></tr>
-          <tr><th>Balance Due</th><td class="text-end">{{ service.remaining_balance|floatformat:2 }}</td></tr>
+          <tr><th>Initial Paid</th><td class="text-right">{{ service.partial_payment_amount_value|floatformat:2 }}</td></tr>
+          <tr><th>Balance Due</th><td class="text-right">{{ service.remaining_balance|floatformat:2 }}</td></tr>
           {% endif %}
-          <tr><th>Product Lines</th><td class="text-end">{{ service.product_lines_total|floatformat:2 }}</td></tr>
-          <tr><th>Other Materials</th><td class="text-end">{{ service.other_materials_total|floatformat:2 }}</td></tr>
-          <tr><th>Quotation</th><td class="text-end">{{ service.quotation_amount|floatformat:2 }}</td></tr>
+          <tr><th>Product Lines</th><td class="text-right">{{ service.product_lines_total|floatformat:2 }}</td></tr>
+          <tr><th>Other Materials</th><td class="text-right">{{ service.other_materials_total|floatformat:2 }}</td></tr>
+          <tr><th>Quotation</th><td class="text-right">{{ service.quotation_amount|floatformat:2 }}</td></tr>
           {% if service.bundles.exists %}
-          <tr><th>Bundles (COGS)</th><td class="text-end text-danger">({{ service.bundles_total|floatformat:2 }})</td></tr>
+          <tr><th>Bundles (COGS)</th><td class="text-right text-danger">({{ service.bundles_total|floatformat:2 }})</td></tr>
           {% endif %}
-          <tr><th>Net (before disc.)</th><td class="text-end fw-bold">{{ service.subtotal|floatformat:2 }}</td></tr>
+          <tr><th>Net (before disc.)</th><td class="text-right font-weight-bold">{{ service.subtotal|floatformat:2 }}</td></tr>
           {% if service.discount_amount > 0 %}
-          <tr><th class="text-danger">Discount</th><td class="text-end text-danger">({{ service.discount_amount|floatformat:2 }})</td></tr>
+          <tr><th class="text-danger">Discount</th><td class="text-right text-danger">({{ service.discount_amount|floatformat:2 }})</td></tr>
           {% endif %}
           <tr class="table-success">
             <th>Grand Total</th>
-            <td class="text-end fw-bold">{{ service.grand_total|floatformat:2 }}</td>
+            <td class="text-right font-weight-bold">{{ service.grand_total|floatformat:2 }}</td>
           </tr>
         </table>
       </div>

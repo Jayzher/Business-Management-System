@@ -9,7 +9,7 @@
 {% block content %}
 <div class="mb-3">
   {% if not is_view_only %}<a href="#" data-modal-url="{% url 'customer_catalog_create' %}" data-modal-size="modal-xl"
-     class="btn btn-primary"><i class="fas fa-plus me-1"></i> New Customer Catalog</a>{% endif %}
+     class="btn btn-primary"><i class="fas fa-plus mr-1"></i> New Customer Catalog</a>{% endif %}
 </div>
 <div class="card">
   <div class="card-body table-responsive p-0">
@@ -27,7 +27,7 @@
       <tbody>
         {% for cat in catalogs %}
         <tr>
-          <td><i class="fas fa-user-tag text-primary me-1"></i>{{ cat.customer.name }}
+          <td><i class="fas fa-user-tag text-primary mr-1"></i>{{ cat.customer.name }}
             <div class="text-muted small">{{ cat.customer.code }}</div>
           </td>
           <td><strong>{{ cat.name }}</strong></td>
@@ -53,7 +53,7 @@
             <i class="fas fa-user-tag fa-2x mb-2 d-block text-secondary"></i>
             No customer price catalogs yet.<br>
             <a href="#" data-modal-url="{% url 'customer_catalog_create' %}" data-modal-size="modal-xl"
-               class="btn btn-sm btn-primary mt-2"><i class="fas fa-plus me-1"></i> Create one</a>
+               class="btn btn-sm btn-primary mt-2"><i class="fas fa-plus mr-1"></i> Create one</a>
           </td>
         </tr>
         {% endfor %}

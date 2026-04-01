@@ -7,16 +7,16 @@
 {% block content %}
 <div class="card">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-box-open me-1"></i> Supply Items</h3>
+    <h3 class="card-title"><i class="fas fa-box-open mr-1"></i> Supply Items</h3>
     {% if not is_view_only %}<div class="card-tools">
-      <a href="#" data-modal-url="{% url 'supply_import' %}" class="btn btn-sm btn-success me-1"><i class="fas fa-file-import me-1"></i> Import CSV</a>
-      <a href="#" data-modal-url="{% url 'supply_movement_create' %}" class="btn btn-sm btn-info me-1"><i class="fas fa-plus me-1"></i> Stock In/Out</a>
-      <a href="#" data-modal-url="{% url 'supply_item_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> New Item</a>
+      <a href="#" data-modal-url="{% url 'supply_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
+      <a href="#" data-modal-url="{% url 'supply_movement_create' %}" class="btn btn-sm btn-info mr-1"><i class="fas fa-plus mr-1"></i> Stock In/Out</a>
+      <a href="#" data-modal-url="{% url 'supply_item_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Item</a>
     </div>{% endif %}
   </div>
   <div class="card-body table-responsive">
     <table class="table table-hover table-striped text-nowrap wis-table">
-      <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit</th><th class="text-end">Stock</th><th class="text-end">Min</th><th class="text-end">Cost/Unit</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit</th><th class="text-right">Stock</th><th class="text-right">Min</th><th class="text-right">Cost/Unit</th><th>Status</th><th></th></tr></thead>
       <tbody>
         {% for item in items %}
         <tr{% if item.current_stock <= item.minimum_stock and item.minimum_stock > 0 %} class="table-danger"{% endif %}>
@@ -24,9 +24,9 @@
           <td>{{ item.name }}</td>
           <td>{{ item.category.name|default:"-" }}</td>
           <td>{{ item.unit }}</td>
-          <td class="text-end">{{ item.current_stock|floatformat:2 }}</td>
-          <td class="text-end">{{ item.minimum_stock|floatformat:2 }}</td>
-          <td class="text-end">{{ item.cost_per_unit|floatformat:2|intcomma }}</td>
+          <td class="text-right">{{ item.current_stock|floatformat:2 }}</td>
+          <td class="text-right">{{ item.minimum_stock|floatformat:2 }}</td>
+          <td class="text-right">{{ item.cost_per_unit|floatformat:2|intcomma }}</td>
           <td>
             {% if item.current_stock <= item.minimum_stock and item.minimum_stock > 0 %}
             <span class="badge bg-danger">Low Stock</span>
@@ -34,7 +34,7 @@
             <span class="badge bg-success">OK</span>
             {% endif %}
           </td>
-          <td class="text-end">
+          <td class="text-right">
             {% if not is_view_only %}<a href="#" data-modal-url="{% url 'supply_item_edit' item.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'supply_item_delete' item.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
@@ -46,8 +46,8 @@
     </table>
   </div>
   <div class="card-footer">
-    <a href="{% url 'supply_movement_list' %}" class="btn btn-sm btn-outline-primary"><i class="fas fa-history me-1"></i> View Movement Log</a>
-    <a href="{% url 'supply_category_list' %}" class="btn btn-sm btn-outline-secondary ms-1"><i class="fas fa-layer-group me-1"></i> Categories</a>
+    <a href="{% url 'supply_movement_list' %}" class="btn btn-sm btn-outline-primary"><i class="fas fa-history mr-1"></i> View Movement Log</a>
+    <a href="{% url 'supply_category_list' %}" class="btn btn-sm btn-outline-secondary ml-1"><i class="fas fa-layer-group mr-1"></i> Categories</a>
   </div>
 </div>
 {% endblock %}

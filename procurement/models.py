@@ -47,10 +47,6 @@ class GoodsReceipt(TransactionalDocument):
     supplier = models.ForeignKey('partners.Supplier', on_delete=models.PROTECT, related_name='goods_receipts')
     warehouse = models.ForeignKey('warehouses.Warehouse', on_delete=models.PROTECT, related_name='goods_receipts')
     receipt_date = models.DateField()
-    delivery_charges = models.DecimalField(
-        max_digits=15, decimal_places=4, default=0, blank=True,
-        help_text='Optional delivery/freight charges. Allocated across items and included in COGS.',
-    )
 
     class Meta:
         ordering = ['-created_at']

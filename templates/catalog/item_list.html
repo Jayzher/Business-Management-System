@@ -196,13 +196,17 @@
       <!-- Search -->
       <div class="col-12 col-md-3" id="cat-search-col">
         <div class="input-group input-group-sm">
-          <span class="input-group-text bg-white"><i class="fas fa-search text-muted" style="font-size:.8rem;"></i></span>
+          <div class="input-group-prepend">
+            <span class="input-group-text bg-white"><i class="fas fa-search text-muted" style="font-size:.8rem;"></i></span>
+          </div>
           <input type="text" id="cat-search" class="form-control"
                  placeholder="Search by name or code…"
                  value="{{ search }}" autocomplete="off">
           {% if search %}
+          <div class="input-group-append">
             <button class="btn btn-outline-secondary" type="button" id="cat-clear-search"
                     title="Clear search"><i class="fas fa-times"></i></button>
+          </div>
           {% endif %}
         </div>
       </div>
@@ -238,7 +242,7 @@
           <option value="{{ c }}" {% if cols == c %}selected{% endif %}>{{ c }}</option>
           {% endfor %}
         </select>
-        <span class="grid-label ms-1">Rows:</span>
+        <span class="grid-label ml-1">Rows:</span>
         <select id="cat-rows" class="form-control form-control-sm" style="width:58px;" title="Rows per page">
           {% for r in row_range %}
           <option value="{{ r }}" {% if rows == r %}selected{% endif %}>{{ r }}</option>
@@ -247,37 +251,37 @@
       </div>
 
       <!-- Action buttons -->
-      <div class="col ms-auto d-flex justify-content-end flex-wrap" id="cat-action-btns" style="gap:.4rem;">
+      <div class="col ml-auto d-flex justify-content-end flex-wrap" id="cat-action-btns" style="gap:.4rem;">
         {% if not is_view_only %}<a href="#" data-modal-url="{% url 'catalog_import' %}"
            class="btn btn-sm btn-outline-success no-print" id="catalog-import-btn"
            title="Import items from CSV">
-          <i class="fas fa-file-import me-1"></i>Import
+          <i class="fas fa-file-import mr-1"></i>Import
         </a>
         <a href="#" data-modal-url="{% url 'item_create' %}"
            class="btn btn-sm btn-primary no-print" id="catalog-new-btn">
-          <i class="fas fa-plus me-1"></i>New Item
+          <i class="fas fa-plus mr-1"></i>New Item
         </a>{% endif %}
         <div class="dropdown no-print" id="catalog-export-dropdown">
           <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
-                  data-bs-toggle="dropdown"
+                  data-toggle="dropdown" data-bs-toggle="dropdown"
                   id="catalog-export-btn" type="button" title="Export options">
-            <i class="fas fa-file-export me-1"></i>Export
+            <i class="fas fa-file-export mr-1"></i>Export
           </button>
-          <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="min-width:210px;">
+          <ul class="dropdown-menu dropdown-menu-right shadow-sm" style="min-width:210px;">
             <li>
               <a class="dropdown-item py-2" href="#" id="export-pdf-page">
-                <i class="fas fa-file-pdf me-2 text-danger"></i>
+                <i class="fas fa-file-pdf mr-2 text-danger"></i>
                 <span>PDF – This Page</span>
-                <small class="d-block text-muted ms-4" style="font-size:.72rem;">
+                <small class="d-block text-muted ml-4" style="font-size:.72rem;">
                   Current {{ cols }}×{{ rows }} grid
                 </small>
               </a>
             </li>
             <li>
               <a class="dropdown-item py-2" href="#" id="export-pdf-all">
-                <i class="fas fa-file-pdf me-2 text-danger"></i>
+                <i class="fas fa-file-pdf mr-2 text-danger"></i>
                 <span>PDF – Full Catalog</span>
-                <small class="d-block text-muted ms-4" style="font-size:.72rem;">
+                <small class="d-block text-muted ml-4" style="font-size:.72rem;">
                   All {{ page_obj.paginator.count }} items, {{ cols }}×{{ rows }} layout
                 </small>
               </a>
@@ -285,9 +289,9 @@
             <li><hr class="dropdown-divider my-1"></li>
             <li>
               <a class="dropdown-item py-2" href="#" id="export-excel">
-                <i class="fas fa-file-excel me-2 text-success"></i>
+                <i class="fas fa-file-excel mr-2 text-success"></i>
                 <span>Export to Excel</span>
-                <small class="d-block text-muted ms-4" style="font-size:.72rem;">
+                <small class="d-block text-muted ml-4" style="font-size:.72rem;">
                   All details, no images
                 </small>
               </a>
@@ -300,7 +304,7 @@
     <!-- Active filter badges -->
     {% if search or current_category or current_type %}
     <div class="mt-2 d-flex flex-wrap" id="cat-active-filters" style="gap:.4rem;">
-      <span class="small text-muted me-1">Active filters:</span>
+      <span class="small text-muted mr-1">Active filters:</span>
       {% if search %}
       <span class="filter-badge">
         <i class="fas fa-search" style="font-size:.65rem;"></i> {{ search }}
@@ -365,7 +369,7 @@
   {% empty %}
   <div style="grid-column: 1 / -1;" class="text-center py-5 text-muted">
     <i class="fas fa-box-open fa-3x mb-3 d-block" style="opacity:.5;"></i>
-    <p class="fw-bold mb-1">No items found</p>
+    <p class="font-weight-bold mb-1">No items found</p>
     <p class="small mb-0">Try adjusting your search or filter criteria.</p>
   </div>
   {% endfor %}
