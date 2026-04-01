@@ -305,6 +305,9 @@ def sync_procurement_cashflow(user):
                 unit_price = getattr(line.item, 'cost_price', None) or Decimal('0')
             total += line.qty * unit_price
 
+        # Include delivery charge in procurement cost
+        total += grn.delivery_charge or Decimal('0')
+
         if total <= 0:
             continue
 

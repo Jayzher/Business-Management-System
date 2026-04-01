@@ -119,6 +119,9 @@ def grn_posted_to_cashflow(sender, instance, created, **kwargs):
             unit_price = getattr(line.item, 'cost_price', None) or Decimal('0')
         total += line.qty * unit_price
 
+    # Include delivery charge in procurement cost
+    total += instance.delivery_charge or Decimal('0')
+
     user = instance.posted_by or instance.created_by
     supplier_name = instance.supplier.name if instance.supplier_id else 'Unknown supplier'
 

@@ -96,9 +96,25 @@ def post_goods_receipt(grn, user):
 
     StockMove.objects.bulk_create(moves)
 
-    # Weighted average cost update
+    # Weighted average cost update (includes proportional delivery charge)
     from catalog.models import Item
-    for line in grn.lines.select_related('item').all():
+    delivery_charge = grn.delivery_charge or Decimal('0')
+    grn_lines = list(grn.lines.select_related('item').all())
+
+    # Calculate total line value to distribute delivery charge proportionally
+    line_values = {}
+    total_line_value = Decimal('0')
+    for line in grn_lines:
+        po_unit_price = Decimal('0')
+        if grn.purchase_order:
+            po_line = grn.purchase_order.lines.filter(item=line.item).first()
+            if po_line:
+                po_unit_price = po_line.unit_price
+        lv = line.qty * po_unit_price
+        line_values[line.pk] = {'po_unit_price': po_unit_price, 'line_value': lv}
+        total_line_value += lv
+
+    for line in grn_lines:
         item = line.item
         if item.cost_price is None:
             item.cost_price = Decimal('0')
@@ -108,14 +124,18 @@ def post_goods_receipt(grn, user):
         # total_existing_qty already includes the qty we just added
         old_qty = total_existing_qty - line.qty
         if old_qty + line.qty > 0:
-            po_unit_price = Decimal('0')
-            if grn.purchase_order:
-                po_line = grn.purchase_order.lines.filter(item=line.item).first()
-                if po_line:
-                    po_unit_price = po_line.unit_price
-            if po_unit_price > 0:
+            po_unit_price = line_values[line.pk]['po_unit_price']
+            # Distribute delivery charge proportionally by line value
+            line_delivery_share = Decimal('0')
+            if delivery_charge > 0 and total_line_value > 0:
+                line_delivery_share = delivery_charge * (line_values[line.pk]['line_value'] / total_line_value)
+            elif delivery_charge > 0 and len(grn_lines) > 0:
+                # Equal split if no PO prices available
+                line_delivery_share = delivery_charge / len(grn_lines)
+            landed_unit_price = po_unit_price + (line_delivery_share / line.qty if line.qty else Decimal('0'))
+            if landed_unit_price > 0:
                 old_value = old_qty * item.cost_price
-                new_value = line.qty * po_unit_price
+                new_value = line.qty * landed_unit_price
                 item.cost_price = (old_value + new_value) / (old_qty + line.qty)
                 item.save(update_fields=['cost_price', 'updated_at'])
 

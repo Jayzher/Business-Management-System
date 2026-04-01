@@ -62,7 +62,8 @@ class GoodsReceiptSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'document_number', 'status',
             'purchase_order', 'supplier', 'supplier_name',
-            'warehouse', 'warehouse_name', 'receipt_date', 'notes',
+            'warehouse', 'warehouse_name', 'receipt_date',
+            'delivery_charge', 'notes',
             'created_by', 'created_by_name',
             'approved_by', 'approved_at', 'posted_by', 'posted_at',
             'created_at', 'lines',
