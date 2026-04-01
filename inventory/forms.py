@@ -112,6 +112,9 @@ class StockAdjustmentLineForm(forms.ModelForm):
     class Meta:
         model = StockAdjustmentLine
         fields = ['item', 'location', 'qty_counted', 'qty_system', 'unit', 'batch_number', 'notes']
+        labels = {
+            'qty_counted': 'Adjusted Qty',
+        }
         widgets = {
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'location': forms.Select(attrs={'class': 'form-control form-control-sm'}),
