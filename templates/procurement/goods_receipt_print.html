@@ -5,6 +5,7 @@
 {% block doc_header_info %}
 <p>Date: {{ doc.receipt_date|date:"F d, Y" }}</p>
 {% if doc.purchase_order %}<p>PO: {{ doc.purchase_order.document_number }}</p>{% endif %}
+{% if doc.delivery_charge %}<p>Delivery Charge: {{ doc.delivery_charge|decimal2 }}</p>{% endif %}
 {% endblock %}
 
 {% block info_boxes %}

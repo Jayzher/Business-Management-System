@@ -28,6 +28,7 @@
           <tr><th>Supplier</th><td>{{ receipt.supplier.name }}</td></tr>
           <tr><th>Warehouse</th><td>{{ receipt.warehouse.name }}</td></tr>
           <tr><th>Receipt Date</th><td>{{ receipt.receipt_date|date:"M d, Y" }}</td></tr>
+          <tr><th>Delivery Charge</th><td>{{ receipt.delivery_charge|decimal2 }}</td></tr>
         </table>
       </div>
     </div>
