@@ -16,7 +16,7 @@ SECRET_KEY = os.environ.get(
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
-_raw_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,192.168.1.7')
+_raw_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,192.168.1.7,10.0.2.2,.onrender.com')
 ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(',') if h.strip()]
 
 # ---------------------------------------------------------------------------
@@ -60,6 +60,8 @@ MIDDLEWARE = [
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    # ── Environment routing: must come after SessionMiddleware ──
+    'inventory_system.env_middleware.AppEnvironmentMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -92,10 +94,25 @@ TEMPLATES = [
 WSGI_APPLICATION = 'inventory_system.wsgi.application'
 
 # ---------------------------------------------------------------------------
-# Database — SQLite for dev, PostgreSQL (Neon/Render) for production
+# Database — defaults to local SQLite for dev; Render/production sets
+# DATABASE_URL env var to point at Neon PostgreSQL automatically.
+# To force Neon locally: set DATABASE_URL to the Neon connection string.
 # ---------------------------------------------------------------------------
-_DATABASE_URL = os.environ.get('DATABASE_URL', '')
-if _DATABASE_URL:
+NEON_URL = (
+    'postgresql://neondb_owner:npg_KhjsX3uB0mil'
+    '@ep-raspy-hall-a1fl4lfx.ap-southeast-1.aws.neon.tech'
+    '/neondb?sslmode=require'
+)
+
+_DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite')
+if _DATABASE_URL == 'sqlite':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': str(BASE_DIR / 'db.sqlite3'),
+        }
+    }
+else:
     DATABASES = {
         'default': dj_database_url.config(
             default=_DATABASE_URL,
@@ -104,17 +121,25 @@ if _DATABASE_URL:
             ssl_require=True,
         )
     }
-else:
-    DATABASES = {
-        'default': {
-            'ENGINE': os.environ.get('DB_ENGINE', 'django.db.backends.sqlite3'),
-            'NAME': os.environ.get('DB_NAME', str(BASE_DIR / 'db.sqlite3')),
-            'USER': os.environ.get('DB_USER', ''),
-            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-            'HOST': os.environ.get('DB_HOST', ''),
-            'PORT': os.environ.get('DB_PORT', ''),
-        }
-    }
+
+# ---------------------------------------------------------------------------
+# Test environment database
+# Set TEST_DATABASE_URL env var to enable the environment toggle.
+# Example: TEST_DATABASE_URL=postgresql://user:pass@host/db?sslmode=require
+# NEVER hardcode credentials here — use environment variables.
+# ---------------------------------------------------------------------------
+_TEST_DATABASE_URL = os.environ.get('TEST_DATABASE_URL', '')
+if _TEST_DATABASE_URL:
+    DATABASES['test_env'] = dj_database_url.config(
+        default=_TEST_DATABASE_URL,
+        conn_max_age=600,
+        conn_health_checks=True,
+        ssl_require=True,
+    )
+
+# Always register the router; it safely falls back to 'default' when
+# test_env is not configured.
+DATABASE_ROUTERS = ['inventory_system.db_router.AppEnvironmentRouter']
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -154,14 +179,14 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=2),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ROTATE_REFRESH_TOKENS': True,
 }
 
 # ---------------------------------------------------------------------------
-# CORS
+# CORS — allow mobile app connections
 # ---------------------------------------------------------------------------
-CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOWED_ORIGINS = os.environ.get('DJANGO_CORS_ALLOWED_ORIGINS', '').split(',') if not DEBUG else []
+CORS_ALLOW_ALL_ORIGINS = True  # Mobile apps don't have a fixed origin
 
 # ---------------------------------------------------------------------------
 # CSRF

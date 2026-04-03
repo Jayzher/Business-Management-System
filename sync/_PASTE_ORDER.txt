@@ -1,0 +1,82 @@
+PASTE THESE INTO NEON SQL EDITOR IN THIS ORDER:
+=======================================================
+
+IMPORTANT: Before pasting, run this first in the SQL Editor:
+  SET session_replication_role = 'replica';
+(This disables FK checks during import)
+
+After pasting ALL files, run:
+  SET session_replication_role = 'origin';
+(This re-enables FK checks)
+
+#    Table                                         Rows     File
+---------------------------------------------------------------------------
+1    accounts_role                                 5        accounts_role.sql
+2    audit_auditlog                                311      audit_auditlog.sql
+3    auth_permission                               324      auth_permission.sql
+4    auth_user                                     3        auth_user.sql
+5    cashflow_cashflowlog                          319      cashflow_cashflowlog.sql
+6    cashflow_cashflowtransaction                  159      cashflow_cashflowtransaction.sql
+7    catalog_category                              19       catalog_category.sql
+8    catalog_item                                  297      catalog_item.sql
+9    catalog_materialspec                          4        catalog_materialspec.sql
+10   catalog_productspec                           3        catalog_productspec.sql
+11   catalog_unit                                  54       catalog_unit.sql
+12   catalog_unitconversion                        11       catalog_unitconversion.sql
+13   core_businessprofile                          1        core_businessprofile.sql
+14   core_expense                                  83       core_expense.sql
+15   core_expensecategory                          15       core_expensecategory.sql
+16   core_invoice                                  138      core_invoice.sql
+17   core_invoiceline                              751      core_invoiceline.sql
+18   core_invoicepayment                           139      core_invoicepayment.sql
+19   core_saleschannel                             1        core_saleschannel.sql
+20   core_supplycategory                           3        core_supplycategory.sql
+21   core_supplyitem                               27       core_supplyitem.sql
+22   core_supplymovement                           60       core_supplymovement.sql
+23   core_targetgoal                               1        core_targetgoal.sql
+24   django_admin_log                              4635     django_admin_log.sql
+25   django_content_type                           81       django_content_type.sql
+26   django_migrations                             77       django_migrations.sql
+27   django_session                                19       django_session.sql
+28   inventory_inventorytosupplytransfer           4        inventory_inventorytosupplytransfer.sql
+29   inventory_inventorytosupplytransferline       26       inventory_inventorytosupplytransferline.sql
+30   inventory_stockbalance                        280      inventory_stockbalance.sql
+31   inventory_stockmove                           1259     inventory_stockmove.sql
+32   inventory_stocktransfer                       1        inventory_stocktransfer.sql
+33   partners_customer                             34       partners_customer.sql
+34   partners_supplier                             11       partners_supplier.sql
+35   pos_pospayment                                3        pos_pospayment.sql
+36   pos_posregister                               1        pos_posregister.sql
+37   pos_possale                                   4        pos_possale.sql
+38   pos_possaleline                               3        pos_possaleline.sql
+39   pos_posshift                                  2        pos_posshift.sql
+40   pricing_customerpricecatalog                  9        pricing_customerpricecatalog.sql
+41   pricing_customerpricecatalogitem              39       pricing_customerpricecatalogitem.sql
+42   pricing_discountrule                          2        pricing_discountrule.sql
+43   pricing_pricelist                             12       pricing_pricelist.sql
+44   pricing_pricelistitem                         42       pricing_pricelistitem.sql
+45   procurement_goodsreceipt                      54       procurement_goodsreceipt.sql
+46   procurement_goodsreceiptattachment            27       procurement_goodsreceiptattachment.sql
+47   procurement_goodsreceiptline                  430      procurement_goodsreceiptline.sql
+48   procurement_purchaseorder                     55       procurement_purchaseorder.sql
+49   procurement_purchaseorderline                 427      procurement_purchaseorderline.sql
+50   procurement_purchasereturn                    2        procurement_purchasereturn.sql
+51   procurement_purchasereturnline                2        procurement_purchasereturnline.sql
+52   procurement_suppliercatalogentry              156      procurement_suppliercatalogentry.sql
+53   sales_deliveryline                            538      sales_deliveryline.sql
+54   sales_deliverynote                            89       sales_deliverynote.sql
+55   sales_salesorder                              154      sales_salesorder.sql
+56   sales_salesorderline                          572      sales_salesorderline.sql
+57   sales_salesorderpricelistline                 47       sales_salesorderpricelistline.sql
+58   sales_salespickup                             47       sales_salespickup.sql
+59   sales_salespickupline                         232      sales_salespickupline.sql
+60   sales_salesreturn                             1        sales_salesreturn.sql
+61   sales_salesreturnline                         1        sales_salesreturnline.sql
+62   services_customerservice                      12       services_customerservice.sql
+63   services_servicebundle                        2        services_servicebundle.sql
+64   services_serviceline                          57       services_serviceline.sql
+65   services_serviceothermaterial                 8        services_serviceothermaterial.sql
+66   warehouses_location                           12       warehouses_location.sql
+67   warehouses_warehouse                          2        warehouses_warehouse.sql
+
+Total: 12199 rows across 67 tables
