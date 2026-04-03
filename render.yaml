@@ -19,20 +19,3 @@ services:
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
         value: "https://inventory-system.onrender.com"
 
-  # ─── Mobile API (API-only, no web UI — for Flutter app) ───
-  - type: web
-    name: inventory-mobile-api
-    env: python
-    buildCommand: "./build_mobile.sh"
-    startCommand: "gunicorn inventory_system.mobile_wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
-    envVars:
-      - key: DJANGO_SETTINGS_MODULE
-        value: inventory_system.mobile_settings
-      - key: DJANGO_DEBUG
-        value: "False"
-      - key: DJANGO_ALLOWED_HOSTS
-        value: ".onrender.com"
-      - key: DATABASE_URL
-        sync: false
-      - key: DJANGO_SECRET_KEY
-        generateValue: true
