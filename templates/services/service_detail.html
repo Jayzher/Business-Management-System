@@ -41,6 +41,7 @@
           {% if service.notes %}
           <tr><th>Notes</th><td>{{ service.notes }}</td></tr>
           {% endif %}
+          <tr><th>Quotation</th><td>₱{{ service.quotation_amount|floatformat:2|intcomma }}</td></tr>
           <tr><th>Payment</th><td>
             {% if service.payment_status == 'PAID' %}<span class="badge badge-success">Paid</span>
             {% elif service.payment_status == 'PARTIAL' %}<span class="badge badge-warning">Partial</span>
@@ -332,13 +333,14 @@
               {% else %}<span class="badge badge-secondary">Unpaid</span>{% endif %}
             </td>
           </tr>
+          <tr><th>Quotation</th><td class="text-right font-weight-bold">{{ service.quotation_amount|floatformat:2 }}</td></tr>
           {% if service.payment_status == 'PARTIAL' and service.partial_payment_amount_value > 0 %}
           <tr><th>Initial Paid</th><td class="text-right">{{ service.partial_payment_amount_value|floatformat:2 }}</td></tr>
-          <tr><th>Balance Due</th><td class="text-right">{{ service.remaining_balance|floatformat:2 }}</td></tr>
+          <tr class="table-warning"><th>Balance Due</th><td class="text-right font-weight-bold">{{ service.remaining_balance|floatformat:2 }}</td></tr>
           {% endif %}
+          <tr><td colspan="2"><hr class="my-1"></td></tr>
           <tr><th>Product Lines</th><td class="text-right">{{ service.product_lines_total|floatformat:2 }}</td></tr>
           <tr><th>Other Materials</th><td class="text-right">{{ service.other_materials_total|floatformat:2 }}</td></tr>
-          <tr><th>Quotation</th><td class="text-right">{{ service.quotation_amount|floatformat:2 }}</td></tr>
           {% if service.bundles.exists %}
           <tr><th>Bundles (COGS)</th><td class="text-right text-danger">({{ service.bundles_total|floatformat:2 }})</td></tr>
           {% endif %}

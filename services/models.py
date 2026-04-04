@@ -150,7 +150,7 @@ class CustomerService(models.Model):
 
     @property
     def remaining_balance(self):
-        return max(self.grand_total - self.partial_payment_amount_value, Decimal('0'))
+        return max(self.quotation_amount - self.partial_payment_amount_value, Decimal('0'))
 
 
 class ServiceLine(models.Model):

@@ -318,9 +318,9 @@ def post_transfer(transfer, user):
 @transaction.atomic
 def post_adjustment(adjustment, user):
     """
-    Post a Stock Adjustment: sets stock TO the adjusted qty (qty_counted).
-    Uses the current real balance at posting time so the result is accurate
-    even if other transactions occurred after the adjustment was created.
+    Post a Stock Adjustment: sets stock directly TO the new qty (qty_counted).
+    Locks the balance row first, then overwrites qty_on_hand to the new value
+    so the result is always exactly what was counted.
     """
     from core.models import DocumentStatus
 
@@ -331,21 +331,32 @@ def post_adjustment(adjustment, user):
     moves = []
 
     for line in adjustment.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        # Convert the adjusted (counted) qty to base/stock units
-        base_adjusted = convert_to_base_unit(line.qty_counted, line.unit, line.item.stock_unit, item=line.item)
+        # Convert the new counted qty to base/stock units
+        new_qty = convert_to_base_unit(line.qty_counted, line.unit, line.item.stock_unit, item=line.item)
 
-        # Get the CURRENT actual balance (already in base units)
-        current_balance = (
-            StockBalance.objects
-            .filter(item=line.item, location=line.location)
-            .values_list('qty_on_hand', flat=True)
-            .first()
-        ) or Decimal('0')
+        # Lock the balance row and set it directly to the new qty
+        balance, created = StockBalance.objects.select_for_update().get_or_create(
+            item=line.item,
+            location=line.location,
+            defaults={'qty_on_hand': Decimal('0'), 'qty_reserved': Decimal('0')},
+        )
+        old_qty = balance.qty_on_hand
+        base_diff = new_qty - old_qty
 
-        # Compute the real delta needed to SET balance to the adjusted qty
-        base_diff = base_adjusted - current_balance
         if base_diff == 0:
             continue
+
+        # Check negative stock
+        warehouse = line.location.warehouse
+        if not warehouse.allow_negative_stock and new_qty < 0:
+            raise ValueError(
+                f"Insufficient stock for {line.item.code} at {line.location}. "
+                f"Cannot set balance to {new_qty}."
+            )
+
+        # Set balance directly to the new qty
+        balance.qty_on_hand = new_qty
+        balance.save()
 
         move = StockMove(
             move_type=MoveType.ADJUST,
@@ -357,14 +368,13 @@ def post_adjustment(adjustment, user):
             reference_type='StockAdjustment',
             reference_id=adjustment.pk,
             reference_number=adjustment.document_number,
-            notes=f"Adjusted to {line.qty_counted} {line.unit.abbreviation} (system was {line.qty_system}, current was {current_balance})",
+            notes=f"Set to {line.qty_counted} {line.unit.abbreviation} (was {old_qty})",
             status=MoveStatus.POSTED,
             created_by=user,
             posted_by=user,
             posted_at=now,
         )
         moves.append(move)
-        _update_balance(line.item, line.location, base_diff)
 
     StockMove.objects.bulk_create(moves)
 

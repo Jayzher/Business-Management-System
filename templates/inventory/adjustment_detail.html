@@ -10,7 +10,22 @@
 
 {% block content %}
 {% include "theme/partials/status_workflow.html" with status=adjustment.status doc_type="Adjustment" show_approved=True %}
-{% include "theme/partials/doc_actions.html" with obj=adjustment edit_url_name="adjustment_edit" delete_url_name="adjustment_delete" approve_url_name="adjustment_approve" post_url_name="adjustment_post" cancel_url_name="adjustment_cancel" list_url_name="adjustment_list" %}
+
+{% if pending_docs %}
+<div class="alert alert-warning d-flex align-items-start" role="alert">
+  <i class="fas fa-exclamation-triangle me-2 mt-1"></i>
+  <div>
+    <strong>Pending Stock Movements</strong> — The following documents in <strong>{{ adjustment.warehouse.code }}</strong> have not yet been posted and may affect stock balances:
+    <ul class="mb-0 mt-1">
+      {% for doc_type, count in pending_docs.items %}
+      <li>{{ count }} pending {{ doc_type }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{% include "theme/partials/doc_actions.html" with obj=adjustment edit_url_name="adjustment_edit" delete_url_name="adjustment_delete" approve_url_name="adjustment_approve" post_url_name="adjustment_post" cancel_url_name="adjustment_cancel" list_url_name="adjustment_list" pending_docs=pending_docs %}
 <div class="row">
   <div class="col-lg-6">
     <div class="card">

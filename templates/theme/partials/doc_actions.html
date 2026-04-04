@@ -30,9 +30,16 @@ Required context:
     {% if obj.status == 'DRAFT' and approve_url_name %}
       <form method="post" action="{% url approve_url_name obj.pk %}" class="d-inline mr-2 mb-2">
         {% csrf_token %}
+        {% if pending_docs %}
+        <button type="submit" class="btn btn-info btn-approve-pending"
+                data-pending="{% for doc_type, count in pending_docs.items %}{{ count }} pending {{ doc_type }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+          <i class="fas fa-thumbs-up me-1"></i> Approve
+        </button>
+        {% else %}
         <button type="submit" class="btn btn-info" onclick="return confirm('Approve this document?')">
           <i class="fas fa-thumbs-up me-1"></i> Approve
         </button>
+        {% endif %}
       </form>
     {% endif %}
 
@@ -79,3 +86,23 @@ Required context:
     {% endif %}
   </div>
 </div>
+
+{% if pending_docs %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var btn = document.querySelector('.btn-approve-pending');
+  if (btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      var pending = btn.getAttribute('data-pending');
+      var msg = 'WARNING: There are pending stock movements that have not been posted yet:\n\n'
+              + pending + '\n\n'
+              + 'These may affect stock balances. Are you sure you want to approve this adjustment?';
+      if (confirm(msg)) {
+        btn.closest('form').submit();
+      }
+    });
+  }
+});
+</script>
+{% endif %}

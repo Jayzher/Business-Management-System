@@ -62,6 +62,7 @@
           <tr><th>Type</th><td><span class="badge {% if item.item_type == 'RAW' %}bg-info{% elif item.item_type == 'FINISHED' %}bg-success{% else %}bg-secondary{% endif %}">{{ item.get_item_type_display }}</span></td></tr>
           <tr><th>Category</th><td>{{ item.category.name }}</td></tr>
           <tr><th>Unit</th><td>{{ item.default_unit.name }} ({{ item.default_unit.abbreviation }})</td></tr>
+          <tr><th>Selling Unit</th><td>{% if item.selling_unit %}{{ item.selling_unit.name }} ({{ item.selling_unit.abbreviation }}){% else %}-{% endif %}</td></tr>
           <tr><th>Barcode</th><td>{{ item.barcode|default:"-" }}</td></tr>
           <tr><th>Cost Price</th><td>{{ item.cost_price|floatformat:2 }}</td></tr>
           <tr><th>Selling Price</th><td>{{ item.selling_price|floatformat:2 }}</td></tr>
