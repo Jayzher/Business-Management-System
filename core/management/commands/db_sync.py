@@ -84,9 +84,12 @@ class Command(BaseCommand):
             return
 
         # -- Flush destination ------------------------------------------------
-        self.stdout.write(f'Step 1/5: Flushing {label_dst}...')
+        self.stdout.write(f'Step 1/5: Migrating & flushing {label_dst}...')
         from django.core.management import call_command
-        call_command('flush', '--no-input', database=dst, stdout=self.stdout)
+        # Ensure all tables exist on the destination before flushing
+        call_command('migrate', '--run-syncdb', database=dst,
+                     verbosity=0, stdout=self.stdout)
+        self._truncate_all(dst)
         self.stdout.write('Flushed.\n')
 
         # -- Disable FK constraints on destination ----------------------------
@@ -228,6 +231,29 @@ class Command(BaseCommand):
                 sorted_models.append(m)
 
         return sorted_models
+
+    @staticmethod
+    def _truncate_all(db_alias):
+        """
+        Truncate every managed table on the destination database.
+        Uses TRUNCATE … CASCADE on PostgreSQL, DELETE on SQLite.
+        """
+        is_pg = 'postgresql' in settings.DATABASES[db_alias].get('ENGINE', '')
+        all_models = apps.get_models(include_auto_created=True)
+        tables = [m._meta.db_table for m in all_models if m._meta.managed]
+
+        with connections[db_alias].cursor() as cursor:
+            if is_pg:
+                if tables:
+                    table_list = ', '.join(f'"{t}"' for t in tables)
+                    cursor.execute(
+                        f'TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE'
+                    )
+            else:
+                cursor.execute('PRAGMA foreign_keys = OFF;')
+                for t in tables:
+                    cursor.execute(f'DELETE FROM "{t}";')
+                cursor.execute('PRAGMA foreign_keys = ON;')
 
     @staticmethod
     def _drop_fk_constraints(db_alias):
