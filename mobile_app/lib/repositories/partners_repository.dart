@@ -16,7 +16,7 @@ class PartnersRepository {
     if (search != null && search.isNotEmpty) {
       query.where((t) => t.name.contains(search) | t.code.contains(search));
     }
-    query.orderBy([(t) => OrderingTerm.asc(t.name)]);
+    query.orderBy([(t) => OrderingTerm.desc(t.id)]);
     return query.watch();
   }
 
@@ -32,7 +32,7 @@ class PartnersRepository {
     if (search != null && search.isNotEmpty) {
       query.where((t) => t.name.contains(search) | t.code.contains(search));
     }
-    query.orderBy([(t) => OrderingTerm.asc(t.name)]);
+    query.orderBy([(t) => OrderingTerm.desc(t.id)]);
     return query.watch();
   }
 }
