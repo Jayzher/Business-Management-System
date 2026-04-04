@@ -272,3 +272,44 @@ def dashboard_view(request):
         'reorder_items': reorder_items,
     }
     return render(request, 'theme/dashboard.html', context)
+
+
+# ─── Environment Toggle ──────────────────────────────────────────────────────
+
+@login_required
+def toggle_environment(request):
+    """
+    POST-only: toggle the current session between 'production' and 'test' DB.
+    Only superusers and staff members are allowed to switch.
+    Redirects back to the referring page.
+    """
+    from django.conf import settings
+    from django.contrib import messages
+    from django.shortcuts import redirect
+
+    if request.method != 'POST':
+        return redirect(request.META.get('HTTP_REFERER', '/dashboard/'))
+
+    if not (request.user.is_superuser or request.user.is_staff):
+        messages.error(request, 'You do not have permission to switch environments.')
+        return redirect(request.META.get('HTTP_REFERER', '/dashboard/'))
+
+    if 'test_env' not in settings.DATABASES:
+        messages.warning(
+            request,
+            'Test environment is not configured. '
+            'Set the TEST_DATABASE_URL environment variable to enable it.',
+        )
+        return redirect(request.META.get('HTTP_REFERER', '/dashboard/'))
+
+    current = request.session.get('app_env', 'production')
+    new_env = 'test' if current == 'production' else 'production'
+    request.session['app_env'] = new_env
+
+    label = 'TEST' if new_env == 'test' else 'PRODUCTION'
+    messages.warning(
+        request,
+        f'⚠ Switched to {label} database. All data operations now target the {label} environment.',
+    )
+    return redirect(request.META.get('HTTP_REFERER', '/dashboard/'))
+

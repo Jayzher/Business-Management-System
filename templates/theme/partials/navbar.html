@@ -12,6 +12,26 @@
 
   <!-- Right navbar links -->
   <ul class="navbar-nav ml-auto">
+
+    {% if request.user.is_staff or request.user.is_superuser %}
+    {% with current_env=request.session.app_env|default:"production" %}
+    <li class="nav-item" title="Switch database environment (staff only)">
+      <form method="post" action="{% url 'toggle_environment' %}" class="d-inline m-0 p-0" id="env-toggle-form">
+        {% csrf_token %}
+        <button type="button"
+          onclick="wisConfirmEnvToggle(this)"
+          data-env="{{ current_env }}"
+          class="nav-link btn btn-link border-0 px-2"
+          style="{% if current_env == 'test' %}color:#c0392b;font-weight:700;{% else %}color:#27ae60;{% endif %}"
+          title="Currently: {{ current_env|capfirst }} DB — click to switch">
+          <i class="fas fa-database me-1"></i>
+          <span class="d-none d-md-inline">{% if current_env == 'test' %}TEST DB{% else %}PROD DB{% endif %}</span>
+        </button>
+      </form>
+    </li>
+    {% endwith %}
+    {% endif %}
+
     <li class="nav-item">
       <a class="nav-link" href="#" id="wis-page-guide" role="button" title="Page Guide" data-bs-toggle="tooltip" data-bs-placement="bottom">
         <i class="fas fa-question-circle"></i> <span class="d-none d-md-inline">Guide</span>
@@ -47,10 +67,32 @@
 <form method="post" action="{% url 'logout' %}" id="navbar-logout-form" style="display:none;">
   {% csrf_token %}
 </form>
+
+{% if request.session.app_env == 'test' %}
+<!-- Test environment warning banner -->
+<div class="alert alert-danger alert-dismissible mb-0 rounded-0 py-2 text-center" style="font-weight:600;font-size:.9rem;letter-spacing:.3px;border:none;background:#c0392b;color:#fff;">
+  <i class="fas fa-flask me-2"></i>
+  TEST ENVIRONMENT — All changes are applied to the <strong>TEST database</strong>. Production data is unaffected.
+  <button type="button" class="btn-close btn-close-white btn-sm" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
+
 <script>
 document.getElementById('navbar-logout-btn').addEventListener('click', function(e) {
   e.preventDefault();
   document.getElementById('navbar-logout-form').submit();
 });
+
+function wisConfirmEnvToggle(btn) {
+  var env = btn.getAttribute('data-env');
+  var target = env === 'test' ? 'PRODUCTION' : 'TEST';
+  var msg = 'Switch to the ' + target + ' database?\n\n'
+    + (target === 'TEST'
+        ? '⚠ You are about to use the TEST database. Do NOT enter real business data.'
+        : '✓ You are switching back to the live PRODUCTION database.');
+  if (confirm(msg)) {
+    btn.closest('form').submit();
+  }
+}
 </script>
 <!-- /.navbar -->

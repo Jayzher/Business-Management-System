@@ -1,4 +1,5 @@
 services:
+  # ─── Web Dashboard (full web UI + API) ───
   - type: web
     name: inventory-system
     env: python
@@ -17,3 +18,4 @@ services:
         generateValue: true
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
         value: "https://inventory-system.onrender.com"
+

@@ -138,9 +138,12 @@ class AppDatabase extends _$AppDatabase {
 
   // ─── Helper: increment retry count ───
   Future<void> incrementRetryCount(int id, String error) async {
+    final item = await (select(syncQueue)..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
+    final currentCount = item?.retryCount ?? 0;
     await (update(syncQueue)..where((t) => t.id.equals(id))).write(
       SyncQueueCompanion(
-        retryCount: const Value(1), // Will be replaced with actual increment
+        retryCount: Value(currentCount + 1),
         errorMessage: Value(error),
       ),
     );

@@ -29,7 +29,7 @@ from pos.views import (
     POSRefundViewSet, CashEntryViewSet,
     api_open_shift, api_close_shift, api_shift_summary,
 )
-from theme.views import dashboard_view
+from theme.views import dashboard_view, toggle_environment
 
 # ── DRF Router ─────────────────────────────────────────────────────────────
 router = DefaultRouter()
@@ -75,7 +75,13 @@ urlpatterns = [
     # Auth (JWT)
     path('api/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # Mobile app uses /api/accounts/token/ for auth
+    path('api/accounts/token/', TokenObtainPairView.as_view(), name='token_obtain_pair_mobile'),
+    path('api/accounts/token/refresh/', TokenRefreshView.as_view(), name='token_refresh_mobile'),
     path('api/users/me/', me, name='api_me'),
+
+    # Mobile sync API (offline-first sync with Neon DB)
+    path('api/sync/', include('sync.urls')),
 
     # API (DRF Router)
     path('api/', include(router.urls)),
@@ -101,6 +107,7 @@ urlpatterns = [
 
     # Template views
     path('dashboard/', dashboard_view, name='dashboard'),
+    path('env/toggle/', toggle_environment, name='toggle_environment'),
     path('accounts/', include('accounts.urls')),
     path('catalog/', include('catalog.urls')),
     path('partners/', include('partners.urls')),

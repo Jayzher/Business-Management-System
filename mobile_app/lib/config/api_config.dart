@@ -1,7 +1,18 @@
 class ApiConfig {
-  // Change this to your Django server URL
-  static const String baseUrl = 'http://10.0.2.2:8000/api'; // Android emulator → localhost
-  static const String baseUrlIOS = 'http://localhost:8000/api';
+  // ─── Server URLs ───
+  // Production: Dedicated Mobile API on Render → Neon PostgreSQL DB
+  static const String productionUrl = 'https://inventory-mobile-api.onrender.com/api';
+
+  // Local development (same Django project, mobile settings)
+  static const String localUrlAndroid = 'http://10.0.2.2:8000/api'; // Android emulator → localhost
+  static const String localUrlIOS = 'http://localhost:8000/api';
+
+  // Toggle: true = Neon DB via Render, false = local dev server
+  static const bool useProduction = true;
+
+  // Active base URLs
+  static const String baseUrl = useProduction ? productionUrl : localUrlAndroid;
+  static const String baseUrlIOS = useProduction ? productionUrl : localUrlIOS;
 
   static const Duration connectTimeout = Duration(seconds: 15);
   static const Duration receiveTimeout = Duration(seconds: 30);

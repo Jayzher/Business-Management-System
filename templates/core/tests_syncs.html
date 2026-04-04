@@ -166,7 +166,7 @@
         <div class="flex-grow-1">
           <div class="ts-action-title">{{ a.label }}</div>
           <div class="ts-action-desc">{{ a.description }}</div>
-          <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}">
+          <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}" {% if a.confirm %}data-confirm="{{ a.confirm }}"{% endif %}>
             <i class="fas fa-play me-1"></i> Run
           </button>
         </div>
@@ -186,7 +186,7 @@
         <div class="flex-grow-1">
           <div class="ts-action-title">{{ a.label }}</div>
           <div class="ts-action-desc">{{ a.description }}</div>
-          <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}">
+          <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}" {% if a.confirm %}data-confirm="{{ a.confirm }}"{% endif %}>
             <i class="fas fa-play me-1"></i> Run
           </button>
         </div>
@@ -206,7 +206,7 @@
         <div class="flex-grow-1">
           <div class="ts-action-title">{{ a.label }}</div>
           <div class="ts-action-desc">{{ a.description }}</div>
-          <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}">
+          <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}" {% if a.confirm %}data-confirm="{{ a.confirm }}"{% endif %}>
             <i class="fas fa-play me-1"></i> Run
           </button>
         </div>
@@ -234,9 +234,12 @@
       var action = this.dataset.action;
       var outBox = document.getElementById('output-' + action);
       var origHtml = this.innerHTML;
+      var confirmMsg = this.dataset.confirm;
 
       // Confirm dangerous actions
-      if (action === 'resync_inventory') {
+      if (confirmMsg) {
+        if (!confirm(confirmMsg)) return;
+      } else if (action === 'resync_inventory') {
         if (!confirm('This will modify StockBalance and StockMove records. Are you sure?')) return;
       }
 

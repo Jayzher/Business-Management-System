@@ -330,7 +330,39 @@ def adjustment_detail_view(request, pk):
         StockAdjustment.objects.select_related('warehouse', 'created_by', 'approved_by', 'posted_by')
         .prefetch_related('lines__item', 'lines__unit', 'lines__location'), pk=pk
     )
-    return render(request, 'inventory/adjustment_detail.html', {'adjustment': adjustment})
+
+    # Check for pending (non-posted) stock movement documents in the same warehouse
+    pending_docs = {}
+    if adjustment.status == DocumentStatus.DRAFT:
+        from procurement.models import GoodsReceipt
+        from sales.models import DeliveryNote, SalesPickup
+        from services.models import CustomerService
+
+        wh = adjustment.warehouse
+        pending_statuses = [DocumentStatus.DRAFT, DocumentStatus.APPROVED]
+
+        grn_count = GoodsReceipt.objects.filter(warehouse=wh, status__in=pending_statuses).count()
+        if grn_count:
+            pending_docs['GRNs'] = grn_count
+
+        dn_count = DeliveryNote.objects.filter(warehouse=wh, status__in=pending_statuses).count()
+        if dn_count:
+            pending_docs['Deliveries'] = dn_count
+
+        pickup_count = SalesPickup.objects.filter(warehouse=wh, status__in=pending_statuses).count()
+        if pickup_count:
+            pending_docs['Pickups'] = pickup_count
+
+        svc_count = CustomerService.objects.filter(
+            warehouse=wh, status__in=['DRAFT', 'IN_PROGRESS']
+        ).count()
+        if svc_count:
+            pending_docs['Services'] = svc_count
+
+    return render(request, 'inventory/adjustment_detail.html', {
+        'adjustment': adjustment,
+        'pending_docs': pending_docs,
+    })
 
 
 @login_required
