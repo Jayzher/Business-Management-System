@@ -188,18 +188,26 @@ def service_detail(request, pk):
         else:
             cogs_per_unit = line.item.cost_price or Decimal('0')
         cost = cogs_per_unit * line.qty
+        is_scrap = getattr(line, 'is_scrap', False)
         line_pnl.append({
             'line': line,
             'cogs_per_unit': cogs_per_unit,
             'cogs': cost,
             'selling': line.line_total,
             'profit': line.line_total - cost,
+            'is_scrap': is_scrap,
         })
+
+    scrap_total = sum(
+        (row['selling'] for row in line_pnl if row['is_scrap']),
+        Decimal('0'),
+    )
 
     return render(request, 'services/service_detail.html', {
         'service': svc,
         'line_pnl': line_pnl,
         'other_materials': svc.other_materials.all(),
+        'scrap_total': scrap_total,
     })
 
 
@@ -390,6 +398,8 @@ def service_complete(request, pk):
                 balance.save()
 
             for line in lines:
+                if getattr(line, 'is_scrap', False):
+                    continue
                 location = line.location or default_location
                 if location is None:
                     missing_location_items.append(line.item.code)
@@ -430,6 +440,8 @@ def service_complete(request, pk):
 
     total_cogs = Decimal('0')
     for line in lines:
+        if getattr(line, 'is_scrap', False):
+            continue
         if _cogs_fn:
             try:
                 cogs_pu = _cogs_fn(line.item, line.unit)

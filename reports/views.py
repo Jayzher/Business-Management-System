@@ -586,7 +586,22 @@ def financial_statement_view(request):
 
     invoice_rows = list(
         inv_qs.select_related('sales_order__customer', 'pos_sale__customer')
-        .prefetch_related('payments', 'customer_services__lines__item')
+        .prefetch_related(
+            'payments',
+            'pos_sale__lines__item',
+            'pos_sale__lines__unit',
+            'pos_sale__bundle_lines__price_list__items__item',
+            'pos_sale__bundle_lines__price_list__items__unit',
+            'sales_order__lines__item',
+            'sales_order__lines__unit',
+            'sales_order__price_list_lines__price_list__items__item',
+            'sales_order__price_list_lines__price_list__items__unit',
+            'customer_services__lines__item',
+            'customer_services__lines__unit',
+            'customer_services__bundles__price_list__items__item',
+            'customer_services__bundles__price_list__items__unit',
+            'customer_services__other_materials',
+        )
         .order_by('paid_date')
     )
 

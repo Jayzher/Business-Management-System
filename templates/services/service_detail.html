@@ -78,6 +78,7 @@
               <th class="text-right">Selling Price</th>
               <th class="text-right">Line Total</th>
               <th>Notes</th>
+              <th class="text-center">Scrap</th>
             </tr>
           </thead>
           <tbody>
@@ -90,16 +91,17 @@
               <td class="text-right">{{ row.line.unit_price|floatformat:2 }}</td>
               <td class="text-right font-weight-bold">{{ row.selling|floatformat:2 }}</td>
               <td>{{ row.line.notes|default:"" }}</td>
+              <td class="text-center">{% if row.is_scrap %}<span class="badge badge-warning" title="Scrap — excluded from COGS"><i class="fas fa-recycle mr-1"></i>Scrap</span>{% endif %}</td>
             </tr>
             {% empty %}
-            <tr><td colspan="7" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No product lines.</td></tr>
+            <tr><td colspan="8" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No product lines.</td></tr>
             {% endfor %}
           </tbody>
           <tfoot>
             <tr class="table-light">
               <td colspan="5" class="text-right font-weight-bold">Product Lines Subtotal:</td>
               <td class="text-right font-weight-bold">{{ service.product_lines_total|floatformat:2 }}</td>
-              <td></td>
+              <td colspan="2"></td>
             </tr>
           </tfoot>
         </table>
@@ -340,6 +342,9 @@
           {% endif %}
           <tr><td colspan="2"><hr class="my-1"></td></tr>
           <tr><th>Product Lines</th><td class="text-right">{{ service.product_lines_total|floatformat:2 }}</td></tr>
+          {% if scrap_total %}
+          <tr><th class="text-warning"><i class="fas fa-recycle mr-1"></i>Scrap Materials <small>(excl. COGS)</small></th><td class="text-right text-warning">({{ scrap_total|floatformat:2 }})</td></tr>
+          {% endif %}
           <tr><th>Other Materials</th><td class="text-right">{{ service.other_materials_total|floatformat:2 }}</td></tr>
           {% if service.bundles.exists %}
           <tr><th>Bundles (COGS)</th><td class="text-right text-danger">({{ service.bundles_total|floatformat:2 }})</td></tr>
