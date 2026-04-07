@@ -170,6 +170,10 @@ class ServiceLine(models.Model):
         help_text='Selling price per unit (auto-filled from Item catalog)',
     )
     notes = models.TextField(blank=True, default='')
+    is_scrap = models.BooleanField(
+        default=False,
+        help_text='Mark as scrap / waste material — excluded from COGS calculations.',
+    )
 
     @property
     def line_total(self):

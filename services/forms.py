@@ -103,7 +103,7 @@ class ServiceLineForm(forms.ModelForm):
 
     class Meta:
         model = ServiceLine
-        fields = ['item', 'location', 'qty', 'unit', 'unit_price', 'notes']
+        fields = ['item', 'location', 'qty', 'unit', 'unit_price', 'notes', 'is_scrap']
         widgets = {
             'item': forms.Select(attrs={'class': f'{_SM} svc-line-item'}),
             'location': forms.Select(attrs={'class': _SM}),
@@ -111,6 +111,7 @@ class ServiceLineForm(forms.ModelForm):
             'unit': forms.Select(attrs={'class': f'{_SM} svc-line-unit bg-light', 'style': 'pointer-events:none;', 'tabindex': '-1', 'aria-readonly': 'true'}),
             'unit_price': forms.NumberInput(attrs={**_NUM, 'class': f'{_SM} svc-line-price bg-light', 'placeholder': 'Selling price (auto-filled)', 'readonly': 'readonly'}),
             'notes': forms.TextInput(attrs={'class': _SM, 'placeholder': 'Optional note'}),
+            'is_scrap': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
         help_texts = {
             'item': 'Part or item used in the service.',
@@ -119,6 +120,7 @@ class ServiceLineForm(forms.ModelForm):
             'unit': 'Unit of measure.',
             'unit_price': 'Selling price per unit (auto-filled from catalog).',
             'notes': 'Optional line note.',
+            'is_scrap': 'Scrap / waste — excluded from COGS.',
         }
 
 

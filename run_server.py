@@ -32,13 +32,23 @@ python_exe = VENV_PY
 
 
 def start_server():
-    cmd = [str(python_exe), str(MANAGE_PY), "runserver", "0.0.0.0:8000"]
     if PID_FILE.exists():
         print(f"PID file already exists at {PID_FILE}. If the server is not running, delete the file and try again.")
         return
     print(f"Using Python: {python_exe}")
+    print("Running migrations...")
+    result = subprocess.run(
+        [str(python_exe), str(MANAGE_PY), "migrate", "--no-input"],
+        cwd=str(BASE_DIR),
+    )
+    if result.returncode != 0:
+        print("ERROR: migrate failed. Fix the error above before starting the server.")
+        sys.exit(result.returncode)
     print("Starting dev server on http://127.0.0.1:8000 (bound to 0.0.0.0:8000)...")
-    proc = subprocess.Popen(cmd)
+    proc = subprocess.Popen(
+        [str(python_exe), str(MANAGE_PY), "runserver", "0.0.0.0:8000"],
+        cwd=str(BASE_DIR),
+    )
     PID_FILE.write_text(str(proc.pid))
     print(f"Server PID: {proc.pid} (saved to {PID_FILE})")
 
