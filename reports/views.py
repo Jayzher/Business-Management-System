@@ -634,7 +634,14 @@ def financial_statement_view(request):
         total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField())
     )['total']
 
-    total_cogs = cogs_from_invoices + cogs_expenses
+    # ── Other Materials cost (service invoices only) ────────────────────
+    other_mat_total = Decimal('0')
+    for _inv in invoice_rows:
+        for _svc in _inv.customer_services.all():
+            for _mat in _svc.other_materials.all():
+                other_mat_total += Decimal(str(_mat.line_total or 0))
+
+    total_cogs = cogs_from_invoices + cogs_expenses + other_mat_total
     gross_profit = net_revenue - total_cogs
     gross_margin = (gross_profit / net_revenue * 100) if net_revenue > 0 else Decimal('0')
 
@@ -752,6 +759,7 @@ def financial_statement_view(request):
         'net_revenue': net_revenue,
         'cogs_from_invoices': cogs_from_invoices,
         'cogs_expenses': cogs_expenses,
+        'other_mat_total': other_mat_total,
         'total_cogs': total_cogs,
         'gross_profit': gross_profit,
         'gross_margin': gross_margin,

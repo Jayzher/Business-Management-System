@@ -176,7 +176,10 @@ def service_detail(request, pk):
         .prefetch_related(
             'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location',
             'other_materials',
-            Prefetch('bundles', queryset=ServiceBundle.objects.select_related('price_list').prefetch_related('price_list__items')),
+            Prefetch('bundles', queryset=ServiceBundle.objects.select_related('price_list').prefetch_related(
+                'price_list__items__item',
+                'price_list__items__unit',
+            )),
         ),
         pk=pk,
     )
@@ -211,11 +214,68 @@ def service_detail(request, pk):
         Decimal('0'),
     )
 
+    # ── Bundle P&L (per-item material COGS) ──────────────────────
+    bundle_pnl = []
+    total_bundle_material_cogs = Decimal('0')
+    for b in svc.bundles.all():
+        items_data = []
+        b_mat_cogs = Decimal('0')
+        b_sets = b.qty or Decimal('1')
+        for pli in b.price_list.items.all():
+            cost_pu = Decimal(str(pli.item.cost_price or 0))
+            qty_ps = pli.min_qty or Decimal('1')
+            total_qty = qty_ps * b_sets
+            price_ps = pli.price or Decimal('0')
+            line_charge_total = price_ps * b_sets
+            cogs_total = cost_pu * total_qty
+            items_data.append({
+                'code': pli.item.code,
+                'name': pli.item.name,
+                'unit': pli.unit.abbreviation if pli.unit_id else '',
+                'qty_ps': qty_ps,
+                'total_qty': total_qty,
+                'price_ps': price_ps,
+                'line_charge_total': line_charge_total,
+                'cost_pu': cost_pu,
+                'cogs_total': cogs_total,
+                'profit': line_charge_total - cogs_total,
+            })
+            b_mat_cogs += cogs_total
+        bundle_pnl.append({
+            'bundle': b,
+            'items': items_data,
+            'mat_cogs': b_mat_cogs,
+            'bundle_profit': b.bundle_total - b_mat_cogs,
+        })
+        total_bundle_material_cogs += b_mat_cogs
+
+    # ── P&L summary ───────────────────────────────────
+    total_product_selling = sum(
+        (r['selling'] for r in line_pnl if not r['is_scrap']), Decimal('0'),
+    )
+    total_product_cogs = sum(
+        (r['cogs'] for r in line_pnl if not r['is_scrap']), Decimal('0'),
+    )
+    total_other_mat = svc.other_materials_total
+    grand_cogs = total_product_cogs + total_bundle_material_cogs + total_other_mat
+    gross_profit = svc.quotation_amount - grand_cogs
+    roi = (gross_profit / grand_cogs * 100).quantize(Decimal('0.01')) if grand_cogs else Decimal('0')
+    total_product_line_profit = total_product_selling - total_product_cogs
+
     return render(request, 'services/service_detail.html', {
         'service': svc,
         'line_pnl': line_pnl,
         'other_materials': svc.other_materials.all(),
         'scrap_total': scrap_total,
+        'bundle_pnl': bundle_pnl,
+        'total_product_selling': total_product_selling,
+        'total_product_cogs': total_product_cogs,
+        'total_product_line_profit': total_product_line_profit,
+        'total_bundle_material_cogs': total_bundle_material_cogs,
+        'total_other_mat': total_other_mat,
+        'grand_cogs': grand_cogs,
+        'gross_profit': gross_profit,
+        'roi': roi,
     })
 
 

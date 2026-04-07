@@ -77,30 +77,43 @@
               <th>Unit</th>
               <th class="text-right">Selling Price</th>
               <th class="text-right">Line Total</th>
+              <th class="text-right text-danger">COGS</th>
+              <th class="text-right text-success">Profit</th>
               <th>Notes</th>
               <th class="text-center">Scrap</th>
             </tr>
           </thead>
           <tbody>
             {% for row in line_pnl %}
-            <tr>
+            <tr{% if row.is_scrap %} class="table-warning"{% endif %}>
               <td><span class="text-muted small">{{ row.line.item.code }}</span> {{ row.line.item.name }}</td>
               <td>{{ row.line.location|default:"—" }}</td>
               <td class="text-right">{{ row.line.qty|floatformat:2 }}</td>
               <td>{{ row.line.unit.abbreviation }}</td>
               <td class="text-right">{{ row.line.unit_price|floatformat:2 }}</td>
               <td class="text-right font-weight-bold">{{ row.selling|floatformat:2 }}</td>
+              <td class="text-right {% if not row.is_scrap %}text-danger{% else %}text-muted{% endif %}">
+                {% if not row.is_scrap %}
+                  {{ row.cogs|floatformat:2 }}
+                  <small class="d-block text-muted">@ {{ row.cogs_per_unit|floatformat:4 }}/u</small>
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-right font-weight-bold {% if not row.is_scrap %}{% if row.profit >= 0 %}text-success{% else %}text-danger{% endif %}{% else %}text-muted{% endif %}">
+                {% if not row.is_scrap %}{{ row.profit|floatformat:2 }}{% else %}—{% endif %}
+              </td>
               <td>{{ row.line.notes|default:"" }}</td>
               <td class="text-center">{% if row.is_scrap %}<span class="badge badge-warning" title="Scrap — excluded from COGS"><i class="fas fa-recycle mr-1"></i>Scrap</span>{% endif %}</td>
             </tr>
             {% empty %}
-            <tr><td colspan="8" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No product lines.</td></tr>
+            <tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-inbox mr-2"></i>No product lines.</td></tr>
             {% endfor %}
           </tbody>
           <tfoot>
             <tr class="table-light">
               <td colspan="5" class="text-right font-weight-bold">Product Lines Subtotal:</td>
               <td class="text-right font-weight-bold">{{ service.product_lines_total|floatformat:2 }}</td>
+              <td class="text-right font-weight-bold text-danger">{{ total_product_cogs|floatformat:2 }}</td>
+              <td class="text-right font-weight-bold {% if total_product_line_profit >= 0 %}text-success{% else %}text-danger{% endif %}">{{ total_product_line_profit|floatformat:2 }}</td>
               <td colspan="2"></td>
             </tr>
           </tfoot>
@@ -163,38 +176,38 @@
             <tr>
               <th>Bundle / Set</th>
               <th class="text-right">Qty</th>
-              <th class="text-right">Unit Price / Set</th>
-              <th class="text-right">Total Cost</th>
-              <th class="text-center">Action</th>
+              <th class="text-right">Bundle Price / Set</th>
+              <th class="text-right">Bundle Total</th>
+              <th class="text-right text-danger">Mat. COGS</th>
+              <th class="text-center">Items</th>
             </tr>
           </thead>
           <tbody>
-            {% for b in service.bundles.all %}
+            {% for bp in bundle_pnl %}
             <tr>
-              <td>{{ b.price_list.name }}</td>
-              <td class="text-right">{{ b.qty|floatformat:0 }}</td>
-              <td class="text-right">{{ b.bundle_unit_price|floatformat:2|intcomma }}</td>
-              <td class="text-right font-weight-bold text-danger">{{ b.bundle_total|floatformat:2|intcomma }}</td>
+              <td>{{ bp.bundle.price_list.name }}</td>
+              <td class="text-right">{{ bp.bundle.qty|floatformat:0 }}</td>
+              <td class="text-right">{{ bp.bundle.bundle_unit_price|floatformat:2|intcomma }}</td>
+              <td class="text-right font-weight-bold text-danger">{{ bp.bundle.bundle_total|floatformat:2|intcomma }}</td>
+              <td class="text-right font-weight-bold text-warning">{{ bp.mat_cogs|floatformat:2|intcomma }}</td>
               <td class="text-center">
-                <button type="button"
-                        class="btn btn-sm btn-outline-info svc-bundle-detail-items-btn"
-                        data-api="/pricing/api/price-lists/{{ b.price_list_id }}/items/"
-                        data-bundle-name="{{ b.price_list.name }}"
-                        data-bundle-qty="{{ b.qty|floatformat:0 }}"
-                        title="View bundle items">
-                  <i class="fas fa-bars"></i>
+                <button type="button" class="btn btn-sm btn-outline-info"
+                        data-toggle="modal" data-target="#bmodal-{{ bp.bundle.id }}"
+                        title="View bundle items with COGS">
+                  <i class="fas fa-list-ul mr-1"></i>Detail
                 </button>
               </td>
             </tr>
             {% empty %}
-            <tr><td colspan="5" class="text-center text-muted py-3"><i class="fas fa-layer-group mr-1"></i>No bundles applied.</td></tr>
+            <tr><td colspan="6" class="text-center text-muted py-3"><i class="fas fa-layer-group mr-1"></i>No bundles applied.</td></tr>
             {% endfor %}
           </tbody>
-          {% if service.bundles.exists %}
+          {% if bundle_pnl %}
           <tfoot>
             <tr class="table-light">
               <td colspan="3" class="text-right font-weight-bold">Bundles Subtotal:</td>
               <td class="text-right font-weight-bold text-danger">{{ service.bundles_total|floatformat:2|intcomma }}</td>
+              <td class="text-right font-weight-bold text-warning">{{ total_bundle_material_cogs|floatformat:2|intcomma }}</td>
               <td></td>
             </tr>
           </tfoot>
@@ -202,6 +215,78 @@
         </table>
       </div>
     </div>
+
+    <!-- Bundle Item Detail Modals -->
+    {% for bp in bundle_pnl %}
+    <div class="modal fade" id="bmodal-{{ bp.bundle.id }}" tabindex="-1" role="dialog">
+      <div class="modal-dialog modal-xl" role="document">
+        <div class="modal-content">
+          <div class="modal-header bg-primary">
+            <h5 class="modal-title text-white">
+              <i class="fas fa-layer-group mr-2"></i>{{ bp.bundle.price_list.name }}
+              <span class="badge badge-light ml-2">&times;{{ bp.bundle.qty|floatformat:0 }} sets</span>
+            </h5>
+            <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+          </div>
+          <div class="modal-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+              <thead class="thead-light">
+                <tr>
+                  <th>Code</th>
+                  <th>Item Name</th>
+                  <th>Unit</th>
+                  <th class="text-right">Qty/Set</th>
+                  <th class="text-right">Total Qty</th>
+                  <th class="text-right">Bundle Price<small class="d-block text-muted">(per set)</small></th>
+                  <th class="text-right">Bundle Charge<small class="d-block text-muted">(total)</small></th>
+                  <th class="text-right text-danger">Cost/Unit<small class="d-block text-muted">(COGS)</small></th>
+                  <th class="text-right text-danger">Mat. COGS<small class="d-block text-muted">(total)</small></th>
+                  <th class="text-right text-success">Profit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for it in bp.items %}
+                <tr>
+                  <td><code>{{ it.code }}</code></td>
+                  <td>{{ it.name }}</td>
+                  <td>{{ it.unit }}</td>
+                  <td class="text-right">{{ it.qty_ps|floatformat:2 }}</td>
+                  <td class="text-right">{{ it.total_qty|floatformat:2 }}</td>
+                  <td class="text-right">{{ it.price_ps|floatformat:2|intcomma }}</td>
+                  <td class="text-right font-weight-bold">{{ it.line_charge_total|floatformat:2|intcomma }}</td>
+                  <td class="text-right text-danger">{{ it.cost_pu|floatformat:4 }}</td>
+                  <td class="text-right text-danger font-weight-bold">{{ it.cogs_total|floatformat:2|intcomma }}</td>
+                  <td class="text-right font-weight-bold {% if it.profit >= 0 %}text-success{% else %}text-danger{% endif %}">{{ it.profit|floatformat:2|intcomma }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="10" class="text-center text-muted py-3">No items in this bundle.</td></tr>
+                {% endfor %}
+              </tbody>
+              <tfoot class="table-light">
+                <tr>
+                  <td colspan="6" class="text-right font-weight-bold">Bundle Totals:</td>
+                  <td class="text-right font-weight-bold">{{ bp.bundle.bundle_total|floatformat:2|intcomma }}</td>
+                  <td></td>
+                  <td class="text-right font-weight-bold text-danger">{{ bp.mat_cogs|floatformat:2|intcomma }}</td>
+                  <td class="text-right font-weight-bold {% if bp.bundle_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+                    {{ bp.bundle_profit|floatformat:2|intcomma }}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div class="modal-footer">
+            <div class="mr-auto small text-muted">
+              <i class="fas fa-info-circle mr-1"></i>
+              Bundle Charge: <strong>&#8369;{{ bp.bundle.bundle_total|floatformat:2|intcomma }}</strong> &nbsp;|&nbsp;
+              Material COGS: <strong class="text-danger">&#8369;{{ bp.mat_cogs|floatformat:2|intcomma }}</strong>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
 
     <!-- Pricing Breakdown -->
     <div class="card">
@@ -252,6 +337,65 @@
     </div>
 
     <!-- P&L + ROI Summary -->
+    <div class="card card-outline card-success">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-chart-pie mr-2 text-success"></i>P&amp;L &amp; ROI Summary</h3>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-bordered mb-0">
+          <tr class="table-primary">
+            <td><strong>Quotation (Revenue)</strong></td>
+            <td class="text-right font-weight-bold">&#8369; {{ service.quotation_amount|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr class="table-secondary">
+            <td colspan="2" class="font-weight-bold small text-uppercase text-muted py-1 pl-3">Cost of Goods Sold</td>
+          </tr>
+          {% if total_product_cogs %}
+          <tr>
+            <td class="pl-4 text-danger">— Parts / Product Lines COGS</td>
+            <td class="text-right text-danger">(&#8369; {{ total_product_cogs|floatformat:2|intcomma }})</td>
+          </tr>
+          {% endif %}
+          {% if total_bundle_material_cogs %}
+          <tr>
+            <td class="pl-4 text-danger">— Bundles Material COGS</td>
+            <td class="text-right text-danger">(&#8369; {{ total_bundle_material_cogs|floatformat:2|intcomma }})</td>
+          </tr>
+          {% endif %}
+          {% if total_other_mat %}
+          <tr>
+            <td class="pl-4 text-danger">— Other Materials</td>
+            <td class="text-right text-danger">(&#8369; {{ total_other_mat|floatformat:2|intcomma }})</td>
+          </tr>
+          {% endif %}
+          <tr class="table-light">
+            <td><strong>Grand COGS</strong></td>
+            <td class="text-right font-weight-bold text-danger">&#8369; {{ grand_cogs|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr class="{% if gross_profit >= 0 %}table-success{% else %}table-danger{% endif %}">
+            <td>
+              <strong>Gross Profit</strong>
+              {% if service.quotation_amount > 0 %}
+              <span class="badge {% if gross_profit >= 0 %}badge-success{% else %}badge-danger{% endif %} ml-2">
+                {% widthratio gross_profit service.quotation_amount 100 %}%
+              </span>
+              {% endif %}
+            </td>
+            <td class="text-right font-weight-bold" style="font-size:1.05rem;">
+              &#8369; {{ gross_profit|floatformat:2|intcomma }}
+            </td>
+          </tr>
+          {% if grand_cogs > 0 %}
+          <tr>
+            <td><strong>ROI</strong> <small class="text-muted">(Profit / COGS)</small></td>
+            <td class="text-right font-weight-bold {% if roi >= 0 %}text-success{% else %}text-danger{% endif %}">
+              {{ roi }}%
+            </td>
+          </tr>
+          {% endif %}
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- Right: Actions + Summary -->
@@ -347,7 +491,10 @@
           {% endif %}
           <tr><th>Other Materials</th><td class="text-right">{{ service.other_materials_total|floatformat:2 }}</td></tr>
           {% if service.bundles.exists %}
-          <tr><th>Bundles (COGS)</th><td class="text-right text-danger">({{ service.bundles_total|floatformat:2 }})</td></tr>
+          <tr><th>Bundles (charge)</th><td class="text-right text-danger">({{ service.bundles_total|floatformat:2 }})</td></tr>
+          {% if total_bundle_material_cogs %}
+          <tr><th class="text-warning">Bundles Mat. COGS</th><td class="text-right text-warning">{{ total_bundle_material_cogs|floatformat:2 }}</td></tr>
+          {% endif %}
           {% endif %}
           <tr><th>Net (before disc.)</th><td class="text-right font-weight-bold">{{ service.subtotal|floatformat:2 }}</td></tr>
           {% if service.discount_amount > 0 %}
@@ -357,6 +504,18 @@
             <th>Grand Total</th>
             <td class="text-right font-weight-bold">{{ service.grand_total|floatformat:2 }}</td>
           </tr>
+          {% if grand_cogs > 0 %}
+          <tr><td colspan="2"><hr class="my-1"></td></tr>
+          <tr><th class="text-danger">Grand COGS</th><td class="text-right text-danger font-weight-bold">{{ grand_cogs|floatformat:2 }}</td></tr>
+          <tr class="{% if gross_profit >= 0 %}table-success{% else %}table-danger{% endif %}">
+            <th>Gross Profit</th>
+            <td class="text-right font-weight-bold">{{ gross_profit|floatformat:2 }}</td>
+          </tr>
+          <tr>
+            <th>ROI</th>
+            <td class="text-right font-weight-bold {% if roi >= 0 %}text-success{% else %}text-danger{% endif %}">{{ roi }}%</td>
+          </tr>
+          {% endif %}
         </table>
       </div>
     </div>
