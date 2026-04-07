@@ -26,7 +26,7 @@ The command does two independent phases:
     delta per (item, location) bucket.  CANCELLED documents are skipped
     (their reversal moves cancel out).  At the end, bulk-updates StockBalance.
 
-Usage:
+Usage:  
     python manage.py resync_inventory                  # applies changes by default
     python manage.py resync_inventory --dry-run        # preview without saving
     python manage.py resync_inventory --phase 1        # moves only (applies)
