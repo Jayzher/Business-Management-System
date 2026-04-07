@@ -431,42 +431,6 @@ def service_complete(request, pk):
             messages.error(request, f'Stock error: {exc}')
             return redirect('service_detail', pk=pk)
 
-    # ── Compute COGS for invoice ───────────────────────────────────────────
-    try:
-        from catalog.utils import get_item_cogs_for_unit
-        _cogs_fn = get_item_cogs_for_unit
-    except ImportError:
-        _cogs_fn = None
-
-    total_cogs = Decimal('0')
-    for line in lines:
-        if getattr(line, 'is_scrap', False):
-            continue
-        if _cogs_fn:
-            try:
-                cogs_pu = _cogs_fn(line.item, line.unit)
-            except Exception:
-                cogs_pu = line.item.cost_price or Decimal('0')
-        else:
-            cogs_pu = line.item.cost_price or Decimal('0')
-        total_cogs += cogs_pu * line.qty
-
-    for bundle in bundles:
-        for pli in bundle.price_list.items.select_related('item', 'unit').all():
-            if _cogs_fn:
-                try:
-                    bundle_cogs_pu = _cogs_fn(pli.item, pli.unit)
-                except Exception:
-                    bundle_cogs_pu = pli.item.cost_price or Decimal('0')
-            else:
-                bundle_cogs_pu = pli.item.cost_price or Decimal('0')
-            bundle_qty = (bundle.qty or Decimal('0')) * (pli.min_qty or Decimal('0'))
-            total_cogs += bundle_cogs_pu * bundle_qty
-
-    # Other materials: their unit_price is treated as cost (no catalog reference)
-    for mat in other_mats:
-        total_cogs += mat.line_total
-
     # ── Generate Invoice ───────────────────────────────────────────────────
     from core.models import Invoice, InvoiceLine, InvoicePayment, PaymentMethod
     from core.views import _next_invoice_number
@@ -499,7 +463,7 @@ def service_complete(request, pk):
         subtotal=subtotal,
         discount_total=discount_amt,
         grand_total=grand_total,
-        grand_total_cogs=total_cogs,
+        grand_total_cogs=Decimal('0'),
         notes=f'Service: {svc.service_name}',
         created_by=request.user,
     )
@@ -583,6 +547,17 @@ def service_complete(request, pk):
         'status', 'invoice', 'posted_by', 'posted_at',
         'completion_date', 'updated_at',
     ])
+
+    # Recompute COGS now that svc.invoice FK is committed so that
+    # service_invoice_cogs can traverse the reverse relation and correctly
+    # sum product lines (non-scrap), bundle lines, and other materials.
+    try:
+        from core.cogs import compute_invoice_cogs
+        computed_cogs = compute_invoice_cogs(inv)
+        inv.grand_total_cogs = computed_cogs
+        inv.save(update_fields=['grand_total_cogs', 'updated_at'])
+    except Exception:
+        pass
 
     if partial_paid > 0 and partial_paid < grand_total:
         messages.success(
