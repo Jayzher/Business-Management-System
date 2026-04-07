@@ -67,6 +67,7 @@
             <tr class="pnl-section"><td colspan="2">COST OF GOODS SOLD</td></tr>
             {% if cogs_from_invoices %}<tr><td class="ps-4">Inventory COGS (from invoices)</td><td class="text-right">&#8369; {{ cogs_from_invoices|floatformat:2|intcomma }}</td></tr>{% endif %}
             {% if cogs_expenses %}<tr><td class="ps-4">Direct Cost Expenses (COGS categories)</td><td class="text-right">&#8369; {{ cogs_expenses|floatformat:2|intcomma }}</td></tr>{% endif %}
+            {% if other_mat_total %}<tr><td class="ps-4">Services – Other Materials Cost</td><td class="text-right">&#8369; {{ other_mat_total|floatformat:2|intcomma }}</td></tr>{% endif %}
             <tr class="pnl-total"><td>Total COGS</td><td class="text-right">&#8369; {{ total_cogs|floatformat:2|intcomma }}</td></tr>
 
             <!-- GROSS PROFIT -->
