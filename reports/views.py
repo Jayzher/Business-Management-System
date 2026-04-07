@@ -684,6 +684,7 @@ def financial_statement_view(request):
     for inv in invoice_rows:
         source_type = 'INV'
         ref = ''
+        other_mat_cost = Decimal('0')
         if inv.sales_order_id:
             source_type = 'SO'
             ref = inv.sales_order.document_number
@@ -692,7 +693,12 @@ def financial_statement_view(request):
             ref = inv.pos_sale.sale_no
         elif hasattr(inv, 'customer_services') and inv.customer_services.exists():
             source_type = 'SVC'
-            ref = inv.customer_services.first().service_number
+            svc_obj = inv.customer_services.first()
+            ref = svc_obj.service_number
+            other_mat_cost = sum(
+                (mat.line_total for mat in svc_obj.other_materials.all()),
+                Decimal('0'),
+            )
         cogs_val = invoice_cogs_map[inv.pk]
         payment_methods = ', '.join(
             p.get_method_display() for p in inv.payments.all()
@@ -706,13 +712,15 @@ def financial_statement_view(request):
             'revenue': inv.grand_total,
             'discount': inv.discount_total,
             'cogs': cogs_val,
-            'gross_profit': inv.grand_total - inv.discount_total - cogs_val,
+            'other_mat_cost': other_mat_cost,
+            'gross_profit': inv.grand_total - inv.discount_total - cogs_val - other_mat_cost,
             'payment_methods': payment_methods,
         })
 
     breakdown_total_revenue = sum(r['revenue'] for r in breakdown_rows)
     breakdown_total_discount = sum(r['discount'] for r in breakdown_rows)
     breakdown_total_cogs = sum(r['cogs'] for r in breakdown_rows)
+    breakdown_total_other_mat = sum(r['other_mat_cost'] for r in breakdown_rows)
     breakdown_total_gp = sum(r['gross_profit'] for r in breakdown_rows)
 
     # ── Payment method summary (from InvoicePayment records) ───────────
@@ -760,6 +768,7 @@ def financial_statement_view(request):
         'breakdown_total_revenue': breakdown_total_revenue,
         'breakdown_total_discount': breakdown_total_discount,
         'breakdown_total_cogs': breakdown_total_cogs,
+        'breakdown_total_other_mat': breakdown_total_other_mat,
         'breakdown_total_gp': breakdown_total_gp,
         'payment_method_rows': payment_method_rows,
         'payment_total_collected': payment_total_collected,
