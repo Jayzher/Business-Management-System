@@ -63,16 +63,19 @@ def service_invoice_cogs(invoice):
     """
     Calculate COGS for a service invoice with unit conversions applied.
 
+    Formula: Product Lines COGS + Bundles COGS = Total COGS
+
     Includes:
-      - Product lines (ServiceLine): COGS via item cost price × qty
-      - Bundle lines (ServiceBundle): COGS via each PriceListItem cost price × min_qty × bundle qty
-      - Other materials (ServiceOtherMaterial): direct cost = qty × unit_price
+      - Product lines (ServiceLine): item cost_price × qty (with unit conversion), scrap excluded
+      - Bundle lines (ServiceBundle): each PriceListItem cost_price × min_qty × bundle qty
+    Excludes:
+      - Other materials (ServiceOtherMaterial): unit_price is the customer-facing selling
+        price, not a cost — including it would inflate COGS with revenue figures.
     """
     total = Decimal('0')
     for svc in invoice.customer_services.prefetch_related(
         'lines__item', 'lines__unit',
         'bundles__price_list__items__item', 'bundles__price_list__items__unit',
-        'other_materials',
     ).all():
         # Product lines (skip scrap / waste)
         for line in svc.lines.all():
@@ -88,10 +91,6 @@ def service_invoice_cogs(invoice):
                     pli.item, pli.min_qty, pli.unit
                 )
                 total += item_cogs * bundle.qty
-
-        # Other materials (free-text, cost = qty × unit_price)
-        for mat in svc.other_materials.all():
-            total += Decimal(str(mat.line_total or 0))
 
     return total
 

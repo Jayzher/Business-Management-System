@@ -26,7 +26,7 @@ The command does two independent phases:
     delta per (item, location) bucket.  CANCELLED documents are skipped
     (their reversal moves cancel out).  At the end, bulk-updates StockBalance.
 
-Usage:
+Usage:  
     python manage.py resync_inventory                  # applies changes by default
     python manage.py resync_inventory --dry-run        # preview without saving
     python manage.py resync_inventory --phase 1        # moves only (applies)
@@ -315,7 +315,7 @@ def _line_move_type(ref_type):
         'InventoryToSupplyTransfer': MoveType.SUPPLY_OUT,
         'PurchaseReturn': MoveType.RETURN_OUT,
         'SalesReturn': MoveType.RETURN_IN,
-        'CustomerService': MoveType.DELIVER,
+        'CustomerService': MoveType.SERVICE_OUT,
     }[ref_type]
 
 
@@ -411,12 +411,15 @@ def _iter_expected_moves(warn_fn):
         ('InventoryToSupplyTransfer', InventoryToSupplyTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('PurchaseReturn', PurchaseReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('SalesReturn', SalesReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('CustomerService', CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('CustomerService', CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('warehouse')),
     ]
 
     for ref_type, docs in doc_specs:
         for doc in docs:
             for line in doc.lines.all():
+                # Skip scrap service lines — they are NOT deducted from inventory
+                if ref_type == 'CustomerService' and getattr(line, 'is_scrap', False):
+                    continue
                 qty = _line_qty(ref_type, line, warn_fn)
                 if qty in (None, Decimal('0')):
                     continue
@@ -438,6 +441,61 @@ def _iter_expected_moves(warn_fn):
                     'created_by': getattr(doc, 'created_by', None),
                     'posted_by': _document_posted_by(doc),
                     'posted_at': _document_posted_at(doc),
+                }
+
+    # ── Service bundle component moves (not represented by ServiceLine) ────────
+    from services.models import CustomerService as _CustomerService, ServiceStatus as _ServiceStatus
+    from warehouses.models import Location as _Location
+    for svc in _CustomerService.objects.filter(
+        status=_ServiceStatus.COMPLETED,
+    ).prefetch_related(
+        'bundles__price_list__items__item__default_unit',
+        'bundles__price_list__items__item__selling_unit',
+        'bundles__price_list__items__item__stock_unit',
+        'bundles__price_list__items__unit',
+    ).select_related('warehouse'):
+        if not svc.warehouse_id:
+            continue
+        default_loc_id = (
+            _Location.objects
+            .filter(warehouse_id=svc.warehouse_id, is_pickable=True)
+            .order_by('code')
+            .values_list('id', flat=True)
+            .first()
+        )
+        if not default_loc_id:
+            continue
+        for bundle in svc.bundles.all():
+            for pli in bundle.price_list.items.all():
+                item = pli.item
+                qty = (bundle.qty or Decimal('0')) * (pli.min_qty or Decimal('0'))
+                if qty <= Decimal('0'):
+                    continue
+                target_unit = _inventory_unit(item)
+                base_qty = _safe_convert(
+                    qty, pli.unit, target_unit,
+                    f"CustomerService#{svc.pk} bundle={bundle.price_list.name} item={item.code}",
+                    warn_fn, item=item,
+                )
+                if base_qty <= Decimal('0'):
+                    continue
+                yield {
+                    'reference_type': 'CustomerService',
+                    'reference_id': svc.pk,
+                    'reference_number': _document_reference_number(svc),
+                    'move_type': MoveType.SERVICE_OUT,
+                    'item': item,
+                    'item_id': item.pk,
+                    'qty': base_qty,
+                    'unit': target_unit,
+                    'from_location_id': default_loc_id,
+                    'to_location_id': None,
+                    'batch_number': '',
+                    'serial_number': '',
+                    'notes': f'Bundle: {bundle.price_list.name}',
+                    'created_by': getattr(svc, 'created_by', None),
+                    'posted_by': _document_posted_by(svc),
+                    'posted_at': _document_posted_at(svc),
                 }
 
     # ── POS bundle component moves (not represented by POSSaleLine) ──────────
@@ -702,14 +760,37 @@ def _make_sales_return_lookup():
 
 
 def _make_service_lookup():
-    from services.models import ServiceLine
+    from services.models import ServiceLine, ServiceBundle
+    from collections import namedtuple
+    _FakeLine = namedtuple('_FakeLine', ['qty', 'unit'])
     cache = {}
     def lookup(move):
         key = (move.reference_id, move.item_id)
         if key not in cache:
-            cache[key] = ServiceLine.objects.filter(
-                service_id=move.reference_id, item_id=move.item_id
+            # Try non-scrap product line first
+            sl = ServiceLine.objects.filter(
+                service_id=move.reference_id,
+                item_id=move.item_id,
+                is_scrap=False,
             ).select_related('unit').first()
+            if sl is not None:
+                cache[key] = sl
+            else:
+                # Fall back to bundle items — aggregate qty across all bundles
+                total_qty = Decimal('0')
+                bundle_unit = None
+                for bndl in ServiceBundle.objects.filter(
+                    service_id=move.reference_id,
+                ).select_related('price_list').prefetch_related(
+                    'price_list__items__item', 'price_list__items__unit'
+                ):
+                    for pli in bndl.price_list.items.filter(item_id=move.item_id):
+                        total_qty += (bndl.qty or Decimal('0')) * (pli.min_qty or Decimal('0'))
+                        bundle_unit = pli.unit
+                if total_qty > Decimal('0') and bundle_unit is not None:
+                    cache[key] = _FakeLine(qty=total_qty, unit=bundle_unit)
+                else:
+                    cache[key] = None
         return cache[key]
     return lookup
 
@@ -887,16 +968,47 @@ def _build_balance_from_documents(warn_fn):
 
     # ── CustomerService ──────────────────────────────────────────────────────
     from services.models import CustomerService, ServiceStatus
+    from warehouses.models import Location as _WLocation
     for svc in CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related(
-        'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
-    ):
+        'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location',
+        'bundles__price_list__items__item__default_unit',
+        'bundles__price_list__items__item__selling_unit',
+        'bundles__price_list__items__unit',
+    ).select_related('warehouse'):
+        # Product lines (skip scrap — they are not deducted from inventory)
         for line in svc.lines.all():
+            if getattr(line, 'is_scrap', False):
+                continue
             if line.location_id is None:
                 continue
             target_unit = _inventory_unit(line.item)
             q = _safe_convert(line.qty, line.unit, target_unit,
                               f"Service#{svc.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
+
+        # Bundle component deductions (use warehouse default pickable location,
+        # matching the same logic as service_complete)
+        if svc.warehouse_id:
+            default_loc_id = (
+                _WLocation.objects
+                .filter(warehouse_id=svc.warehouse_id, is_pickable=True)
+                .order_by('code')
+                .values_list('id', flat=True)
+                .first()
+            )
+            if default_loc_id:
+                for bundle in svc.bundles.all():
+                    for pli in bundle.price_list.items.all():
+                        item = pli.item
+                        bundle_qty = (bundle.qty or Decimal('0')) * (pli.min_qty or Decimal('0'))
+                        if bundle_qty <= Decimal('0'):
+                            continue
+                        target_unit = _inventory_unit(item)
+                        q = _safe_convert(
+                            bundle_qty, pli.unit, target_unit,
+                            f"Service#{svc.pk} bundle item={item.code}", warn_fn, item=item,
+                        )
+                        _accumulate(bal, item.pk, default_loc_id, -q)
 
     return bal
 

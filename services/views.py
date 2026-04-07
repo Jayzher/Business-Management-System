@@ -80,13 +80,20 @@ def service_invoice_detail(request, pk):
     from core.models import BusinessProfile
 
     inv = get_object_or_404(
-        Invoice.objects.prefetch_related('lines', 'payments', 'customer_services'),
+        Invoice.objects.prefetch_related(
+            'lines', 'payments',
+            'customer_services__other_materials',
+        ),
         pk=pk,
     )
     profile = BusinessProfile.get_instance()
     today_date = timezone.now().date()
 
     svc = inv.customer_services.first()
+    other_materials_cost = (
+        sum((mat.line_total for mat in svc.other_materials.all()), Decimal('0'))
+        if svc else Decimal('0')
+    )
 
     # ── Ensure the invoice grand_total reflects the service quotation ──
     # Invoices created before this fix may have the old net-profit figure stored.
@@ -139,6 +146,7 @@ def service_invoice_detail(request, pk):
         'payments_with_balance': payments_with_balance,
         'today_date': today_date,
         'service': svc,
+        'other_materials_cost': other_materials_cost,
     })
 
 
