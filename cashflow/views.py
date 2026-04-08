@@ -279,7 +279,7 @@ def log_list(request):
 @write_denied_for_viewer
 def sync_cashflow(request):
     """
-    POST-only AJAX view.  Rebuilds weekly sales revenue entries and
+    POST-only AJAX view.  Rebuilds daily sales revenue entries and
     backfills any missing GoodsReceipt, PurchaseReturn, and Expense entries.
     Returns JSON so the frontend can show results via Swal.fire.
     """
@@ -297,7 +297,7 @@ def sync_cashflow(request):
 
     parts = []
     if result['sales']:
-        parts.append(f"{result['sales']} weekly sales entr{'y' if result['sales'] == 1 else 'ies'}")
+        parts.append(f"{result['sales']} daily sales entr{'y' if result['sales'] == 1 else 'ies'}")
     if result['grn']:
         parts.append(f"{result['grn']} goods receipt(s)")
     if result['purchase_return']:

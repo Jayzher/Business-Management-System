@@ -66,33 +66,28 @@ class CashflowSyncIntegrityTest(TestCase):
             default_unit=self.unit,
         )
 
-    def _last_monday(self):
-        """Return the Monday of last week (guaranteed completed week)."""
-        today = date.today()
-        iso_weekday = today.isocalendar()[2]
-        this_monday = today - timedelta(days=iso_weekday - 1)
-        return this_monday - timedelta(days=7)
+    def _yesterday(self):
+        """Return yesterday's date (guaranteed completed day)."""
+        return date.today() - timedelta(days=1)
 
     # ──────────────────────────────────────────────────────────────────────
-    # 1. Weekly Revenue includes POS, SO (Invoice), and Services (Invoice)
+    # 1. Daily Revenue includes POS, SO (Invoice), and Services (Invoice)
     # ──────────────────────────────────────────────────────────────────────
 
-    def test_weekly_revenue_includes_all_sources(self):
-        """POS + SO invoice + Service invoice all appear in weekly revenue."""
+    def test_daily_revenue_includes_all_sources(self):
+        """POS + SO invoice + Service invoice all appear in daily revenue."""
         from core.models import DocumentStatus, Invoice
         from pos.models import POSSale, POSSaleLine, SaleStatus
         from sales.models import (
             SalesOrder, SalesOrderLine, DeliveryNote, DeliveryLine,
         )
         from services.models import CustomerService, ServiceStatus
-        from cashflow.sync import sync_weekly_sales_revenue
+        from cashflow.sync import sync_daily_sales_revenue
         from cashflow.models import CashFlowTransaction
         from django.utils import timezone
 
         item_a = self._create_item('TA', 'Item A', Decimal('100'), Decimal('200'))
-        last_mon = self._last_monday()
-        last_tue = last_mon + timedelta(days=1)
-        last_wed = last_mon + timedelta(days=2)
+        target_day = self._yesterday()
 
         # ── POS Sale (revenue = 200) ─────────────────────────────────────
         # Use noon to avoid timezone-offset pushing date to previous day
@@ -104,7 +99,7 @@ class CashflowSyncIntegrityTest(TestCase):
             status=SaleStatus.POSTED,
             grand_total=Decimal('200'),
             posted_at=timezone.make_aware(
-                dt.combine(last_mon, dt.min.time().replace(hour=12))
+                dt.combine(target_day, dt.min.time().replace(hour=12))
             ),
             posted_by=self.user,
             created_by=self.user,
@@ -118,7 +113,7 @@ class CashflowSyncIntegrityTest(TestCase):
         so = SalesOrder.objects.create(
             document_number='SO-CF-001',
             customer=self.customer, warehouse=self.warehouse,
-            order_date=last_tue,
+            order_date=target_day,
             status=DocumentStatus.POSTED,
             created_by=self.user, posted_by=self.user,
         )
@@ -129,7 +124,7 @@ class CashflowSyncIntegrityTest(TestCase):
         dn = DeliveryNote.objects.create(
             document_number='DN-CF-001',
             sales_order=so, customer=self.customer, warehouse=self.warehouse,
-            delivery_date=last_tue,
+            delivery_date=target_day,
             status=DocumentStatus.POSTED,
             created_by=self.user, posted_by=self.user,
         )
@@ -139,7 +134,7 @@ class CashflowSyncIntegrityTest(TestCase):
         )
         Invoice.objects.create(
             invoice_number='INV-CF-SO-001',
-            date=last_tue,
+            date=target_day,
             sales_order=so,
             grand_total=Decimal('400'),
             grand_total_cogs=Decimal('200'),
@@ -149,7 +144,7 @@ class CashflowSyncIntegrityTest(TestCase):
         # ── Service → Invoice (revenue = 500) ────────────────────────────
         inv_svc = Invoice.objects.create(
             invoice_number='INV-CF-SVC-001',
-            date=last_wed,
+            date=target_day,
             grand_total=Decimal('500'),
             grand_total_cogs=Decimal('50'),
             created_by=self.user,
@@ -158,8 +153,8 @@ class CashflowSyncIntegrityTest(TestCase):
             service_number='SVC-CF-001',
             service_name='Test Service',
             customer_name='Walk-in',
-            service_date=last_wed,
-            completion_date=last_wed,
+            service_date=target_day,
+            completion_date=target_day,
             status=ServiceStatus.COMPLETED,
             invoice=inv_svc,
             created_by=self.user,
@@ -167,14 +162,14 @@ class CashflowSyncIntegrityTest(TestCase):
         )
 
         # ── Run sync ─────────────────────────────────────────────────────
-        count = sync_weekly_sales_revenue(self.user)
+        count = sync_daily_sales_revenue(self.user)
         self.assertGreaterEqual(count, 1)
 
-        from cashflow.sync import _week_source_id
-        week_key = _week_source_id(last_mon)
+        from cashflow.sync import _day_source_id
+        day_key = _day_source_id(target_day)
         txn = CashFlowTransaction.objects.filter(
-            source_type='WeeklySalesRevenue',
-            source_id=week_key,
+            source_type='DailySalesRevenue',
+            source_id=day_key,
             is_auto_generated=True,
         ).first()
         self.assertIsNotNone(txn)
@@ -182,7 +177,7 @@ class CashflowSyncIntegrityTest(TestCase):
         # Expected revenue = POS(200) + SO-Invoice(400) + Svc-Invoice(500) = 1100
         expected_revenue = Decimal('1100.00')
         self.assertEqual(txn.amount, expected_revenue,
-                         f'Weekly revenue should be {expected_revenue}, got {txn.amount}')
+                         f'Daily revenue should be {expected_revenue}, got {txn.amount}')
 
     # ──────────────────────────────────────────────────────────────────────
     # 2. No duplicate auto entry when a manual entry already exists
@@ -319,13 +314,13 @@ class CashflowSyncIntegrityTest(TestCase):
                          f'Sync ran twice but counts differ: {first_count} vs {second_count}')
 
     # ──────────────────────────────────────────────────────────────────────
-    # 5. Current (incomplete) week is NOT synced
+    # 5. Today (incomplete day) is NOT synced
     # ──────────────────────────────────────────────────────────────────────
 
-    def test_current_week_skipped(self):
-        """Weekly revenue for the current incomplete week should not be created."""
+    def test_current_day_skipped(self):
+        """Revenue for today (incomplete day) should not be created."""
         from pos.models import POSSale, POSSaleLine, SaleStatus
-        from cashflow.sync import sync_weekly_sales_revenue, _week_source_id
+        from cashflow.sync import sync_daily_sales_revenue, _day_source_id
         from cashflow.models import CashFlowTransaction
         from django.utils import timezone
 
@@ -333,7 +328,7 @@ class CashflowSyncIntegrityTest(TestCase):
         today = date.today()
 
         POSSale.objects.create(
-            sale_no='POS-CUR-WEEK',
+            sale_no='POS-CUR-DAY',
             register=self.register, shift=self.shift,
             warehouse=self.warehouse, location=self.location,
             status=SaleStatus.POSTED,
@@ -343,18 +338,14 @@ class CashflowSyncIntegrityTest(TestCase):
             created_by=self.user,
         )
 
-        sync_weekly_sales_revenue(self.user)
+        sync_daily_sales_revenue(self.user)
 
-        current_key = _week_source_id(today)
+        today_key = _day_source_id(today)
         exists = CashFlowTransaction.objects.filter(
-            source_type='WeeklySalesRevenue', source_id=current_key,
+            source_type='DailySalesRevenue', source_id=today_key,
         ).exists()
 
-        # If today is Sunday the week is complete, so entry SHOULD exist
-        if today.isocalendar()[2] == 7:
-            self.assertTrue(exists, 'Sunday = complete week, entry should exist')
-        else:
-            self.assertFalse(exists, 'Current incomplete week should be skipped')
+        self.assertFalse(exists, 'Today (incomplete day) should always be skipped')
 
     # ──────────────────────────────────────────────────────────────────────
     # 6. Procurement auto-gen amounts match exact GRN totals

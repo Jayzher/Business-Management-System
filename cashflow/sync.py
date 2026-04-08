@@ -4,11 +4,11 @@ cashflow/sync.py — Full cash-flow sync.
 ALL auto-generated entries are deleted and rebuilt on every sync to ensure
 accuracy after retroactive data changes.
 
-sync_weekly_sales_revenue:
+sync_daily_sales_revenue:
   Aggregates all posted sales activity (POS, Delivery/Pickup via Invoice,
   Services via Invoice, minus Sales Returns) into one CASH_IN / SALES entry
-  per ISO week.  Amount = weekly revenue.  COGS tracked in notes only.
-  The current (incomplete) week is skipped.
+  per day.  Amount = daily revenue.  COGS tracked in notes only.
+  Today (incomplete day) is always skipped.
 
 sync_procurement_cashflow:
   Rebuilds CASH_OUT for posted GoodsReceipts and CASH_IN for posted
@@ -49,12 +49,17 @@ def _sunday_of(d):
     return d + timedelta(days=7 - iso_weekday)
 
 
-@db_transaction.atomic
-def sync_weekly_sales_revenue(user):
-    """
-    Recalculate weekly revenue and replace ALL WeeklySalesRevenue entries.
+def _day_source_id(d):
+    """Encode a date as a single integer YYYYMMDD."""
+    return d.year * 10000 + d.month * 100 + d.day
 
-    Revenue sources (all combined per ISO week):
+
+@db_transaction.atomic
+def sync_daily_sales_revenue(user):
+    """
+    Recalculate daily revenue and replace ALL DailySalesRevenue entries.
+
+    Revenue sources (all combined per calendar day):
       • POS Sales     (POSTED) → grand_total
       • Invoices from Delivery Notes / Sales Pickups → invoice.grand_total
       • Invoices from Customer Services (COMPLETED)  → invoice.grand_total
@@ -65,7 +70,7 @@ def sync_weekly_sales_revenue(user):
       • Invoices        → invoice.grand_total_cogs
       • Sales Returns   → reduces COGS (items returned)
 
-    The current (incomplete) week is skipped — only finished weeks are synced.
+    Today (incomplete day) is always skipped — only past days are synced.
 
     Returns the number of new entries created.
     """
@@ -79,21 +84,18 @@ def sync_weekly_sales_revenue(user):
     from services.models import CustomerService, ServiceStatus
 
     today = timezone.now().date()
-    current_week_key = _week_source_id(today)
+    today_key = _day_source_id(today)
 
-    # ── Per-week buckets ──────────────────────────────────────────────────
+    # ── Per-day buckets ───────────────────────────────────────────────────
     buckets = {}
 
     def _get_bucket(d):
-        key = _week_source_id(d)
+        key = _day_source_id(d)
         if key not in buckets:
             buckets[key] = {
                 'revenue': Decimal('0'),
                 'cogs': Decimal('0'),
-                'monday': _monday_of(d),
-                'sunday': _sunday_of(d),
-                'iso_year': d.isocalendar()[0],
-                'iso_week': d.isocalendar()[1],
+                'day': d,
             }
         return buckets[key]
 
@@ -182,17 +184,17 @@ def sync_weekly_sales_revenue(user):
                 unit_price = line.item.cost_price or Decimal('0')
             b['revenue'] -= unit_price * line.qty
 
-    # ── Delete all existing WeeklySalesRevenue entries ─────────────────────
+    # ── Delete all existing daily (and legacy weekly) revenue entries ──────
     CashFlowTransaction.objects.filter(
-        source_type='WeeklySalesRevenue',
+        source_type__in=['DailySalesRevenue', 'WeeklySalesRevenue'],
         is_auto_generated=True,
     ).delete()
 
-    # ── Create one entry per completed week with revenue > 0 ─────────────
+    # ── Create one entry per completed day with revenue > 0 ───────────────
     created_count = 0
     for source_id, b in sorted(buckets.items()):
-        # Skip the current incomplete week
-        if source_id == current_week_key and b['sunday'] > today:
+        # Skip today — the day is not yet complete
+        if source_id == today_key:
             continue
 
         revenue = b['revenue']
@@ -200,18 +202,17 @@ def sync_weekly_sales_revenue(user):
             continue
 
         gross = revenue - b['cogs']
-        iso_year = b['iso_year']
-        iso_week = b['iso_week']
+        day = b['day']
 
         txn = CashFlowTransaction.objects.create(
             transaction_number=CashFlowTransaction.generate_next_number(),
             category=CashFlowCategory.SALES,
             flow_type=CashFlowType.CASH_IN,
             amount=revenue.quantize(Decimal('0.01')),
-            transaction_date=b['monday'],
+            transaction_date=day,
             payment_method=PaymentMethod.CASH,
-            reference_no=f'WEEK-{iso_year}-W{iso_week:02d}',
-            reason=f'Weekly sales revenue — Week {iso_week:02d} of {iso_year}',
+            reference_no=f'DAY-{day}',
+            reason=f'Daily sales revenue — {day}',
             notes=(
                 f'Revenue: ₱{revenue:.2f} | '
                 f'COGS: ₱{b["cogs"]:.2f} | '
@@ -219,7 +220,7 @@ def sync_weekly_sales_revenue(user):
             ),
             status=CashFlowStatus.PENDING,
             created_by=user,
-            source_type='WeeklySalesRevenue',
+            source_type='DailySalesRevenue',
             source_id=source_id,
             is_auto_generated=True,
         )
@@ -229,7 +230,7 @@ def sync_weekly_sales_revenue(user):
             action=CashFlowLogAction.CREATED,
             performed_by=user,
             details=(
-                f'Sync: weekly revenue for Week {iso_week:02d}/{iso_year}. '
+                f'Sync: daily revenue for {day}. '
                 f'Revenue=₱{revenue:.2f}, COGS=₱{b["cogs"]:.2f}, '
                 f'Gross=₱{gross:.2f}.'
             ),
@@ -496,7 +497,7 @@ def sync_all(user):
     }
 
     try:
-        results['sales'] = sync_weekly_sales_revenue(user)
+        results['sales'] = sync_daily_sales_revenue(user)
     except Exception as exc:
         results['errors'].append(f'Sales sync failed: {exc}')
 
