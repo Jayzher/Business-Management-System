@@ -451,7 +451,6 @@ def _iter_expected_moves(warn_fn):
     ).prefetch_related(
         'bundles__price_list__items__item__default_unit',
         'bundles__price_list__items__item__selling_unit',
-        'bundles__price_list__items__item__stock_unit',
         'bundles__price_list__items__unit',
     ).select_related('warehouse'):
         if not svc.warehouse_id:
