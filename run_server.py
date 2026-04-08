@@ -44,6 +44,13 @@ def start_server():
     if result.returncode != 0:
         print("ERROR: migrate failed. Fix the error above before starting the server.")
         sys.exit(result.returncode)
+    print("Syncing latest data from Neon PostgreSQL → local SQLite...")
+    sync_result = subprocess.run(
+        [str(python_exe), str(MANAGE_PY), "db_sync", "--direction", "neon_to_local"],
+        cwd=str(BASE_DIR),
+    )
+    if sync_result.returncode != 0:
+        print("WARNING: Initial Neon sync failed. Server will start with existing local data.")
     print("Starting dev server on http://127.0.0.1:8000 (bound to 0.0.0.0:8000)...")
     proc = subprocess.Popen(
         [str(python_exe), str(MANAGE_PY), "runserver", "0.0.0.0:8000"],

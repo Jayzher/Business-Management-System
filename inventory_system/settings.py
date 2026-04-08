@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'pos',
     'services',
     'cashflow',
+    'sync',
     'theme',
 ]
 
@@ -96,16 +97,17 @@ WSGI_APPLICATION = 'inventory_system.wsgi.application'
 # ---------------------------------------------------------------------------
 # Database
 #
-# Default: Neon PostgreSQL (same DB the mobile app reads/writes directly).
-# This ensures the web and mobile always share the same live data with no
-# extra sync step required.
+# Default: local SQLite for fast page loads.
+# Neon PostgreSQL is configured as a secondary alias ('neon') so the
+# db_sync management command can pull live data from Neon → SQLite at
+# a configurable interval (NEON_SYNC_INTERVAL seconds, default 5 min).
 #
 # Override options (via DATABASE_URL env var):
-#   DATABASE_URL=sqlite          → local SQLite (offline / CI use only)
-#   DATABASE_URL=<postgres-url>  → any other PostgreSQL instance
+#   DATABASE_URL=sqlite          → explicit local SQLite (same as default)
+#   DATABASE_URL=<postgres-url>  → any PostgreSQL instance as primary
 #
 # Render/production sets DATABASE_URL automatically to its internal
-# PostgreSQL URL, which takes priority over the Neon default below.
+# PostgreSQL URL, which takes priority and uses Neon directly.
 # ---------------------------------------------------------------------------
 NEON_URL = (
     'postgresql://neondb_owner:npg_KhjsX3uB0mil'
@@ -113,7 +115,21 @@ NEON_URL = (
     '/neondb?sslmode=require'
 )
 
-_DATABASE_URL = os.environ.get('DATABASE_URL', NEON_URL)
+# ---------------------------------------------------------------------------
+# Pusher Channels — free hosted pub/sub for real-time sync events.
+# Get credentials at https://pusher.com (free tier: 100 conns, 200k msgs/day).
+# Set these four env vars in your .env / shell before starting the server.
+# ---------------------------------------------------------------------------
+PUSHER_APP_ID  = os.environ.get('PUSHER_APP_ID',  '2138689')
+PUSHER_KEY     = os.environ.get('PUSHER_KEY',     'f2314ae2921907f1b2f7')
+PUSHER_SECRET  = os.environ.get('PUSHER_SECRET',  '3a325d3c3376facaa14b')
+PUSHER_CLUSTER = os.environ.get('PUSHER_CLUSTER', 'ap1')
+
+# Timer-based interval sync is replaced by Pusher event-driven sync.
+# Set > 0 to re-enable the fallback timer (seconds). 0 = disabled.
+NEON_SYNC_INTERVAL = int(os.environ.get('NEON_SYNC_INTERVAL', '0'))
+
+_DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite')
 if _DATABASE_URL == 'sqlite':
     DATABASES = {
         'default': {
