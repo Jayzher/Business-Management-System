@@ -33,12 +33,21 @@ class CoreConfig(AppConfig):
             return
 
         from django.conf import settings
-        interval = getattr(settings, 'NEON_SYNC_INTERVAL', 0)
-        if interval <= 0:
+        db_engine = settings.DATABASES.get('default', {}).get('ENGINE', '')
+        is_sqlite = 'sqlite3' in db_engine
+
+        if not (is_sqlite and hasattr(settings, 'NEON_URL')):
             return
 
-        db_engine = settings.DATABASES.get('default', {}).get('ENGINE', '')
-        if 'sqlite3' in db_engine and hasattr(settings, 'NEON_URL'):
+        # One-shot sync on server start (default: enabled).
+        if getattr(settings, 'NEON_INITIAL_SYNC', True):
+            logger.info('NEON_INITIAL_SYNC=True — running startup Neon\u2192SQLite sync.')
+            t = threading.Thread(target=_run_neon_sync, daemon=True, name='neon-initial-sync')
+            t.start()
+
+        # Optional periodic fallback timer.
+        interval = getattr(settings, 'NEON_SYNC_INTERVAL', 9999999)
+        if interval > 0:
             logger.info('Scheduling fallback Neon\u2192SQLite sync every %ds.', interval)
             timer = threading.Timer(interval, _schedule_sync, args=(interval,))
             timer.daemon = True

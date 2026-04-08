@@ -15,7 +15,8 @@ thread itself triggers a post_save (e.g. via bulk_create).
 import logging
 import threading
 
-from django.db.models.signals import post_save
+from django.db import transaction as db_transaction
+from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 
 logger = logging.getLogger(__name__)
@@ -70,11 +71,11 @@ def broadcast_table_changed(tables: list[str]) -> None:
         logger.debug('Pusher trigger skipped (%s): %s', tables, exc)
 
 
-def _write_to_neon_async(sender, pk: int) -> None:
+def _write_to_neon_async(sender, pk: int, table: str) -> None:
     """
     Spawn a daemon thread that upserts the record identified by *pk* into the
-    'neon' database alias.  Uses INSERT … ON CONFLICT (id) DO UPDATE so it
-    handles both new inserts and updates transparently.
+    'neon' database alias.  Broadcasts the Pusher event only after the write
+    succeeds so mobile never receives a stale-read notification.
     """
     if getattr(_NEON_WRITE_ACTIVE, 'value', False):
         return
@@ -107,6 +108,8 @@ def _write_to_neon_async(sender, pk: int) -> None:
                 sender._default_manager.using('neon').bulk_create(
                     [obj], ignore_conflicts=True,
                 )
+            # Notify mobile only after Neon has the data
+            broadcast_table_changed([table])
         except Exception as exc:
             logger.debug(
                 'Neon write-through skipped (%s pk=%s): %s', sender.__name__, pk, exc
@@ -115,6 +118,31 @@ def _write_to_neon_async(sender, pk: int) -> None:
             _NEON_WRITE_ACTIVE.value = False
 
     threading.Thread(target=_worker, daemon=True, name=f'neon-wt-{sender.__name__}').start()
+
+
+def _delete_from_neon_async(sender, pk: int, table: str) -> None:
+    """Propagate a hard delete to Neon. Fails silently if Neon is unavailable."""
+    if getattr(_NEON_WRITE_ACTIVE, 'value', False):
+        return
+
+    def _worker():
+        _NEON_WRITE_ACTIVE.value = True
+        try:
+            from core.management.commands.db_sync import Command
+            Command._ensure_both_databases()
+            from django.db import connections
+            if 'neon' not in connections.databases:
+                return
+            sender._default_manager.using('neon').filter(pk=pk).delete()
+            broadcast_table_changed([table])
+        except Exception as exc:
+            logger.debug(
+                'Neon delete skipped (%s pk=%s): %s', sender.__name__, pk, exc
+            )
+        finally:
+            _NEON_WRITE_ACTIVE.value = False
+
+    threading.Thread(target=_worker, daemon=True, name=f'neon-del-{sender.__name__}').start()
 
 
 @receiver(post_save)
@@ -126,6 +154,24 @@ def on_model_save(sender, instance, using, **kwargs):
     if getattr(_NEON_WRITE_ACTIVE, 'value', False):
         return
 
-    table = sender._meta.db_table
-    _write_to_neon_async(sender, instance.pk)
-    broadcast_table_changed([table])
+    # Defer until the Django transaction commits so the background thread
+    # always reads committed data from SQLite (prevents stale-read corruption).
+    pk, table = instance.pk, sender._meta.db_table
+    db_transaction.on_commit(
+        lambda: _write_to_neon_async(sender, pk, table)
+    )
+
+
+@receiver(post_delete)
+def on_model_delete(sender, instance, using, **kwargs):
+    if using != 'default':
+        return
+    if sender._meta.app_label not in SYNCED_APP_LABELS:
+        return
+    if getattr(_NEON_WRITE_ACTIVE, 'value', False):
+        return
+
+    pk, table = instance.pk, sender._meta.db_table
+    db_transaction.on_commit(
+        lambda: _delete_from_neon_async(sender, pk, table)
+    )
