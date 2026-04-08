@@ -94,9 +94,18 @@ TEMPLATES = [
 WSGI_APPLICATION = 'inventory_system.wsgi.application'
 
 # ---------------------------------------------------------------------------
-# Database — defaults to local SQLite for dev; Render/production sets
-# DATABASE_URL env var to point at Neon PostgreSQL automatically.
-# To force Neon locally: set DATABASE_URL to the Neon connection string.
+# Database
+#
+# Default: Neon PostgreSQL (same DB the mobile app reads/writes directly).
+# This ensures the web and mobile always share the same live data with no
+# extra sync step required.
+#
+# Override options (via DATABASE_URL env var):
+#   DATABASE_URL=sqlite          → local SQLite (offline / CI use only)
+#   DATABASE_URL=<postgres-url>  → any other PostgreSQL instance
+#
+# Render/production sets DATABASE_URL automatically to its internal
+# PostgreSQL URL, which takes priority over the Neon default below.
 # ---------------------------------------------------------------------------
 NEON_URL = (
     'postgresql://neondb_owner:npg_KhjsX3uB0mil'
@@ -104,7 +113,7 @@ NEON_URL = (
     '/neondb?sslmode=require'
 )
 
-_DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite')
+_DATABASE_URL = os.environ.get('DATABASE_URL', NEON_URL)
 if _DATABASE_URL == 'sqlite':
     DATABASES = {
         'default': {

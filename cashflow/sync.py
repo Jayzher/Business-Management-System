@@ -66,9 +66,10 @@ def sync_daily_sales_revenue(user):
       • Sales Returns (POSTED) → negative revenue     (refund deduction)
 
     COGS:
-      • POS Sales       → sum(line.item.cost_price × qty)
+      • POS Sales       → invoice.grand_total_cogs when available, else pos_sale_cogs()
+                          (includes bundles and unit-conversion-aware cost calculation)
       • Invoices        → invoice.grand_total_cogs
-      • Sales Returns   → reduces COGS (items returned)
+      • Sales Returns   → reduces COGS via calculate_line_cogs_with_conversion()
 
     Today (incomplete day) is always skipped — only past days are synced.
 
@@ -78,6 +79,8 @@ def sync_daily_sales_revenue(user):
         CashFlowTransaction, CashFlowCategory, CashFlowType,
         CashFlowStatus, PaymentMethod, CashFlowLog, CashFlowLogAction,
     )
+    from catalog.utils import calculate_line_cogs_with_conversion, convert_price_for_unit
+    from core.cogs import pos_sale_cogs
     from core.models import DocumentStatus, Invoice
     from pos.models import POSSale, SaleStatus
     from sales.models import SalesReturn
@@ -115,8 +118,7 @@ def sync_daily_sales_revenue(user):
             b['cogs'] += pos_invoice.grand_total_cogs
             seen_invoice_pks.add(pos_invoice.pk)
         else:
-            for line in sale.lines.all():
-                b['cogs'] += (line.item.cost_price or Decimal('0')) * line.qty
+            b['cogs'] += pos_sale_cogs(sale)
             if pos_invoice:
                 seen_invoice_pks.add(pos_invoice.pk)
 
@@ -169,19 +171,24 @@ def sync_daily_sales_revenue(user):
     ).select_related('sales_order').prefetch_related('lines__item', 'lines__unit'):
         b = _get_bucket(sr.return_date)
         for line in sr.lines.all():
-            b['cogs'] -= (line.item.cost_price or Decimal('0')) * line.qty
+            b['cogs'] -= calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
             unit_price = Decimal('0')
             if sr.sales_order_id:
                 so_line = (
                     sr.sales_order.lines
                     .filter(item=line.item)
-                    .only('unit_price')
+                    .select_related('unit')
                     .first()
                 )
                 if so_line:
-                    unit_price = so_line.unit_price
+                    if so_line.unit_id == line.unit_id:
+                        unit_price = so_line.unit_price
+                    else:
+                        unit_price = convert_price_for_unit(
+                            so_line.unit_price, so_line.unit, line.unit, item=line.item,
+                        )
             if unit_price == 0:
-                unit_price = line.item.cost_price or Decimal('0')
+                unit_price = line.item.selling_price or Decimal('0')
             b['revenue'] -= unit_price * line.qty
 
     # ── Delete all existing daily (and legacy weekly) revenue entries ──────
