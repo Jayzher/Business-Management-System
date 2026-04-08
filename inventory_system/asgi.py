@@ -1,10 +1,8 @@
 """
 ASGI config for inventory_system project.
 
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/
+Real-time sync events are delivered via Pusher Channels (hosted, free tier)
+so no in-process WebSocket server is needed here.
 """
 
 import os
