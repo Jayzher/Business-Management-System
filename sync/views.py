@@ -16,7 +16,7 @@ from inventory.models import StockBalance
 from inventory.serializers import StockBalanceSerializer
 from partners.models import Supplier, Customer
 from partners.serializers import SupplierSerializer, CustomerSerializer
-from pos.models import POSRegister, POSSale, POSSaleLine, POSPayment, POSShift
+from pos.models import POSRegister, POSSale, POSSaleLine, POSPayment, POSShift, SaleStatus
 from pos.serializers import POSRegisterSerializer
 from pricing.models import PriceList, PriceListItem, DiscountRule
 from pricing.serializers import PriceListSerializer, PriceListItemSerializer, DiscountRuleSerializer
@@ -69,17 +69,26 @@ def _get_simple_changes(model_class, serializer_class, since_dt):
 
     if since_dt and hasattr(model_class, 'updated_at'):
         changed = qs.filter(updated_at__gt=since_dt)
-        return {
+        result = {
             'created': [],
             'updated': serializer_class(changed, many=True).data,
             'deleted': [],
         }
     else:
-        return {
+        result = {
             'created': serializer_class(qs, many=True).data,
             'updated': [],
             'deleted': [],
         }
+
+    # Surface soft-deleted IDs so mobile can remove them locally.
+    if hasattr(model_class, 'all_objects'):
+        deleted_qs = model_class.all_objects.filter(is_active=False)
+        if since_dt:
+            deleted_qs = deleted_qs.filter(updated_at__gt=since_dt)
+        result['deleted'] = list(deleted_qs.values_list('id', flat=True))
+
+    return result
 
 
 @api_view(['POST'])
@@ -157,20 +166,39 @@ def sync_push(request):
             if op == 'CREATE':
                 try:
                     with transaction.atomic():
+                        from pos.services.checkout import generate_sale_number, sync_pos_sale_stock_moves
+
+                        # Resolve register from the shift (register is required on POSSale)
+                        shift_id = data.get('shift')
+                        shift = POSShift.objects.select_related('register').get(pk=shift_id)
+
+                        # Accept both old mobile field names and canonical model names
                         sale = POSSale.objects.create(
-                            customer_id=data.get('customer'),
+                            sale_no=generate_sale_number(),
+                            register=shift.register,
+                            shift=shift,
                             warehouse_id=data['warehouse'],
-                            location_id=data.get('location'),
-                            shift_id=data.get('shift'),
-                            subtotal=data['subtotal'],
-                            discount_amount=data.get('discount_amount', 0),
-                            tax_amount=data.get('tax_amount', 0),
-                            total=data['total'],
-                            amount_paid=data.get('amount_paid', 0),
-                            change_amount=data.get('change_amount', 0),
+                            location_id=(
+                                data.get('location')
+                                or shift.register.default_location_id
+                            ),
+                            customer_id=data.get('customer'),
+                            subtotal=data.get('subtotal', 0),
+                            discount_total=(
+                                data.get('discount_total')
+                                or data.get('discount_amount', 0)
+                            ),
+                            tax_total=(
+                                data.get('tax_total')
+                                or data.get('tax_amount', 0)
+                            ),
+                            grand_total=(
+                                data.get('grand_total')
+                                or data.get('total', 0)
+                            ),
                             notes=data.get('notes', ''),
                             created_by=request.user,
-                            status='COMPLETED',
+                            status=SaleStatus.PAID,
                         )
 
                         for line_data in data.get('lines', []):
@@ -188,12 +216,16 @@ def sync_push(request):
                         for payment_data in data.get('payments', []):
                             POSPayment.objects.create(
                                 sale=sale,
-                                payment_method=payment_data['method'],
+                                method=payment_data['method'],
                                 amount=payment_data['amount'],
-                                reference_number=payment_data.get('reference', ''),
+                                reference_no=(
+                                    payment_data.get('reference_no')
+                                    or payment_data.get('reference', '')
+                                ),
                             )
 
-                        sale.post_stock_moves()
+                        # Idempotent stock deduction designed for sync scenarios
+                        sync_pos_sale_stock_moves(sale.pk, request.user)
 
                     id_mappings['pos_sales'].append({
                         'local_id': data.get('local_id'),
@@ -214,12 +246,13 @@ def sync_push(request):
 
             try:
                 if op == 'CREATE':
-                    shift = POSShift.objects.create(
-                        register_id=data['register'],
-                        user=request.user,
-                        opening_balance=data.get('opening_balance', 0),
-                        status='OPEN',
+                    from pos.services.checkout import open_shift
+                    register = POSRegister.objects.get(pk=data['register'])
+                    opening_cash = (
+                        data.get('opening_cash')
+                        or data.get('opening_balance', 0)
                     )
+                    shift = open_shift(register, request.user, opening_cash)
                     id_mappings['pos_shifts'].append({
                         'local_id': data.get('local_id'),
                         'server_id': shift.id,
@@ -227,11 +260,13 @@ def sync_push(request):
                 elif op == 'UPDATE':
                     server_id = data.get('server_id')
                     if server_id:
-                        POSShift.objects.filter(id=server_id).update(
-                            closing_balance=data.get('closing_balance'),
-                            closed_at=timezone.now(),
-                            status=data.get('status', 'CLOSED'),
+                        from pos.services.checkout import close_shift
+                        shift = POSShift.objects.get(pk=server_id)
+                        closing_cash = (
+                            data.get('closing_cash_declared')
+                            or data.get('closing_balance', 0)
                         )
+                        close_shift(shift, request.user, closing_cash)
                 if queue_id:
                     synced_ids.append(queue_id)
             except Exception as e:
@@ -247,13 +282,24 @@ def sync_push(request):
 
             try:
                 if op == 'CREATE':
-                    from cashflow.models import CashFlowTransaction
+                    from cashflow.models import CashFlowTransaction, CashFlowStatus
                     txn = CashFlowTransaction.objects.create(
+                        transaction_number=CashFlowTransaction.generate_next_number(),
                         category=data['category'],
                         flow_type=data['flow_type'],
                         amount=data['amount'],
+                        transaction_date=(
+                            data.get('transaction_date')
+                            or timezone.now().date()
+                        ),
                         payment_method=data.get('payment_method', 'CASH'),
-                        description=data.get('description', ''),
+                        reference_no=data.get('reference_no', ''),
+                        reason=data.get('reason', ''),
+                        notes=(
+                            data.get('notes')
+                            or data.get('description', '')
+                        ),
+                        status=CashFlowStatus.PENDING,
                         created_by=request.user,
                     )
                     id_mappings['cashflow_transactions'].append({
@@ -265,7 +311,7 @@ def sync_push(request):
             except Exception as e:
                 logger.error(f'Sync push error (cashflow {op}): {e}')
 
-    # ─── Stock Moves (from POS or manual) ───
+    # ─── Stock Moves (manual adjustments from mobile) ───
     if 'stock_moves' in changes:
         id_mappings['stock_moves'] = []
         for item in changes['stock_moves']:
@@ -275,16 +321,26 @@ def sync_push(request):
 
             try:
                 if op == 'CREATE':
-                    from inventory.models import StockMove
+                    from inventory.models import StockMove, MoveType, MoveStatus
+                    # Mobile sends 'location' for outbound moves; map to from_location
+                    move_type = data.get('move_type', MoveType.ADJUST)
+                    is_inbound = move_type in (
+                        MoveType.RECEIVE, MoveType.RETURN_IN,
+                    )
                     move = StockMove.objects.create(
                         item_id=data['item'],
-                        location_id=data['location'],
-                        move_type=data.get('move_type', 'OUT'),
+                        from_location_id=None if is_inbound else data.get('location'),
+                        to_location_id=data.get('location') if is_inbound else None,
+                        move_type=move_type,
                         qty=data['qty'],
                         unit_id=data.get('unit'),
-                        reference=data.get('reference', ''),
+                        reference_number=data.get('reference_number') or data.get('reference', ''),
+                        reference_type=data.get('reference_type', 'Mobile'),
                         notes=data.get('notes', ''),
+                        status=MoveStatus.POSTED,
                         created_by=request.user,
+                        posted_by=request.user,
+                        posted_at=timezone.now(),
                     )
                     id_mappings['stock_moves'].append({
                         'local_id': data.get('local_id'),
