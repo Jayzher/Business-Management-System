@@ -47,3 +47,4 @@ staticfiles/
 coverage.xml
 *.egg-info/
 
+.devserver.pid
