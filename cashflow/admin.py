@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils import timezone
 from cashflow.models import (
-    CashFlowTransaction, CashFlowLog,
+    CashFlowTransaction, CashFlowLog, MonthlyCashflowSummary,
     CashFlowStatus, CashFlowLogAction,
 )
 
@@ -62,3 +62,29 @@ class CashFlowLogAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(MonthlyCashflowSummary)
+class MonthlyCashflowSummaryAdmin(admin.ModelAdmin):
+    list_display = [
+        'month_name', 'year', 'capital_total', 'expenses_total', 'net_profit',
+        'profit_margin', 'calculated_at',
+    ]
+    list_filter = ['year']
+    search_fields = ['notes']
+    readonly_fields = [
+        'capital_sales', 'capital_other', 'capital_total',
+        'expenses_procurement', 'expenses_operational', 'expenses_other', 'expenses_total',
+        'net_profit', 'sales_count', 'procurement_count', 'expense_count',
+        'calculated_by', 'calculated_at',
+    ]
+    ordering = ['-year', '-month']
+
+    def month_name(self, obj):
+        return obj.month_name
+    month_name.short_description = 'Month'
+
+    def profit_margin(self, obj):
+        return f'{obj.profit_margin:.1f}%'
+    profit_margin.short_description = 'Profit Margin'
+

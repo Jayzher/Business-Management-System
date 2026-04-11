@@ -37,37 +37,62 @@ all_tables = [r[0] for r in cur.fetchall()]
 
 # ── Build FK dependency graph and topological sort ──
 def get_fk_deps(cursor, tables):
-    """Return {table: set of tables it depends on}."""
+    """Return {table: set of tables it depends on} using SQLite PRAGMA."""
+    table_set = set(tables)
     deps = {t: set() for t in tables}
     for t in tables:
         try:
             cursor.execute(f'PRAGMA foreign_key_list("{t}")')
             for row in cursor.fetchall():
-                ref = row[2]  # referenced table
-                if ref in deps and ref != t:
+                ref = row[2]  # referenced table name
+                if ref in table_set and ref != t:
                     deps[t].add(ref)
         except Exception:
             pass
     return deps
 
+# Manual FK overrides: (child_table, parent_table) pairs that PRAGMA may miss
+# or that need to be guaranteed regardless of SQLite FK enforcement state.
+MANUAL_FK_OVERRIDES = [
+    ('sales_salespickupline', 'sales_salespickup'),
+    # add more ('child', 'parent') pairs here if needed
+]
+
 def topo_sort(deps):
-    """Topological sort — parents before children."""
+    """Kahn's algorithm — parents before children. Handles cycles gracefully."""
+    from collections import deque
+
+    all_nodes = list(deps.keys())
+
+    # Apply manual overrides (deduplicated via sets)
+    for child, parent in MANUAL_FK_OVERRIDES:
+        if child in deps and parent in deps:
+            deps[child].add(parent)
+
+    # Build reverse graph and exact in-degree
+    in_degree = {n: 0 for n in all_nodes}
+    reverse   = {n: set() for n in all_nodes}
+    for node, parents in deps.items():
+        for parent in parents:
+            in_degree[node] += 1
+            reverse[parent].add(node)
+
+    queue = deque(n for n in all_nodes if in_degree[n] == 0)
     result = []
-    visited = set()
-    temp = set()
-    def visit(node):
-        if node in temp:
-            return  # cycle, skip
-        if node in visited:
-            return
-        temp.add(node)
-        for dep in deps.get(node, []):
-            visit(dep)
-        temp.discard(node)
-        visited.add(node)
-        result.append(node)
-    for node in sorted(deps.keys()):
-        visit(node)
+    while queue:
+        n = queue.popleft()
+        result.append(n)
+        for child in reverse[n]:
+            in_degree[child] -= 1
+            if in_degree[child] == 0:
+                queue.append(child)
+
+    # Append any remaining nodes (genuine cycles) at the end
+    seen = set(result)
+    for n in all_nodes:
+        if n not in seen:
+            result.append(n)
+
     return result
 
 deps = get_fk_deps(cur, all_tables)

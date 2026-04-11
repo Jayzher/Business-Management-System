@@ -1,0 +1,283 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Monthly Cashflow Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stat-card {
+        background: white;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .stat-label {
+        font-size: 14px;
+        color: #6b7280;
+        font-weight: 500;
+        margin-bottom: 8px;
+    }
+    .stat-value {
+        font-size: 32px;
+        font-weight: 700;
+        margin-bottom: 4px;
+    }
+    .stat-value.positive { color: #10b981; }
+    .stat-value.negative { color: #ef4444; }
+    .stat-value.neutral { color: #3b82f6; }
+    .chart-container {
+        background: white;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        margin-top: 24px;
+    }
+    .month-table {
+        background: white;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        margin-top: 24px;
+    }
+    .month-row {
+        border-bottom: 1px solid #e5e7eb;
+        transition: background-color 0.2s;
+    }
+    .month-row:hover {
+        background-color: #f9fafb;
+    }
+    .profit-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    .profit-badge.positive {
+        background-color: #d1fae5;
+        color: #065f46;
+    }
+    .profit-badge.negative {
+        background-color: #fee2e2;
+        color: #991b1b;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 py-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-1">Monthly Cashflow Dashboard</h1>
+            <p class="text-muted mb-0">Track capital, expenses, and net profit by month</p>
+        </div>
+        <div class="d-flex gap-2">
+            <form method="get" class="d-flex gap-2">
+                <select name="year" class="form-select" onchange="this.form.submit()">
+                    {% for yr in available_years %}
+                    <option value="{{ yr }}" {% if yr == year %}selected{% endif %}>{{ yr }}</option>
+                    {% endfor %}
+                </select>
+            </form>
+            {% if summaries.count == 0 %}
+            <a href="?year={{ year }}&auto_create=1" class="btn btn-success">
+                <i class="bi bi-plus-circle"></i> Auto-Create Summaries
+            </a>
+            {% endif %}
+            <form method="post" action="{% url 'cashflow:recalculate_all' %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary" onclick="return confirm('Recalculate all monthly summaries?')">
+                    <i class="bi bi-arrow-clockwise"></i> Recalculate All
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Year Summary Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-label">Total Capital ({{ year }})</div>
+                <div class="stat-value positive">₱{{ year_totals.capital_total|floatformat:2|default:"0.00" }}</div>
+                <small class="text-muted">Sales + Other Cash-In</small>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-label">Total Expenses ({{ year }})</div>
+                <div class="stat-value negative">₱{{ year_totals.expenses_total|floatformat:2|default:"0.00" }}</div>
+                <small class="text-muted">Procurement + Operational + Other</small>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-label">Net Profit ({{ year }})</div>
+                <div class="stat-value {% if year_totals.net_profit >= 0 %}positive{% else %}negative{% endif %}">
+                    ₱{{ year_totals.net_profit|floatformat:2|default:"0.00" }}
+                </div>
+                <small class="text-muted">Capital - Expenses</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="chart-container">
+        <h5 class="mb-3">Monthly Trend</h5>
+        <canvas id="monthlyChart" height="80"></canvas>
+    </div>
+
+    <!-- Monthly Breakdown Table -->
+    <div class="month-table">
+        <div class="p-3 border-bottom bg-light">
+            <h5 class="mb-0">Monthly Breakdown</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Month</th>
+                        <th class="text-end">Capital</th>
+                        <th class="text-end">Expenses</th>
+                        <th class="text-end">Net Profit</th>
+                        <th class="text-center">Margin</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for summary in summaries %}
+                    <tr class="month-row">
+                        <td>
+                            <strong>{{ summary.month_name }}</strong>
+                            <br>
+                            <small class="text-muted">
+                                {{ summary.sales_count }} sales, {{ summary.procurement_count }} procurements
+                            </small>
+                        </td>
+                        <td class="text-end text-success">₱{{ summary.capital_total|floatformat:2 }}</td>
+                        <td class="text-end text-danger">₱{{ summary.expenses_total|floatformat:2 }}</td>
+                        <td class="text-end">
+                            <strong class="{% if summary.net_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                ₱{{ summary.net_profit|floatformat:2 }}
+                            </strong>
+                        </td>
+                        <td class="text-center">
+                            <span class="profit-badge {% if summary.profit_margin >= 0 %}positive{% else %}negative{% endif %}">
+                                {{ summary.profit_margin|floatformat:1 }}%
+                            </span>
+                        </td>
+                        <td class="text-center">
+                            <a href="{% url 'cashflow:monthly_detail' summary.year summary.month %}" 
+                               class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-eye"></i> View Details
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4">
+                            <div class="text-muted mb-3">
+                                <i class="bi bi-inbox" style="font-size: 48px;"></i>
+                                <p class="mt-2">No monthly summaries for {{ year }}</p>
+                            </div>
+                            <a href="?year={{ year }}&auto_create=1" class="btn btn-primary">
+                                <i class="bi bi-plus-circle"></i> Auto-Create Summaries
+                            </a>
+                            <p class="text-muted mt-2 small">
+                                Summaries are automatically created when transactions are posted.<br>
+                                Click above to create summaries for existing data.
+                            </p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const ctx = document.getElementById('monthlyChart').getContext('2d');
+    const chartData = {{ chart_data|safe }};
+    
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: chartData.labels,
+            datasets: [
+                {
+                    label: 'Capital',
+                    data: chartData.capital,
+                    borderColor: 'rgb(34, 197, 94)',
+                    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                },
+                {
+                    label: 'Expenses',
+                    data: chartData.expenses,
+                    borderColor: 'rgb(239, 68, 68)',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                },
+                {
+                    label: 'Net Profit',
+                    data: chartData.net_profit,
+                    borderColor: 'rgb(59, 130, 246)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    borderWidth: 3,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            label += '₱' + context.parsed.y.toLocaleString('en-PH', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                            return label;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '₱' + value.toLocaleString('en-PH');
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

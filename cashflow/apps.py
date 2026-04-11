@@ -8,3 +8,5 @@ class CashflowConfig(AppConfig):
 
     def ready(self):
         import cashflow.signals  # noqa: F401 — registers all signal handlers
+        import cashflow.monthly_signals  # noqa: F401 — registers monthly summary signals
+

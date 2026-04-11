@@ -21,7 +21,8 @@ _thread_local = threading.local()
 
 def get_current_db() -> str:
     """Return the active DB alias for the current thread (always safe to call)."""
-    return getattr(_thread_local, 'db', 'default')
+    # Always use 'default' (local DB)
+    return 'default'
 
 
 def set_current_db(alias: str) -> None:
@@ -34,26 +35,9 @@ class AppEnvironmentMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-    def __call__(self, request):
-        # Default to production for every request
-        _thread_local.db = 'default'
-
-        try:
-            # Only allow privileged users to run against test DB
-            if (
-                hasattr(request, 'session')
-                and hasattr(request, 'user')
-                and request.user.is_authenticated
-                and (request.user.is_superuser or request.user.is_staff)
-                and request.session.get('app_env') == 'test'
-            ):
-                from django.conf import settings  # lazy import
-                if 'test_env' in settings.DATABASES:
-                    _thread_local.db = 'test_env'
-
-            response = self.get_response(request)
-        finally:
-            # Always reset — never leak test context to next request on same thread
+        def __call__(self, request):
+            # Always use local DB for every request
             _thread_local.db = 'default'
-
-        return response
+            response = self.get_response(request)
+            _thread_local.db = 'default'  # Ensure reset
+            return response

@@ -1,5 +1,8 @@
 from django.urls import path
 from cashflow import views
+from cashflow import monthly_views
+
+app_name = 'cashflow'
 
 urlpatterns = [
     # Transactions
@@ -17,4 +20,13 @@ urlpatterns = [
 
     # Logs
     path('logs/', views.log_list, name='cashflow_log_list'),
+    
+    # Monthly Cashflow
+    path('monthly/', monthly_views.monthly_dashboard, name='monthly_dashboard'),
+    path('monthly/<int:year>/<int:month>/', monthly_views.monthly_detail, name='monthly_detail'),
+    path('monthly/<int:year>/<int:month>/recalculate/', monthly_views.recalculate_month, name='recalculate_month'),
+    path('monthly/recalculate-all/', monthly_views.recalculate_all, name='recalculate_all'),
+    path('monthly/api/<int:year>/chart-data/', monthly_views.monthly_chart_data, name='monthly_chart_data'),
+    path('monthly/api/<int:year>/<int:month>/auto-create/', monthly_views.auto_create_summary, name='auto_create_summary'),
 ]
+
