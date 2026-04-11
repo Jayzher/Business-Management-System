@@ -1,0 +1,243 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ summary.month_name }} {{ summary.year }} - Monthly Cashflow{% endblock %}
+
+{% block extra_css %}
+<style>
+    .detail-card {
+        background: white;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        margin-bottom: 24px;
+    }
+    .section-header {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #e5e7eb;
+    }
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .summary-item {
+        padding: 16px;
+        background: #f9fafb;
+        border-radius: 8px;
+    }
+    .summary-label {
+        font-size: 13px;
+        color: #6b7280;
+        margin-bottom: 4px;
+    }
+    .summary-value {
+        font-size: 24px;
+        font-weight: 700;
+    }
+    .transaction-list {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    .transaction-item {
+        padding: 12px;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .transaction-item:last-child {
+        border-bottom: none;
+    }
+    .transaction-item:hover {
+        background-color: #f9fafb;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 py-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-2">
+                    <li class="breadcrumb-item"><a href="{% url 'cashflow:monthly_dashboard' %}">Monthly Cashflow</a></li>
+                    <li class="breadcrumb-item active">{{ summary.month_name }} {{ summary.year }}</li>
+                </ol>
+            </nav>
+            <h1 class="h3 mb-0">{{ summary.month_name }} {{ summary.year }}</h1>
+        </div>
+        <div>
+            <form method="post" action="{% url 'cashflow:recalculate_month' summary.year summary.month %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary" onclick="return confirm('Recalculate this month?')">
+                    <i class="bi bi-arrow-clockwise"></i> Recalculate
+                </button>
+            </form>
+            <a href="{% url 'cashflow:monthly_dashboard' %}?year={{ summary.year }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="summary-grid">
+        <div class="summary-item">
+            <div class="summary-label">Capital (Sales)</div>
+            <div class="summary-value text-success">₱{{ summary.capital_sales|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Capital (Other)</div>
+            <div class="summary-value text-success">₱{{ summary.capital_other|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Total Capital</div>
+            <div class="summary-value text-success">₱{{ summary.capital_total|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Procurement</div>
+            <div class="summary-value text-danger">₱{{ summary.expenses_procurement|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Operational</div>
+            <div class="summary-value text-danger">₱{{ summary.expenses_operational|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Other Expenses</div>
+            <div class="summary-value text-danger">₱{{ summary.expenses_other|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Total Expenses</div>
+            <div class="summary-value text-danger">₱{{ summary.expenses_total|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item" style="grid-column: span 2;">
+            <div class="summary-label">Net Profit</div>
+            <div class="summary-value {% if summary.net_profit >= 0 %}text-primary{% else %}text-danger{% endif %}">
+                ₱{{ summary.net_profit|floatformat:2 }}
+            </div>
+            <small class="text-muted">Margin: {{ summary.profit_margin|floatformat:1 }}%</small>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Sales -->
+        <div class="col-md-6">
+            <div class="detail-card">
+                <div class="section-header text-success">
+                    <i class="bi bi-cart-check"></i> Sales ({{ pos_sales.count }})
+                </div>
+                <div class="transaction-list">
+                    {% for sale in pos_sales %}
+                    <div class="transaction-item">
+                        <div>
+                            <strong>{{ sale.sale_no }}</strong>
+                            <br>
+                            <small class="text-muted">{{ sale.created_at|date:"M d, Y H:i" }}</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="text-success fw-bold">₱{{ sale.grand_total|floatformat:2 }}</div>
+                            <small class="text-muted">GP: ₱{{ sale.grand_total|add:sale.grand_total_cogs|floatformat:2 }}</small>
+                        </div>
+                    </div>
+                    {% empty %}
+                    <p class="text-muted text-center py-3">No sales this month</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Procurements -->
+        <div class="col-md-6">
+            <div class="detail-card">
+                <div class="section-header text-danger">
+                    <i class="bi bi-box-seam"></i> Procurements ({{ procurements.count }})
+                </div>
+                <div class="transaction-list">
+                    {% for grn in procurements %}
+                    <div class="transaction-item">
+                        <div>
+                            <strong>{{ grn.document_number }}</strong>
+                            <br>
+                            <small class="text-muted">{{ grn.supplier.name }} - {{ grn.receipt_date|date:"M d, Y" }}</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="text-danger fw-bold">₱{{ grn.lines.all|length }} items</div>
+                        </div>
+                    </div>
+                    {% empty %}
+                    <p class="text-muted text-center py-3">No procurements this month</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Expenses -->
+        <div class="col-md-6">
+            <div class="detail-card">
+                <div class="section-header text-warning">
+                    <i class="bi bi-receipt"></i> Operational Expenses ({{ expenses.count }})
+                </div>
+                <div class="transaction-list">
+                    {% for expense in expenses %}
+                    <div class="transaction-item">
+                        <div>
+                            <strong>{{ expense.category.name }}</strong>
+                            <br>
+                            <small class="text-muted">{{ expense.date|date:"M d, Y" }}</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="text-danger fw-bold">₱{{ expense.amount|floatformat:2 }}</div>
+                        </div>
+                    </div>
+                    {% empty %}
+                    <p class="text-muted text-center py-3">No expenses this month</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Cash Flow Transactions -->
+        <div class="col-md-6">
+            <div class="detail-card">
+                <div class="section-header text-info">
+                    <i class="bi bi-cash-stack"></i> Other Transactions
+                </div>
+                <div class="transaction-list">
+                    {% for txn in cash_in_transactions %}
+                    <div class="transaction-item">
+                        <div>
+                            <strong>{{ txn.transaction_number }}</strong>
+                            <br>
+                            <small class="text-muted">{{ txn.reason }} - {{ txn.transaction_date|date:"M d, Y" }}</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="text-success fw-bold">+₱{{ txn.amount|floatformat:2 }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% for txn in cash_out_transactions %}
+                    <div class="transaction-item">
+                        <div>
+                            <strong>{{ txn.transaction_number }}</strong>
+                            <br>
+                            <small class="text-muted">{{ txn.reason }} - {{ txn.transaction_date|date:"M d, Y" }}</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="text-danger fw-bold">-₱{{ txn.amount|floatformat:2 }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% if not cash_in_transactions and not cash_out_transactions %}
+                    <p class="text-muted text-center py-3">No other transactions this month</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

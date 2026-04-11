@@ -163,3 +163,94 @@ class CashFlowLog(TimeStampedModel):
 
     def __str__(self):
         return f"{self.transaction.transaction_number} - {self.get_action_display()} by {self.performed_by}"
+
+
+class MonthlyCashflowSummary(TimeStampedModel):
+    """
+    Monthly cashflow summary — aggregates capital, expenses, and net profit.
+    
+    Capital = Gross Profit from Sales + Other Cash-In
+    Expenses = Procurement Costs + Operational Expenses + Other Cash-Out
+    Net Profit = Capital - Expenses
+    """
+    year = models.IntegerField(db_index=True)
+    month = models.IntegerField(db_index=True)  # 1-12
+    
+    # ── Capital (Cash In) ────────────────────────────────────────────────────
+    capital_sales = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Gross profit from sales (revenue - COGS)',
+    )
+    capital_other = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Other cash-in transactions (capital, investments)',
+    )
+    capital_total = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Total capital (sales + other cash-in)',
+    )
+    
+    # ── Expenses (Cash Out) ──────────────────────────────────────────────────
+    expenses_procurement = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Total procurement costs (GRN posted amounts)',
+    )
+    expenses_operational = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Operational expenses (utilities, salaries, etc.)',
+    )
+    expenses_other = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Other cash-out transactions',
+    )
+    expenses_total = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Total expenses (procurement + operational + other)',
+    )
+    
+    # ── Net Profit ───────────────────────────────────────────────────────────
+    net_profit = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Net profit (capital - expenses)',
+    )
+    
+    # ── Metadata ─────────────────────────────────────────────────────────────
+    sales_count = models.IntegerField(default=0, help_text='Number of sales transactions')
+    procurement_count = models.IntegerField(default=0, help_text='Number of procurement transactions')
+    expense_count = models.IntegerField(default=0, help_text='Number of expense records')
+    
+    notes = models.TextField(
+        blank=True, default='',
+        help_text='Additional notes or adjustments',
+    )
+    
+    calculated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='monthly_summaries_calculated',
+    )
+    calculated_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-year', '-month']
+        unique_together = [('year', 'month')]
+        verbose_name = 'Monthly Cashflow Summary'
+        verbose_name_plural = 'Monthly Cashflow Summaries'
+    
+    def __str__(self):
+        from calendar import month_name
+        return f"{month_name[self.month]} {self.year}"
+    
+    @property
+    def month_name(self):
+        from calendar import month_name
+        return month_name[self.month]
+    
+    @property
+    def profit_margin(self):
+        """Calculate profit margin percentage."""
+        if self.capital_total > 0:
+            return (self.net_profit / self.capital_total) * 100
+        return 0
+

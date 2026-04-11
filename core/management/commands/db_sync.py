@@ -89,6 +89,11 @@ class Command(BaseCommand):
         # Ensure all tables exist on the destination before flushing
         call_command('migrate', '--run-syncdb', database=dst,
                      verbosity=0, stdout=self.stdout)
+        
+        # Clean up any orphaned FKs on destination before sync
+        self.stdout.write('  Cleaning orphaned FKs on destination...')
+        self._cleanup_orphaned_fks(dst)
+        
         self._truncate_all(dst)
         self.stdout.write('Flushed.\n')
 
@@ -182,21 +187,39 @@ class Command(BaseCommand):
                 self.stdout.write(e)
         else:
             self.stdout.write('No errors!')
+        
+        # -- Post-sync validation -----------------------------------------
+        self.stdout.write('\nValidating FK integrity...')
+        orphans_found = self._validate_fk_integrity(dst)
+        if orphans_found > 0:
+            self.stdout.write(self.style.WARNING(
+                f'  WARNING: {orphans_found} orphaned FK(s) found after sync!'
+            ))
+            self.stdout.write('  Run: python manage.py cleanup_orphaned_fks')
+        else:
+            self.stdout.write('  FK integrity OK')
+        
         self.stdout.write('=' * 60)
 
     # -- helpers --------------------------------------------------------------
 
     @staticmethod
     def _topo_sort_models():
-        """Return all models sorted so that FK parents come before children."""
-        all_models = apps.get_models(include_auto_created=True)
+        """Return all models sorted so that FK parents come before children.
+
+        Uses Kahn's algorithm on a deduplicated dependency graph so that
+        in-degree counts are exact and no node is enqueued twice.
+        Manual overrides cover tables whose FK edges are not visible via
+        Django's _meta (e.g. through abstract base classes or GenericFKs).
+        """
+        all_models = list(apps.get_models(include_auto_created=True))
         model_set = set(all_models)
 
-        # Build adjacency: model -> set of models it depends on via forward FKs
-        deps = defaultdict(set)
+        # ── 1. Build deps: model → {models it must come AFTER} ──────────────
+        # Use sets throughout so duplicate FK edges don't inflate in-degree.
+        deps: dict[object, set] = {m: set() for m in all_models}
         for model in all_models:
             for field in model._meta.get_fields():
-                # Only consider concrete forward FK fields (not reverse relations)
                 if (field.is_relation
                         and getattr(field, 'concrete', False)
                         and field.related_model
@@ -204,18 +227,36 @@ class Command(BaseCommand):
                         and field.related_model is not model):
                     deps[model].add(field.related_model)
 
-        # Kahn's algorithm for topological sort
-        in_degree = defaultdict(int)
-        reverse = defaultdict(set)
-        for model in all_models:
-            if model not in in_degree:
-                in_degree[model] = 0
-            for parent in deps[model]:
-                in_degree[model] += 1
+        # ── 2. Manual overrides for known-problematic tables ─────────────────
+        def _model(label):
+            app, name = label.split('.')
+            for m in all_models:
+                if m._meta.app_label == app and m._meta.model_name == name:
+                    return m
+            return None
+
+        # SalesPickupLine.pickup → SalesPickup  (CASCADE FK)
+        _force_order = [
+            ("sales.salespickupline",  "sales.salespickup"),
+            # add more ("child", "parent") pairs here if needed
+        ]
+        for child_label, parent_label in _force_order:
+            child  = _model(child_label)
+            parent = _model(parent_label)
+            if child and parent:
+                deps[child].add(parent)
+
+        # ── 3. Build reverse graph and exact in-degree from deduplicated deps ─
+        in_degree: dict[object, int] = {m: 0 for m in all_models}
+        reverse:   dict[object, set] = {m: set() for m in all_models}
+        for model, parents in deps.items():
+            for parent in parents:
+                in_degree[model] += 1      # counted once per unique parent
                 reverse[parent].add(model)
 
+        # ── 4. Kahn's BFS ────────────────────────────────────────────────────
         queue = deque(m for m in all_models if in_degree[m] == 0)
-        sorted_models = []
+        sorted_models: list = []
         while queue:
             m = queue.popleft()
             sorted_models.append(m)
@@ -224,11 +265,17 @@ class Command(BaseCommand):
                 if in_degree[child] == 0:
                     queue.append(child)
 
-        # Append any remaining (circular deps) at the end
+        # ── 5. Append anything left (genuine cycles) at the end ──────────────
         seen = set(sorted_models)
         for m in all_models:
             if m not in seen:
                 sorted_models.append(m)
+
+        # ── 6. Debug log ─────────────────────────────────────────────────────
+        import sys
+        print("Model copy order:", file=sys.stderr)
+        for m in sorted_models:
+            print(f"  {m._meta.app_label}.{m._meta.model_name}", file=sys.stderr)
 
         return sorted_models
 
@@ -296,6 +343,81 @@ class Command(BaseCommand):
                 except Exception as exc:
                     errs.append(f'{table}.{con_name}: {exc}')
         return errs
+
+    @staticmethod
+    def _cleanup_orphaned_fks(db_alias):
+        """Remove orphaned FK references before sync."""
+        with connections[db_alias].cursor() as cursor:
+            # Get all tables
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name NOT LIKE 'sqlite_%'
+            """)
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            total_deleted = 0
+            for table in tables:
+                # Get FK info
+                cursor.execute(f'PRAGMA foreign_key_list("{table}")')
+                fks = cursor.fetchall()
+                
+                for fk in fks:
+                    ref_table = fk[2]
+                    fk_column = fk[3]
+                    ref_column = fk[4]
+                    
+                    # Find and delete orphans
+                    try:
+                        cursor.execute(f"""
+                            DELETE FROM "{table}"
+                            WHERE rowid IN (
+                                SELECT t.rowid
+                                FROM "{table}" t
+                                LEFT JOIN "{ref_table}" r ON t."{fk_column}" = r."{ref_column}"
+                                WHERE t."{fk_column}" IS NOT NULL
+                                  AND r."{ref_column}" IS NULL
+                            )
+                        """)
+                        total_deleted += cursor.rowcount
+                    except Exception:
+                        pass
+            
+            return total_deleted
+
+    @staticmethod
+    def _validate_fk_integrity(db_alias):
+        """Check for orphaned FK references after sync."""
+        orphan_count = 0
+        with connections[db_alias].cursor() as cursor:
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name NOT LIKE 'sqlite_%'
+            """)
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            for table in tables:
+                cursor.execute(f'PRAGMA foreign_key_list("{table}")')
+                fks = cursor.fetchall()
+                
+                for fk in fks:
+                    ref_table = fk[2]
+                    fk_column = fk[3]
+                    ref_column = fk[4]
+                    
+                    try:
+                        cursor.execute(f"""
+                            SELECT COUNT(*)
+                            FROM "{table}" t
+                            LEFT JOIN "{ref_table}" r ON t."{fk_column}" = r."{ref_column}"
+                            WHERE t."{fk_column}" IS NOT NULL
+                              AND r."{ref_column}" IS NULL
+                        """)
+                        count = cursor.fetchone()[0]
+                        orphan_count += count
+                    except Exception:
+                        pass
+        
+        return orphan_count
 
     @staticmethod
     def _ensure_both_databases():
