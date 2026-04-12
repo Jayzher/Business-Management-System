@@ -2,7 +2,7 @@
 {% block title %}Cash Flow Logs{% endblock %}
 {% block page_title %}Cash Flow Logs{% endblock %}
 {% block breadcrumb %}
-<li class="breadcrumb-item"><a href="{% url 'cashflow_list' %}">Cash Flow</a></li>
+<li class="breadcrumb-item"><a href="{% url 'cashflow:cashflow_list' %}">Cash Flow</a></li>
 <li class="breadcrumb-item active">Logs</li>
 {% endblock %}
 
@@ -11,7 +11,7 @@
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-history mr-1"></i> Cash Flow Activity Logs</h3>
     <div class="card-tools">
-      <a href="{% url 'cashflow_list' %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left mr-1"></i> Back to Transactions</a>
+      <a href="{% url 'cashflow:cashflow_list' %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left mr-1"></i> Back to Transactions</a>
     </div>
   </div>
   <div class="card-body table-responsive p-0">
@@ -29,7 +29,7 @@
         {% for log in logs %}
         <tr>
           <td>{{ log.created_at|date:"M d, Y H:i" }}</td>
-          <td><a href="{% url 'cashflow_detail' log.transaction.pk %}">{{ log.transaction.transaction_number }}</a></td>
+          <td><a href="{% url 'cashflow:cashflow_detail' log.transaction.pk %}">{{ log.transaction.transaction_number }}</a></td>
           <td>
             {% if log.action == 'CREATED' %}<span class="badge bg-primary">Created</span>
             {% elif log.action == 'UPDATED' %}<span class="badge bg-info">Updated</span>
