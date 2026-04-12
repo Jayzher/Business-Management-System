@@ -35,9 +35,10 @@ class AppEnvironmentMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-        def __call__(self, request):
-            # Always use local DB for every request
-            _thread_local.db = 'default'
-            response = self.get_response(request)
-            _thread_local.db = 'default'  # Ensure reset
-            return response
+    def __call__(self, request):
+        # Always use local DB for every request
+        _thread_local.db = 'default'
+        response = self.get_response(request)
+        _thread_local.db = 'default'  # Ensure reset
+        return response
+

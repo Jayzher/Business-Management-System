@@ -1,6 +1,7 @@
 {% extends "theme/partials/form.html" %}
 {% block title %}{{ title }}{% endblock %}
 {% block page_title %}{{ title }}{% endblock %}
-{% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'cashflow_list' %}">Cash Flow</a></li><li class="breadcrumb-item active">{{ title }}</li>{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'cashflow:cashflow_list' %}">Cash Flow</a></li><li class="breadcrumb-item active">{{ title }}</li>{% endblock %}
 {% block form_title %}{{ title }}{% endblock %}
-{% block cancel_url %}{% url 'cashflow_list' %}{% endblock %}
+{% block cancel_url %}{% url 'cashflow:cashflow_list' %}{% endblock %}
+
