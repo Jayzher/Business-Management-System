@@ -169,7 +169,7 @@
       if (!result.isConfirmed) return;
       btn.disabled = true;
       btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Syncing…';
-      fetch('{% url "cashflow_sync" %}', {
+      fetch('{% url "cashflow:cashflow_sync" %}', {
         method: 'POST',
         headers: {
           'X-CSRFToken': '{{ csrf_token }}',

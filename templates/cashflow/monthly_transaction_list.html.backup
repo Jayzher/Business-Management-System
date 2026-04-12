@@ -1,0 +1,1183 @@
+{% extends "theme/base.html" %}
+{% load static %}
+{% load humanize %}
+
+{% block title %}Monthly Cashflow - {{ month_name }} {{ year }}{% endblock %}
+{% block page_title %}Monthly Cashflow - {{ month_name }} {{ year }}{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'cashflow:cashflow_list' %}">Cash Flow</a></li>
+<li class="breadcrumb-item active">{{ month_name }} {{ year }}</li>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ═══════════════════════════════════════════════════════════════════ */
+    /* MODERN CASHFLOW UI - Enhanced UX */
+    /* ═══════════════════════════════════════════════════════════════════ */
+    
+    /* Balance Cards - Enhanced with animations */
+    .balance-card {
+        border-radius: 12px;
+        padding: 20px 25px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .balance-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+    }
+    .balance-card.opening { 
+        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); 
+        border-left: 5px solid #ffc107; 
+    }
+    .balance-card.closing { 
+        background: linear-gradient(135deg, #d4edda 0%, #a8e6cf 100%); 
+        border-left: 5px solid #28a745; 
+    }
+    .balance-label { 
+        font-size: 18px; 
+        color: #333; 
+        font-weight: 600; 
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .balance-value { 
+        font-size: 32px; 
+        font-weight: 700; 
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    /* Cashflow Summary Tables - Side by Side */
+    .cashflow-table {
+        background: white;
+        border-radius: 12px;
+        padding: 25px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        transition: box-shadow 0.2s;
+    }
+    .cashflow-table:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    }
+    .cashflow-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 14px 0;
+        border-bottom: 1px solid #e9ecef;
+        transition: background 0.2s;
+    }
+    .cashflow-row:hover {
+        background: #f8f9fa;
+        padding-left: 10px;
+        padding-right: 10px;
+        margin-left: -10px;
+        margin-right: -10px;
+        border-radius: 6px;
+    }
+    .cashflow-row.header {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        font-weight: 700;
+        font-size: 17px;
+        padding: 18px 15px;
+        margin: -25px -25px 20px -25px;
+        border-radius: 12px 12px 0 0;
+        border-bottom: 3px solid #dee2e6;
+    }
+    .cashflow-row.total {
+        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+        font-weight: 700;
+        font-size: 17px;
+        padding: 18px 15px;
+        margin: 20px -25px -25px -25px;
+        border-radius: 0 0 12px 12px;
+        border-bottom: none;
+        border-top: 3px solid #2196f3;
+    }
+    .cashflow-row.net-flow {
+        background: linear-gradient(135deg, #fff3cd 0%, #ffe082 100%);
+        font-weight: 700;
+        font-size: 20px;
+        padding: 20px 15px;
+        margin: 20px -25px -25px -25px;
+        border-radius: 0 0 12px 12px;
+        border-bottom: none;
+        border-top: 3px solid #ffc107;
+    }
+    .cashflow-label { 
+        font-size: 15px; 
+        color: #495057; 
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .cashflow-value { 
+        font-size: 15px; 
+        font-weight: 600; 
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    .text-inflow { color: #28a745; }
+    .text-outflow { color: #dc3545; }
+    
+    /* Summary Cards - Enhanced */
+    .summary-card {
+        border-radius: 12px;
+        padding: 25px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .summary-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+    }
+    .summary-card.capital { 
+        background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); 
+        border-left: 5px solid #28a745; 
+    }
+    .summary-card.expenses { 
+        background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%); 
+        border-left: 5px solid #dc3545; 
+    }
+    .summary-card.profit { 
+        background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%); 
+        border-left: 5px solid #17a2b8; 
+    }
+    .summary-label { 
+        font-size: 15px; 
+        color: #666; 
+        font-weight: 600; 
+        margin-bottom: 10px; 
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .summary-value { 
+        font-size: 36px; 
+        font-weight: 700; 
+        margin-bottom: 8px; 
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    .summary-detail { 
+        font-size: 14px; 
+        color: #666; 
+        line-height: 1.6;
+    }
+    
+    /* Breakdown Section - Enhanced */
+    .breakdown-section { 
+        background: white; 
+        border-radius: 12px; 
+        padding: 25px; 
+        margin-bottom: 25px; 
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08); 
+    }
+    .breakdown-header { 
+        font-size: 20px; 
+        font-weight: 700; 
+        margin-bottom: 20px; 
+        padding-bottom: 15px; 
+        border-bottom: 3px solid #e9ecef; 
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .breakdown-table { 
+        width: 100%; 
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    .breakdown-table th { 
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); 
+        padding: 14px 12px; 
+        font-size: 14px; 
+        font-weight: 700; 
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 2px solid #dee2e6;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    .breakdown-table th:first-child { border-radius: 8px 0 0 0; }
+    .breakdown-table th:last-child { border-radius: 0 8px 0 0; }
+    .breakdown-table td { 
+        padding: 12px; 
+        font-size: 14px; 
+        border-bottom: 1px solid #e9ecef; 
+        transition: background 0.2s;
+    }
+    .breakdown-table tbody tr:hover td {
+        background: #f8f9fa;
+    }
+    .breakdown-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+    
+    /* Month Navigation - Enhanced */
+    .month-nav { 
+        background: white; 
+        border-radius: 12px; 
+        padding: 20px; 
+        margin-bottom: 25px; 
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08); 
+    }
+    .month-btn { 
+        padding: 10px 18px; 
+        margin: 3px; 
+        border: 2px solid #dee2e6; 
+        border-radius: 8px; 
+        background: white; 
+        cursor: pointer; 
+        font-weight: 600;
+        transition: all 0.2s;
+        text-decoration: none;
+        display: inline-block;
+    }
+    .month-btn.active { 
+        background: linear-gradient(135deg, #007bff 0%, #0056b3 100%); 
+        color: white; 
+        border-color: #0056b3; 
+        transform: scale(1.05);
+        box-shadow: 0 2px 8px rgba(0,123,255,0.3);
+    }
+    .month-btn:hover:not(.active) { 
+        background: #e9ecef; 
+        border-color: #adb5bd;
+        transform: translateY(-2px);
+    }
+    
+    /* Filter Bar - Enhanced */
+    .filter-bar {
+        background: white;
+        border-radius: 12px;
+        padding: 25px;
+        margin-bottom: 25px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .filter-bar .form-control,
+    .filter-bar .form-control:focus {
+        border-radius: 8px;
+        border: 2px solid #dee2e6;
+        padding: 10px 15px;
+        font-size: 14px;
+        transition: all 0.2s;
+    }
+    .filter-bar .form-control:focus {
+        border-color: #007bff;
+        box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+    }
+    .filter-bar .btn {
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-weight: 600;
+        transition: all 0.2s;
+    }
+    .filter-bar .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+    .filter-info {
+        background: #e7f3ff;
+        border-left: 4px solid #007bff;
+        padding: 12px 15px;
+        border-radius: 8px;
+        margin-top: 15px;
+    }
+    
+    /* Pagination - Enhanced */
+    .pagination-wrapper { 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        margin-top: 20px; 
+        padding-top: 20px; 
+        border-top: 2px solid #e9ecef; 
+    }
+    .pagination { 
+        margin: 0; 
+    }
+    .pagination .page-link { 
+        color: #007bff; 
+        border: 2px solid #dee2e6;
+        border-radius: 8px;
+        margin: 0 3px;
+        padding: 8px 14px;
+        font-weight: 600;
+        transition: all 0.2s;
+    }
+    .pagination .page-link:hover {
+        background: #e7f3ff;
+        border-color: #007bff;
+        transform: translateY(-2px);
+    }
+    .pagination .page-item.active .page-link { 
+        background: linear-gradient(135deg, #007bff 0%, #0056b3 100%); 
+        border-color: #0056b3; 
+        box-shadow: 0 2px 8px rgba(0,123,255,0.3);
+    }
+    .pagination .page-item.disabled .page-link {
+        background: #f8f9fa;
+        border-color: #dee2e6;
+        color: #6c757d;
+    }
+    .pagination-info {
+        font-size: 14px;
+        color: #6c757d;
+        font-weight: 600;
+    }
+    
+    /* Collapsible Sections */
+    .section-toggle {
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .section-toggle i {
+        transition: transform 0.3s;
+    }
+    .section-toggle.collapsed i {
+        transform: rotate(-90deg);
+    }
+    .section-content {
+        transition: all 0.3s ease;
+    }
+    
+    /* Badges - Enhanced */
+    .badge {
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    /* Quick Stats Bar */
+    .quick-stats {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 25px;
+        flex-wrap: wrap;
+    }
+    .stat-item {
+        background: white;
+        border-radius: 10px;
+        padding: 15px 20px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        flex: 1;
+        min-width: 200px;
+        transition: transform 0.2s;
+    }
+    .stat-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+    }
+    .stat-label {
+        font-size: 12px;
+        color: #6c757d;
+        text-transform: uppercase;
+        font-weight: 600;
+        margin-bottom: 5px;
+    }
+    .stat-value {
+        font-size: 24px;
+        font-weight: 700;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .balance-value { font-size: 24px; }
+        .summary-value { font-size: 28px; }
+        .month-btn { padding: 8px 12px; font-size: 13px; }
+        .filter-bar .form-group { margin-bottom: 10px; width: 100%; }
+        .filter-bar .form-control { width: 100%; }
+        .pagination-wrapper { flex-direction: column; gap: 15px; }
+    }
+    
+    /* Loading Animation */
+    .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255,255,255,0.9);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+    }
+    .loading-spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #007bff;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    /* Smooth Scrolling */
+    html {
+        scroll-behavior: smooth;
+    }
+    
+    /* Section Divider */
+    .section-divider {
+        height: 3px;
+        background: linear-gradient(90deg, transparent, #dee2e6, transparent);
+        margin: 30px 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid" id="top">
+    <!-- Month Navigation -->
+    <div class="month-nav">
+        <div class="row align-items-center">
+            <div class="col-md-2">
+                <label class="mb-2"><strong><i class="fas fa-calendar-alt"></i> Year</strong></label>
+                <select class="form-control" onchange="window.location.href='?year='+this.value+'&month={{ month }}'">
+                    {% for yr in available_years %}
+                    <option value="{{ yr }}" {% if yr == year %}selected{% endif %}>{{ yr }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-10">
+                <label class="mb-2"><strong><i class="far fa-calendar"></i> Month</strong></label>
+                <div class="d-flex flex-wrap">
+                    {% for m in available_months %}
+                    <a href="?year={{ year }}&month={{ m.number }}" 
+                       class="month-btn {% if m.number == month %}active{% endif %}">
+                        {{ m.name|slice:":3" }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters & Search Bar -->
+    <div class="filter-bar">
+        <form method="get" id="filterForm">
+            <input type="hidden" name="year" value="{{ year }}">
+            <input type="hidden" name="month" value="{{ month }}">
+            
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label for="search" class="d-block mb-2">
+                        <i class="fas fa-search text-primary"></i> <strong>Search Transactions</strong>
+                    </label>
+                    <input type="text" name="search" id="search" class="form-control" 
+                           value="{{ search_query }}" placeholder="Enter keywords...">
+                    <small class="text-muted">Search by number, name, reason, or reference</small>
+                </div>
+                
+                <div class="col-md-3 mb-3">
+                    <label for="filter_type" class="d-block mb-2">
+                        <i class="fas fa-filter text-primary"></i> <strong>Transaction Type</strong>
+                    </label>
+                    <select name="filter_type" id="filter_type" class="form-control">
+                        <option value="all" {% if filter_type == 'all' %}selected{% endif %}>📊 All Transactions</option>
+                        <option value="sales" {% if filter_type == 'sales' %}selected{% endif %}>💰 Sales Only</option>
+                        <option value="cash_in" {% if filter_type == 'cash_in' %}selected{% endif %}>📈 Cash In Only</option>
+                        <option value="procurement" {% if filter_type == 'procurement' %}selected{% endif %}>📦 Procurement Only</option>
+                        <option value="expenses" {% if filter_type == 'expenses' %}selected{% endif %}>💸 Expenses Only</option>
+                        <option value="cash_out" {% if filter_type == 'cash_out' %}selected{% endif %}>📉 Cash Out Only</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-2 mb-3">
+                    <label for="per_page" class="d-block mb-2">
+                        <i class="fas fa-list text-primary"></i> <strong>Items Per Page</strong>
+                    </label>
+                    <select name="per_page" id="per_page" class="form-control">
+                        <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
+                        <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+                        <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                        <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-3 mb-3">
+                    <label class="d-block mb-2">&nbsp;</label>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-search"></i> Apply Filters
+                    </button>
+                    <a href="?year={{ year }}&month={{ month }}" class="btn btn-outline-secondary btn-block mt-2">
+                        <i class="fas fa-redo"></i> Reset
+                    </a>
+                </div>
+            </div>
+            
+            {% if search_query or filter_type != 'all' %}
+            <div class="filter-info">
+                <i class="fas fa-info-circle"></i> 
+                <strong>Active Filters:</strong>
+                {% if search_query %}
+                    Searching for <span class="badge badge-primary">"{{ search_query }}"</span>
+                {% endif %}
+                {% if filter_type != 'all' %}
+                    | Showing <span class="badge badge-info">{{ filter_type|title }}</span> only
+                {% endif %}
+            </div>
+            {% endif %}
+        </form>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="quick-stats">
+        <div class="stat-item" style="border-left: 4px solid #28a745;">
+            <div class="stat-label"><i class="fas fa-arrow-up"></i> Total Inflow</div>
+            <div class="stat-value text-success">₱{{ summary.total_inflow|floatformat:2|intcomma }}</div>
+        </div>
+        <div class="stat-item" style="border-left: 4px solid #dc3545;">
+            <div class="stat-label"><i class="fas fa-arrow-down"></i> Total Outflow</div>
+            <div class="stat-value text-danger">₱{{ summary.total_outflow|floatformat:2|intcomma }}</div>
+        </div>
+        <div class="stat-item" style="border-left: 4px solid #ffc107;">
+            <div class="stat-label"><i class="fas fa-chart-line"></i> Net Cash Flow</div>
+            <div class="stat-value {% if summary.net_cash_flow >= 0 %}text-success{% else %}text-danger{% endif %}">
+                ₱{{ summary.net_cash_flow|floatformat:2|intcomma }}
+            </div>
+        </div>
+        <div class="stat-item" style="border-left: 4px solid #17a2b8;">
+            <div class="stat-label"><i class="fas fa-receipt"></i> Total Transactions</div>
+            <div class="stat-value text-info">{{ summary.sales_count|add:summary.procurement_count|add:summary.expense_count }}</div>
+        </div>
+    </div>
+
+    <!-- Opening Balance -->
+    <div class="balance-card opening">
+        <div class="balance-label">💼 Opening Balance</div>
+        <div class="balance-value text-warning">₱{{ summary.opening_balance|floatformat:2|intcomma }}</div>
+    </div>
+
+    <!-- Cashflow Summary Table -->
+    <div class="row">
+        <div class="col-md-6">
+            <!-- Cash Inflow -->
+            <div class="cashflow-table">
+                <div class="cashflow-row header text-success">
+                    <span>💰 Cash Inflow</span>
+                    <span></span>
+                </div>
+                <div class="cashflow-row">
+                    <span class="cashflow-label">Sales Revenue (Gross Profit)</span>
+                    <span class="cashflow-value text-inflow">₱{{ summary.capital_sales|floatformat:2|intcomma }}</span>
+                </div>
+                <div class="cashflow-row">
+                    <span class="cashflow-label">Investments (Dividends, Interest, Capital Gains)</span>
+                    <span class="cashflow-value text-inflow">₱{{ summary.capital_other|floatformat:2|intcomma }}</span>
+                </div>
+                <div class="cashflow-row">
+                    <span class="cashflow-label">Accounts Receivable (Collection of Outstanding Payments)</span>
+                    <span class="cashflow-value text-inflow">₱0.00</span>
+                </div>
+                <div class="cashflow-row total">
+                    <span>Total Inflow</span>
+                    <span class="text-inflow">₱{{ summary.total_inflow|floatformat:2|intcomma }}</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <!-- Cash Outflow -->
+            <div class="cashflow-table">
+                <div class="cashflow-row header text-danger">
+                    <span>💸 Cash Outflow</span>
+                    <span></span>
+                </div>
+                <div class="cashflow-row">
+                    <span class="cashflow-label">Operating Expenses</span>
+                    <span class="cashflow-value text-outflow">₱{{ summary.expenses_operational|floatformat:2|intcomma }}</span>
+                </div>
+                <div class="cashflow-row">
+                    <span class="cashflow-label">Inventory Purchases</span>
+                    <span class="cashflow-value text-outflow">₱{{ summary.expenses_procurement|floatformat:2|intcomma }}</span>
+                </div>
+                <div class="cashflow-row">
+                    <span class="cashflow-label">Salaries and Wages</span>
+                    <span class="cashflow-value text-outflow">₱0.00</span>
+                </div>
+                <div class="cashflow-row">
+                    <span class="cashflow-label">Capital Expenditures / Other</span>
+                    <span class="cashflow-value text-outflow">₱{{ summary.expenses_other|floatformat:2|intcomma }}</span>
+                </div>
+                <div class="cashflow-row total">
+                    <span>Total Outflow</span>
+                    <span class="text-outflow">₱{{ summary.total_outflow|floatformat:2|intcomma }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Net Cash Flow -->
+    <div class="cashflow-table">
+        <div class="cashflow-row net-flow">
+            <span>📊 Net Cash Flow</span>
+            <span class="{% if summary.net_cash_flow >= 0 %}text-inflow{% else %}text-outflow{% endif %}">
+                ₱{{ summary.net_cash_flow|floatformat:2|intcomma }}
+            </span>
+        </div>
+    </div>
+
+    <!-- Closing Balance -->
+    <div class="balance-card closing">
+        <div class="balance-label">💰 Closing Balance</div>
+        <div class="balance-value text-success">₱{{ summary.closing_balance|floatformat:2|intcomma }}</div>
+    </div>
+
+    <hr class="my-4">
+
+    <!-- Summary Cards -->
+    <h4 class="mb-3">Detailed Breakdown</h4>
+    <div class="row">
+        <div class="col-md-4">
+            <div class="summary-card capital">
+                <div class="summary-label">💰 CAPITAL (Cash In)</div>
+                <div class="summary-value text-success">₱{{ summary.capital_total|floatformat:2|intcomma }}</div>
+                <div class="summary-detail">
+                    Sales: ₱{{ summary.capital_sales|floatformat:2|intcomma }}<br>
+                    Other: ₱{{ summary.capital_other|floatformat:2|intcomma }}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="summary-card expenses">
+                <div class="summary-label">💸 EXPENSES (Cash Out)</div>
+                <div class="summary-value text-danger">₱{{ summary.expenses_total|floatformat:2|intcomma }}</div>
+                <div class="summary-detail">
+                    Procurement: ₱{{ summary.expenses_procurement|floatformat:2|intcomma }}<br>
+                    Operational: ₱{{ summary.expenses_operational|floatformat:2|intcomma }}<br>
+                    Other: ₱{{ summary.expenses_other|floatformat:2|intcomma }}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="summary-card profit">
+                <div class="summary-label">📊 NET PROFIT</div>
+                <div class="summary-value {% if summary.net_profit >= 0 %}text-info{% else %}text-danger{% endif %}">
+                    ₱{{ summary.net_profit|floatformat:2|intcomma }}
+                </div>
+                <div class="summary-detail">
+                    Margin: {{ summary.profit_margin|floatformat:1 }}%<br>
+                    Transactions: {{ summary.sales_count }} sales, {{ summary.procurement_count }} procurements
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Capital Breakdown -->
+    <div class="breakdown-section">
+        <div class="breakdown-header section-toggle" onclick="toggleSection('capital-section')">
+            <i class="fas fa-chevron-down"></i>
+            <i class="fas fa-chart-line text-success"></i> 
+            <span>Capital Breakdown (Cash In)</span>
+            <span class="ml-auto badge badge-success">₱{{ summary.capital_total|floatformat:2|intcomma }}</span>
+        </div>
+        
+        <div id="capital-section" class="section-content">
+            <!-- Sales -->
+            <h6 class="mt-3 mb-2"><strong><i class="fas fa-shopping-cart text-success"></i> Sales Gross Profit</strong></h6>
+            {% if sales_breakdown %}
+            <div class="table-responsive">
+                <table class="breakdown-table">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Number</th>
+                            <th>Date</th>
+                            <th class="text-right">Revenue</th>
+                            <th class="text-right">COGS</th>
+                            <th class="text-right">Gross Profit</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sale in sales_breakdown %}
+                        <tr>
+                            <td><span class="badge badge-success">{{ sale.type }}</span></td>
+                            <td><strong>{{ sale.number }}</strong></td>
+                            <td><i class="far fa-calendar"></i> {{ sale.date|date:"M d, Y" }}</td>
+                            <td class="text-right">₱{{ sale.revenue|floatformat:2|intcomma }}</td>
+                            <td class="text-right">₱{{ sale.cogs|floatformat:2|intcomma }}</td>
+                            <td class="text-right text-success"><strong>₱{{ sale.gross_profit|floatformat:2|intcomma }}</strong></td>
+                        </tr>
+                        {% endfor %}
+                        <tr style="background: #f8f9fa; font-weight: bold;">
+                            <td colspan="5" class="text-right">Total Sales Gross Profit:</td>
+                            <td class="text-right text-success">₱{{ summary.capital_sales|floatformat:2|intcomma }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        
+        <!-- Pagination for Sales -->
+        {% if sales_breakdown.has_other_pages %}
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                <i class="fas fa-info-circle"></i> 
+                Showing <strong>{{ sales_breakdown.start_index }}</strong> to <strong>{{ sales_breakdown.end_index }}</strong> of <strong>{{ sales_breakdown.paginator.count }}</strong> sales
+            </div>
+            <nav>
+                <ul class="pagination">
+                    {% if sales_breakdown.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&sales_page={{ sales_breakdown.previous_page_number }}">
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link"><i class="fas fa-chevron-left"></i> Previous</span></li>
+                    {% endif %}
+                    
+                    {% for num in sales_breakdown.paginator.page_range %}
+                        {% if sales_breakdown.number == num %}
+                        <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                        {% elif num > sales_breakdown.number|add:'-3' and num < sales_breakdown.number|add:'3' %}
+                        <li class="page-item">
+                            <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&sales_page={{ num }}">{{ num }}</a>
+                        </li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if sales_breakdown.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&sales_page={{ sales_breakdown.next_page_number }}">
+                            Next <i class="fas fa-chevron-right"></i>
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">Next <i class="fas fa-chevron-right"></i></span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> No sales transactions found for this period.
+        </div>
+        {% endif %}
+        
+        <!-- Other Cash In -->
+        <h6 class="mt-4 mb-2"><strong><i class="fas fa-hand-holding-usd text-success"></i> Other Cash In</strong></h6>
+        {% if cash_in_txns %}
+        <div class="table-responsive">
+            <table class="breakdown-table">
+                <thead>
+                    <tr>
+                        <th>Transaction #</th>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Reason</th>
+                        <th class="text-right">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for txn in cash_in_txns %}
+                    <tr>
+                        <td><a href="{% url 'cashflow:cashflow_detail' txn.pk %}" class="text-primary"><strong>{{ txn.transaction_number }}</strong></a></td>
+                        <td><i class="far fa-calendar"></i> {{ txn.transaction_date|date:"M d, Y" }}</td>
+                        <td><span class="badge badge-info">{{ txn.get_category_display }}</span></td>
+                        <td>{{ txn.reason }}</td>
+                        <td class="text-right text-success"><strong>₱{{ txn.amount|floatformat:2|intcomma }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                    <tr style="background: #f8f9fa; font-weight: bold;">
+                        <td colspan="4" class="text-right">Total Other Cash In:</td>
+                        <td class="text-right text-success">₱{{ summary.capital_other|floatformat:2|intcomma }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination for Cash In -->
+        {% if cash_in_txns.has_other_pages %}
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                <i class="fas fa-info-circle"></i> 
+                Showing <strong>{{ cash_in_txns.start_index }}</strong> to <strong>{{ cash_in_txns.end_index }}</strong> of <strong>{{ cash_in_txns.paginator.count }}</strong> transactions
+            </div>
+            <nav>
+                <ul class="pagination">
+                    {% if cash_in_txns.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&cash_in_page={{ cash_in_txns.previous_page_number }}">
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link"><i class="fas fa-chevron-left"></i> Previous</span></li>
+                    {% endif %}
+                    
+                    {% for num in cash_in_txns.paginator.page_range %}
+                        {% if cash_in_txns.number == num %}
+                        <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                        {% elif num > cash_in_txns.number|add:'-3' and num < cash_in_txns.number|add:'3' %}
+                        <li class="page-item">
+                            <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&cash_in_page={{ num }}">{{ num }}</a>
+                        </li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if cash_in_txns.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&cash_in_page={{ cash_in_txns.next_page_number }}">
+                            Next <i class="fas fa-chevron-right"></i>
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">Next <i class="fas fa-chevron-right"></i></span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> No other cash-in transactions found for this period.
+        </div>
+        {% endif %}
+        </div>
+    </div>
+
+    <div class="section-divider"></div>
+
+    <!-- Expenses Breakdown -->
+    <div class="breakdown-section">
+        <div class="breakdown-header section-toggle" onclick="toggleSection('expenses-section')">
+            <i class="fas fa-chevron-down"></i>
+            <i class="fas fa-receipt text-danger"></i> 
+            <span>Expenses Breakdown (Cash Out)</span>
+            <span class="ml-auto badge badge-danger">₱{{ summary.expenses_total|floatformat:2|intcomma }}</span>
+        </div>
+        
+        <div id="expenses-section" class="section-content">
+            <!-- Procurement -->
+            <h6 class="mt-3 mb-2"><strong><i class="fas fa-box text-danger"></i> Procurement Costs</strong></h6>
+            {% if procurement_breakdown %}
+            <div class="table-responsive">
+                <table class="breakdown-table">
+                    <thead>
+                        <tr>
+                            <th>GRN #</th>
+                            <th>Date</th>
+                            <th>Supplier</th>
+                            <th class="text-right">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for grn in procurement_breakdown %}
+                        <tr>
+                            <td><strong>{{ grn.number }}</strong></td>
+                            <td><i class="far fa-calendar"></i> {{ grn.date|date:"M d, Y" }}</td>
+                            <td><i class="fas fa-truck"></i> {{ grn.supplier }}</td>
+                            <td class="text-right text-danger"><strong>₱{{ grn.amount|floatformat:2|intcomma }}</strong></td>
+                        </tr>
+                        {% endfor %}
+                        <tr style="background: #f8f9fa; font-weight: bold;">
+                            <td colspan="3" class="text-right">Total Procurement:</td>
+                            <td class="text-right text-danger">₱{{ summary.expenses_procurement|floatformat:2|intcomma }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        
+        <!-- Pagination for Procurement -->
+        {% if procurement_breakdown.has_other_pages %}
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                <i class="fas fa-info-circle"></i> 
+                Showing <strong>{{ procurement_breakdown.start_index }}</strong> to <strong>{{ procurement_breakdown.end_index }}</strong> of <strong>{{ procurement_breakdown.paginator.count }}</strong> GRNs
+            </div>
+            <nav>
+                <ul class="pagination">
+                    {% if procurement_breakdown.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&procurement_page={{ procurement_breakdown.previous_page_number }}">
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link"><i class="fas fa-chevron-left"></i> Previous</span></li>
+                    {% endif %}
+                    
+                    {% for num in procurement_breakdown.paginator.page_range %}
+                        {% if procurement_breakdown.number == num %}
+                        <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                        {% elif num > procurement_breakdown.number|add:'-3' and num < procurement_breakdown.number|add:'3' %}
+                        <li class="page-item">
+                            <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&procurement_page={{ num }}">{{ num }}</a>
+                        </li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if procurement_breakdown.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&procurement_page={{ procurement_breakdown.next_page_number }}">
+                            Next <i class="fas fa-chevron-right"></i>
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">Next <i class="fas fa-chevron-right"></i></span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> No procurement transactions found for this period.
+        </div>
+        {% endif %}
+
+        <!-- Operational Expenses -->
+        <h6 class="mt-4 mb-2"><strong><i class="fas fa-file-invoice-dollar text-danger"></i> Operational Expenses</strong></h6>
+        {% if expenses %}
+        <div class="table-responsive">
+            <table class="breakdown-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Vendor</th>
+                        <th>Memo</th>
+                        <th class="text-right">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for exp in expenses %}
+                    <tr>
+                        <td><i class="far fa-calendar"></i> {{ exp.date|date:"M d, Y" }}</td>
+                        <td><span class="badge badge-warning">{{ exp.category.name }}</span></td>
+                        <td>{{ exp.vendor|default:"-" }}</td>
+                        <td>{{ exp.memo|truncatewords:10 }}</td>
+                        <td class="text-right text-danger"><strong>₱{{ exp.amount|floatformat:2|intcomma }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                    <tr style="background: #f8f9fa; font-weight: bold;">
+                        <td colspan="4" class="text-right">Total Operational:</td>
+                        <td class="text-right text-danger">₱{{ summary.expenses_operational|floatformat:2|intcomma }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination for Expenses -->
+        {% if expenses.has_other_pages %}
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                <i class="fas fa-info-circle"></i> 
+                Showing <strong>{{ expenses.start_index }}</strong> to <strong>{{ expenses.end_index }}</strong> of <strong>{{ expenses.paginator.count }}</strong> expenses
+            </div>
+            <nav>
+                <ul class="pagination">
+                    {% if expenses.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&expenses_page={{ expenses.previous_page_number }}">
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link"><i class="fas fa-chevron-left"></i> Previous</span></li>
+                    {% endif %}
+                    
+                    {% for num in expenses.paginator.page_range %}
+                        {% if expenses.number == num %}
+                        <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                        {% elif num > expenses.number|add:'-3' and num < expenses.number|add:'3' %}
+                        <li class="page-item">
+                            <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&expenses_page={{ num }}">{{ num }}</a>
+                        </li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if expenses.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&expenses_page={{ expenses.next_page_number }}">
+                            Next <i class="fas fa-chevron-right"></i>
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">Next <i class="fas fa-chevron-right"></i></span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> No operational expenses found for this period.
+        </div>
+        {% endif %}
+
+        <!-- Other Cash Out -->
+        <h6 class="mt-4 mb-2"><strong><i class="fas fa-money-bill-wave text-danger"></i> Other Cash Out</strong></h6>
+        {% if cash_out_txns %}
+        <div class="table-responsive">
+            <table class="breakdown-table">
+                <thead>
+                    <tr>
+                        <th>Transaction #</th>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Reason</th>
+                        <th class="text-right">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for txn in cash_out_txns %}
+                    <tr>
+                        <td><a href="{% url 'cashflow:cashflow_detail' txn.pk %}" class="text-primary"><strong>{{ txn.transaction_number }}</strong></a></td>
+                        <td><i class="far fa-calendar"></i> {{ txn.transaction_date|date:"M d, Y" }}</td>
+                        <td><span class="badge badge-secondary">{{ txn.get_category_display }}</span></td>
+                        <td>{{ txn.reason }}</td>
+                        <td class="text-right text-danger"><strong>₱{{ txn.amount|floatformat:2|intcomma }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                    <tr style="background: #f8f9fa; font-weight: bold;">
+                        <td colspan="4" class="text-right">Total Other Cash Out:</td>
+                        <td class="text-right text-danger">₱{{ summary.expenses_other|floatformat:2|intcomma }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination for Cash Out -->
+        {% if cash_out_txns.has_other_pages %}
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                <i class="fas fa-info-circle"></i> 
+                Showing <strong>{{ cash_out_txns.start_index }}</strong> to <strong>{{ cash_out_txns.end_index }}</strong> of <strong>{{ cash_out_txns.paginator.count }}</strong> transactions
+            </div>
+            <nav>
+                <ul class="pagination">
+                    {% if cash_out_txns.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&cash_out_page={{ cash_out_txns.previous_page_number }}">
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link"><i class="fas fa-chevron-left"></i> Previous</span></li>
+                    {% endif %}
+                    
+                    {% for num in cash_out_txns.paginator.page_range %}
+                        {% if cash_out_txns.number == num %}
+                        <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                        {% elif num > cash_out_txns.number|add:'-3' and num < cash_out_txns.number|add:'3' %}
+                        <li class="page-item">
+                            <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&cash_out_page={{ num }}">{{ num }}</a>
+                        </li>
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if cash_out_txns.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&cash_out_page={{ cash_out_txns.next_page_number }}">
+                            Next <i class="fas fa-chevron-right"></i>
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">Next <i class="fas fa-chevron-right"></i></span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> No other cash-out transactions found for this period.
+        </div>
+        {% endif %}
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="text-center mb-4">
+        <a href="{% url 'cashflow:monthly_dashboard' %}" class="btn btn-primary btn-lg">
+            <i class="fas fa-chart-bar"></i> View Dashboard
+        </a>
+        <a href="#" data-modal-url="{% url 'cashflow:cashflow_create' %}" class="btn btn-success btn-lg">
+            <i class="fas fa-plus"></i> New Transaction
+        </a>
+        <a href="#top" class="btn btn-outline-secondary btn-lg">
+            <i class="fas fa-arrow-up"></i> Back to Top
+        </a>
+    </div>
+</div>
+
+<script>
+// Toggle collapsible sections
+function toggleSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    const toggle = event.currentTarget;
+    const icon = toggle.querySelector('.fa-chevron-down');
+    
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        icon.style.transform = 'rotate(0deg)';
+        toggle.classList.remove('collapsed');
+    } else {
+        section.style.display = 'none';
+        icon.style.transform = 'rotate(-90deg)';
+        toggle.classList.add('collapsed');
+    }
+}
+
+// Auto-submit form on filter change
+document.getElementById('filter_type').addEventListener('change', function() {
+    document.getElementById('filterForm').submit();
+});
+
+document.getElementById('per_page').addEventListener('change', function() {
+    document.getElementById('filterForm').submit();
+});
+
+// Smooth scroll to top
+document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+            target.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
+            });
+        }
+    });
+});
+
+// Add loading indicator on form submit
+document.getElementById('filterForm').addEventListener('submit', function() {
+    const overlay = document.createElement('div');
+    overlay.className = 'loading-overlay';
+    overlay.style.display = 'flex';
+    overlay.innerHTML = '<div class="loading-spinner"></div>';
+    document.body.appendChild(overlay);
+});
+
+// Highlight search terms
+const searchQuery = "{{ search_query|escapejs }}";
+if (searchQuery) {
+    const regex = new RegExp(`(${searchQuery})`, 'gi');
+    document.querySelectorAll('.breakdown-table td').forEach(cell => {
+        if (cell.textContent.match(regex)) {
+            cell.innerHTML = cell.innerHTML.replace(regex, '<mark>$1</mark>');
+        }
+    });
+}
+</script>
+{% endblock %}

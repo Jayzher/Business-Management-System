@@ -1,0 +1,218 @@
+/* ═══════════════════════════════════════════════════════════════════ */
+/* COMPACT CASHFLOW UI - Optimized for Less Scrolling */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+/* Reduce overall spacing */
+.container-fluid {
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+/* Compact Balance Cards */
+.balance-card {
+    border-radius: 8px;
+    padding: 10px 15px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.balance-card.opening { 
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); 
+    border-left: 4px solid #ffc107; 
+}
+.balance-card.closing { 
+    background: linear-gradient(135deg, #d4edda 0%, #a8e6cf 100%); 
+    border-left: 4px solid #28a745; 
+}
+.balance-label { 
+    font-size: 12px; 
+    color: #333; 
+    font-weight: 600; 
+}
+.balance-value { 
+    font-size: 18px; 
+    font-weight: 700; 
+}
+
+/* Compact Summary Cards */
+.summary-card {
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+}
+.summary-card.capital { 
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); 
+    border-left: 4px solid #28a745; 
+}
+.summary-card.expenses { 
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%); 
+    border-left: 4px solid #dc3545; 
+}
+.summary-card.profit { 
+    background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%); 
+    border-left: 4px solid #17a2b8; 
+}
+.summary-label { 
+    font-size: 10px; 
+    color: #666; 
+    font-weight: 600; 
+    margin-bottom: 4px; 
+    text-transform: uppercase;
+}
+.summary-value { 
+    font-size: 20px; 
+    font-weight: 700; 
+    margin-bottom: 2px; 
+}
+.summary-detail { 
+    font-size: 10px; 
+    color: #666; 
+}
+
+/* Compact Tables */
+.breakdown-section { 
+    background: white; 
+    border-radius: 8px; 
+    padding: 12px; 
+    margin-bottom: 12px; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06); 
+}
+.breakdown-header { 
+    font-size: 14px; 
+    font-weight: 700; 
+    margin-bottom: 10px; 
+    padding-bottom: 8px; 
+    border-bottom: 2px solid #e9ecef; 
+    cursor: pointer;
+}
+.breakdown-table { 
+    width: 100%; 
+    font-size: 12px;
+}
+.breakdown-table th { 
+    background: #f8f9fa; 
+    padding: 6px 8px; 
+    font-size: 11px; 
+    font-weight: 600; 
+    border-bottom: 2px solid #dee2e6;
+}
+.breakdown-table td { 
+    padding: 6px 8px; 
+    font-size: 12px; 
+    border-bottom: 1px solid #f1f3f5; 
+}
+
+/* Compact Month Navigation */
+.month-nav { 
+    background: white; 
+    border-radius: 8px; 
+    padding: 10px; 
+    margin-bottom: 12px; 
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06); 
+}
+.month-btn { 
+    padding: 5px 10px; 
+    margin: 2px; 
+    border: 1px solid #dee2e6; 
+    border-radius: 4px; 
+    font-size: 12px;
+    font-weight: 600;
+}
+.month-btn.active { 
+    background: #007bff; 
+    color: white; 
+}
+
+/* Compact Filter Bar */
+.filter-bar {
+    background: white;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+}
+.filter-bar .form-control {
+    padding: 5px 10px;
+    font-size: 12px;
+    height: auto;
+}
+.filter-bar .btn {
+    padding: 5px 12px;
+    font-size: 12px;
+}
+.filter-bar label {
+    font-size: 11px;
+    margin-bottom: 3px;
+}
+
+/* Compact Quick Stats */
+.quick-stats {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.stat-item {
+    background: white;
+    border-radius: 6px;
+    padding: 8px 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+    flex: 1;
+    min-width: 120px;
+}
+.stat-label {
+    font-size: 9px;
+    color: #6c757d;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+.stat-value {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+/* Tabs */
+.nav-tabs {
+    border-bottom: 2px solid #dee2e6;
+    margin-bottom: 12px;
+}
+.nav-tabs .nav-link {
+    font-size: 12px;
+    padding: 8px 15px;
+}
+
+/* Compact Cashflow Tables */
+.cashflow-table {
+    padding: 12px;
+    margin-bottom: 10px;
+}
+.cashflow-row {
+    padding: 6px 0;
+    font-size: 12px;
+}
+.cashflow-row.header {
+    font-size: 13px;
+    padding: 8px 10px;
+    margin: -12px -12px 10px -12px;
+}
+.cashflow-row.total {
+    font-size: 13px;
+    padding: 8px 10px;
+    margin: 10px -12px -12px -12px;
+}
+.cashflow-row.net-flow {
+    font-size: 14px;
+    padding: 10px;
+    margin: 10px -12px -12px -12px;
+}
+
+/* Compact Pagination */
+.pagination .page-link { 
+    padding: 4px 8px;
+    font-size: 11px;
+}
+.pagination-info {
+    font-size: 11px;
+}

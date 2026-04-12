@@ -1,0 +1,316 @@
+{% extends "theme/base.html" %}
+{% load static %}
+{% load humanize %}
+
+{% block title %}Monthly Cashflow - {{ month_name }} {{ year }}{% endblock %}
+{% block page_title %}Monthly Cashflow - {{ month_name }} {{ year }}{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'cashflow:cashflow_list' %}">Cash Flow</a></li>
+<li class="breadcrumb-item active">{{ month_name }} {{ year }}</li>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/cashflow_compact.css' %}">
+<style>
+    /* Additional compact overrides */
+    body { font-size: 13px; }
+    h1, h2, h3, h4, h5, h6 { margin-bottom: 8px; }
+    .card { margin-bottom: 10px; }
+    .row { margin-bottom: 10px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid" id="top" style="max-width: 1400px;">
+    
+    <!-- Compact Month Navigation -->
+    <div class="month-nav">
+        <div class="row align-items-center">
+            <div class="col-md-2 mb-2">
+                <label style="font-size: 11px; font-weight: 600; margin-bottom: 3px;">
+                    <i class="fas fa-calendar-alt"></i> Year
+                </label>
+                <select class="form-control form-control-sm" onchange="window.location.href='?year='+this.value+'&month={{ month }}'">
+                    {% for yr in available_years %}
+                    <option value="{{ yr }}" {% if yr == year %}selected{% endif %}>{{ yr }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-10 mb-2">
+                <label style="font-size: 11px; font-weight: 600; margin-bottom: 3px;">
+                    <i class="far fa-calendar"></i> Month
+                </label>
+                <div class="d-flex flex-wrap">
+                    {% for m in available_months %}
+                    <a href="?year={{ year }}&month={{ m.number }}" 
+                       class="month-btn {% if m.number == month %}active{% endif %}">
+                        {{ m.name|slice:":3" }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Compact Filters -->
+    <div class="filter-bar">
+        <form method="get" id="filterForm">
+            <input type="hidden" name="year" value="{{ year }}">
+            <input type="hidden" name="month" value="{{ month }}">
+            
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <label style="font-size: 11px; font-weight: 600;">
+                        <i class="fas fa-search"></i> Search
+                    </label>
+                    <input type="text" name="search" class="form-control form-control-sm" 
+                           value="{{ search_query }}" placeholder="Keywords...">
+                </div>
+                
+                <div class="col-md-3 mb-2">
+                    <label style="font-size: 11px; font-weight: 600;">
+                        <i class="fas fa-filter"></i> Type
+                    </label>
+                    <select name="filter_type" class="form-control form-control-sm">
+                        <option value="all" {% if filter_type == 'all' %}selected{% endif %}>All</option>
+                        <option value="sales" {% if filter_type == 'sales' %}selected{% endif %}>Sales</option>
+                        <option value="cash_in" {% if filter_type == 'cash_in' %}selected{% endif %}>Cash In</option>
+                        <option value="procurement" {% if filter_type == 'procurement' %}selected{% endif %}>Procurement</option>
+                        <option value="expenses" {% if filter_type == 'expenses' %}selected{% endif %}>Expenses</option>
+                        <option value="cash_out" {% if filter_type == 'cash_out' %}selected{% endif %}>Cash Out</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-2 mb-2">
+                    <label style="font-size: 11px; font-weight: 600;">
+                        <i class="fas fa-list"></i> Per Page
+                    </label>
+                    <select name="per_page" class="form-control form-control-sm">
+                        <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
+                        <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+                        <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                    </select>
+                </div>
+                
+                <div class="col-md-3 mb-2">
+                    <label style="font-size: 11px; font-weight: 600;">&nbsp;</label>
+                    <div class="d-flex gap-1">
+                        <button type="submit" class="btn btn-primary btn-sm flex-fill">
+                            <i class="fas fa-search"></i> Apply
+                        </button>
+                        <a href="?year={{ year }}&month={{ month }}" class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-redo"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="quick-stats">
+        <div class="stat-item" style="border-left: 3px solid #28a745;">
+            <div class="stat-label"><i class="fas fa-arrow-up"></i> INFLOW</div>
+            <div class="stat-value text-success">₱{{ summary.total_inflow|floatformat:2|intcomma }}</div>
+        </div>
+        <div class="stat-item" style="border-left: 3px solid #dc3545;">
+            <div class="stat-label"><i class="fas fa-arrow-down"></i> OUTFLOW</div>
+            <div class="stat-value text-danger">₱{{ summary.total_outflow|floatformat:2|intcomma }}</div>
+        </div>
+        <div class="stat-item" style="border-left: 3px solid #ffc107;">
+            <div class="stat-label"><i class="fas fa-chart-line"></i> NET FLOW</div>
+            <div class="stat-value {% if summary.net_cash_flow >= 0 %}text-success{% else %}text-danger{% endif %}">
+                ₱{{ summary.net_cash_flow|floatformat:2|intcomma }}
+            </div>
+        </div>
+        <div class="stat-item" style="border-left: 3px solid #17a2b8;">
+            <div class="stat-label"><i class="fas fa-receipt"></i> TRANSACTIONS</div>
+            <div class="stat-value text-info">{{ summary.sales_count|add:summary.procurement_count|add:summary.expense_count }}</div>
+        </div>
+    </div>
+
+    <!-- Balance Cards -->
+    <div class="row">
+        <div class="col-md-6 mb-2">
+            <div class="balance-card opening">
+                <div class="balance-label">💼 Opening Balance</div>
+                <div class="balance-value text-warning">₱{{ summary.opening_balance|floatformat:2|intcomma }}</div>
+            </div>
+        </div>
+        <div class="col-md-6 mb-2">
+            <div class="balance-card closing">
+                <div class="balance-label">💰 Closing Balance</div>
+                <div class="balance-value text-success">₱{{ summary.closing_balance|floatformat:2|intcomma }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <a class="nav-link active" data-bs-toggle="tab" href="#overview">
+                <i class="fas fa-chart-pie"></i> Overview
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#cash-in">
+                <i class="fas fa-arrow-up text-success"></i> Cash In
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#cash-out">
+                <i class="fas fa-arrow-down text-danger"></i> Cash Out
+            </a>
+        </li>
+    </ul>
+
+    <!-- Tab Content -->
+    <div class="tab-content" style="padding-top: 15px;">
+        
+        <!-- Overview Tab -->
+        <div id="overview" class="tab-pane fade show active">
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <div class="summary-card capital">
+                        <div class="summary-label">💰 CAPITAL</div>
+                        <div class="summary-value text-success">₱{{ summary.capital_total|floatformat:2|intcomma }}</div>
+                        <div class="summary-detail">
+                            Sales: ₱{{ summary.capital_sales|floatformat:2|intcomma }}<br>
+                            Other: ₱{{ summary.capital_other|floatformat:2|intcomma }}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <div class="summary-card expenses">
+                        <div class="summary-label">💸 EXPENSES</div>
+                        <div class="summary-value text-danger">₱{{ summary.expenses_total|floatformat:2|intcomma }}</div>
+                        <div class="summary-detail">
+                            Procurement: ₱{{ summary.expenses_procurement|floatformat:2|intcomma }}<br>
+                            Operational: ₱{{ summary.expenses_operational|floatformat:2|intcomma }}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <div class="summary-card profit">
+                        <div class="summary-label">📊 NET PROFIT</div>
+                        <div class="summary-value {% if summary.net_profit >= 0 %}text-info{% else %}text-danger{% endif %}">
+                            ₱{{ summary.net_profit|floatformat:2|intcomma }}
+                        </div>
+                        <div class="summary-detail">
+                            Margin: {{ summary.profit_margin|floatformat:1 }}%<br>
+                            {{ summary.sales_count }} sales, {{ summary.procurement_count }} procurements
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cash In Tab -->
+        <div id="cash-in" class="tab-pane fade">
+            <div class="breakdown-section">
+                <div class="breakdown-header">
+                    <i class="fas fa-shopping-cart text-success"></i> Sales ({{ sales_breakdown.paginator.count }})
+                </div>
+                {% if sales_breakdown %}
+                <div class="table-responsive">
+                    <table class="breakdown-table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Number</th>
+                                <th>Date</th>
+                                <th class="text-right">Revenue</th>
+                                <th class="text-right">COGS</th>
+                                <th class="text-right">Profit</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for sale in sales_breakdown %}
+                            <tr>
+                                <td><span class="badge badge-success badge-sm">{{ sale.type }}</span></td>
+                                <td><strong>{{ sale.number }}</strong></td>
+                                <td>{{ sale.date|date:"M d" }}</td>
+                                <td class="text-right">₱{{ sale.revenue|floatformat:2|intcomma }}</td>
+                                <td class="text-right">₱{{ sale.cogs|floatformat:2|intcomma }}</td>
+                                <td class="text-right text-success"><strong>₱{{ sale.gross_profit|floatformat:2|intcomma }}</strong></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Pagination here -->
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Cash Out Tab -->
+        <div id="cash-out" class="tab-pane fade">
+            <div class="breakdown-section">
+                <div class="breakdown-header">
+                    <i class="fas fa-box text-danger"></i> Procurement ({{ procurement_breakdown.paginator.count }})
+                </div>
+                {% if procurement_breakdown %}
+                <div class="table-responsive">
+                    <table class="breakdown-table table-sm">
+                        <thead>
+                            <tr>
+                                <th>GRN #</th>
+                                <th>Date</th>
+                                <th>Supplier</th>
+                                <th class="text-right">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for grn in procurement_breakdown %}
+                            <tr>
+                                <td><strong>{{ grn.number }}</strong></td>
+                                <td>{{ grn.date|date:"M d" }}</td>
+                                <td>{{ grn.supplier }}</td>
+                                <td class="text-right text-danger"><strong>₱{{ grn.amount|floatformat:2|intcomma }}</strong></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="text-center mt-3 mb-3">
+        <a href="{% url 'cashflow:monthly_dashboard' %}" class="btn btn-primary btn-sm">
+            <i class="fas fa-chart-bar"></i> Dashboard
+        </a>
+        <a href="#" data-modal-url="{% url 'cashflow:cashflow_create' %}" class="btn btn-success btn-sm">
+            <i class="fas fa-plus"></i> New Transaction
+        </a>
+        <a href="#top" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-up"></i> Top
+        </a>
+    </div>
+</div>
+
+<script>
+// Remember last active tab
+document.querySelectorAll('.nav-tabs a').forEach(tab => {
+    tab.addEventListener('click', function() {
+        localStorage.setItem('cashflowActiveTab', this.getAttribute('href'));
+    });
+});
+
+// Restore last active tab
+window.addEventListener('load', function() {
+    const lastTab = localStorage.getItem('cashflowActiveTab');
+    if (lastTab) {
+        const tabEl = document.querySelector(`.nav-tabs a[href="${lastTab}"]`);
+        if (tabEl) {
+            const tab = new bootstrap.Tab(tabEl);
+            tab.show();
+        }
+    }
+});
+</script>
+{% endblock %}

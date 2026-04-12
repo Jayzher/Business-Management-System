@@ -57,6 +57,16 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write('*** DRY RUN — no data will be written ***')
         self.stdout.write('=' * 60)
+        
+        # -- Ensure source has latest migrations -------------------------
+        self.stdout.write(f'\nEnsuring {label_src} has latest migrations...')
+        from django.core.management import call_command
+        try:
+            call_command('migrate', '--run-syncdb', database=src,
+                         verbosity=0, stdout=self.stdout, interactive=False)
+            self.stdout.write('  Source migrations up to date.')
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'  Source migration warning: {e}'))
 
         # -- Topologically sort models by FK deps (parents first) -------------
         all_models = self._topo_sort_models()
@@ -86,13 +96,24 @@ class Command(BaseCommand):
         # -- Flush destination ------------------------------------------------
         self.stdout.write(f'Step 1/5: Migrating & flushing {label_dst}...')
         from django.core.management import call_command
+        
         # Ensure all tables exist on the destination before flushing
-        call_command('migrate', '--run-syncdb', database=dst,
-                     verbosity=0, stdout=self.stdout)
+        # Run migrations with --run-syncdb to create any missing tables
+        self.stdout.write('  Running migrations on destination...')
+        try:
+            call_command('migrate', '--run-syncdb', database=dst,
+                         verbosity=0, stdout=self.stdout, interactive=False)
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'  Migration warning: {e}'))
         
         # Clean up any orphaned FKs on destination before sync
         self.stdout.write('  Cleaning orphaned FKs on destination...')
-        self._cleanup_orphaned_fks(dst)
+        try:
+            deleted = self._cleanup_orphaned_fks(dst)
+            if deleted > 0:
+                self.stdout.write(f'  Cleaned {deleted} orphaned FK(s)')
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'  Cleanup warning: {e}'))
         
         self._truncate_all(dst)
         self.stdout.write('Flushed.\n')
@@ -284,6 +305,7 @@ class Command(BaseCommand):
         """
         Truncate every managed table on the destination database.
         Uses TRUNCATE … CASCADE on PostgreSQL, DELETE on SQLite.
+        Skips tables that don't exist.
         """
         is_pg = 'postgresql' in settings.DATABASES[db_alias].get('ENGINE', '')
         all_models = apps.get_models(include_auto_created=True)
@@ -292,14 +314,36 @@ class Command(BaseCommand):
         with connections[db_alias].cursor() as cursor:
             if is_pg:
                 if tables:
-                    table_list = ', '.join(f'"{t}"' for t in tables)
-                    cursor.execute(
-                        f'TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE'
-                    )
+                    # For PostgreSQL, check which tables exist first
+                    existing_tables = []
+                    for t in tables:
+                        try:
+                            cursor.execute(f"SELECT 1 FROM {t} LIMIT 1")
+                            existing_tables.append(t)
+                        except Exception:
+                            pass  # Table doesn't exist, skip it
+                    
+                    if existing_tables:
+                        table_list = ', '.join(f'"{t}"' for t in existing_tables)
+                        try:
+                            cursor.execute(
+                                f'TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE'
+                            )
+                        except Exception:
+                            # If truncate fails, try deleting from each table individually
+                            for t in existing_tables:
+                                try:
+                                    cursor.execute(f'DELETE FROM "{t}"')
+                                except Exception:
+                                    pass
             else:
+                # SQLite
                 cursor.execute('PRAGMA foreign_keys = OFF;')
                 for t in tables:
-                    cursor.execute(f'DELETE FROM "{t}";')
+                    try:
+                        cursor.execute(f'DELETE FROM "{t}";')
+                    except Exception:
+                        pass  # Table doesn't exist or error, skip it
                 cursor.execute('PRAGMA foreign_keys = ON;')
 
     @staticmethod
@@ -346,43 +390,71 @@ class Command(BaseCommand):
 
     @staticmethod
     def _cleanup_orphaned_fks(db_alias):
-        """Remove orphaned FK references before sync."""
+        """Remove orphaned FK references before sync. Returns count of deleted records."""
+        total_deleted = 0
+        
+        # Check if this is SQLite (only SQLite supports PRAGMA)
+        is_sqlite = 'sqlite' in settings.DATABASES[db_alias].get('ENGINE', '')
+        if not is_sqlite:
+            return 0  # Skip for non-SQLite databases
+        
         with connections[db_alias].cursor() as cursor:
             # Get all tables
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name NOT LIKE 'sqlite_%'
-            """)
-            tables = [row[0] for row in cursor.fetchall()]
+            try:
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                """)
+                tables = [row[0] for row in cursor.fetchall()]
+            except Exception:
+                return 0
             
-            total_deleted = 0
             for table in tables:
-                # Get FK info
-                cursor.execute(f'PRAGMA foreign_key_list("{table}")')
-                fks = cursor.fetchall()
-                
-                for fk in fks:
-                    ref_table = fk[2]
-                    fk_column = fk[3]
-                    ref_column = fk[4]
+                try:
+                    # Check if table exists first
+                    cursor.execute(f"""
+                        SELECT name FROM sqlite_master 
+                        WHERE type='table' AND name='{table}'
+                    """)
+                    if not cursor.fetchone():
+                        continue
                     
-                    # Find and delete orphans
-                    try:
+                    # Get FK info
+                    cursor.execute(f'PRAGMA foreign_key_list("{table}")')
+                    fks = cursor.fetchall()
+                    
+                    for fk in fks:
+                        ref_table = fk[2]
+                        fk_column = fk[3]
+                        ref_column = fk[4]
+                        
+                        # Check if referenced table exists
                         cursor.execute(f"""
-                            DELETE FROM "{table}"
-                            WHERE rowid IN (
-                                SELECT t.rowid
-                                FROM "{table}" t
-                                LEFT JOIN "{ref_table}" r ON t."{fk_column}" = r."{ref_column}"
-                                WHERE t."{fk_column}" IS NOT NULL
-                                  AND r."{ref_column}" IS NULL
-                            )
+                            SELECT name FROM sqlite_master 
+                            WHERE type='table' AND name='{ref_table}'
                         """)
-                        total_deleted += cursor.rowcount
-                    except Exception:
-                        pass
-            
-            return total_deleted
+                        if not cursor.fetchone():
+                            continue  # Skip if referenced table doesn't exist
+                        
+                        # Find and delete orphans
+                        try:
+                            cursor.execute(f"""
+                                DELETE FROM "{table}"
+                                WHERE rowid IN (
+                                    SELECT t.rowid
+                                    FROM "{table}" t
+                                    LEFT JOIN "{ref_table}" r ON t."{fk_column}" = r."{ref_column}"
+                                    WHERE t."{fk_column}" IS NOT NULL
+                                      AND r."{ref_column}" IS NULL
+                                )
+                            """)
+                            total_deleted += cursor.rowcount
+                        except Exception:
+                            pass  # Skip if query fails
+                except Exception:
+                    pass  # Skip table if any error
+        
+        return total_deleted
 
     @staticmethod
     def _validate_fk_integrity(db_alias):

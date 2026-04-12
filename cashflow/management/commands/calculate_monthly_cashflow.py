@@ -221,21 +221,28 @@ class Command(BaseCommand):
 
     def _calculate_sales_gross_profit(self, start_date, end_date):
         """Calculate gross profit from all sales (revenue - COGS)."""
+        from core.cogs import pos_sale_cogs
         total = Decimal('0')
 
-        # POS Sales
+        # POS Sales - calculate COGS dynamically
         pos_sales = POSSale.objects.filter(
             status=SaleStatus.POSTED,
             created_at__gte=start_date,
             created_at__lt=end_date,
-        )
+        ).prefetch_related('lines__item', 'lines__unit', 'bundle_lines__price_list__items')
+        
         for sale in pos_sales:
-            # Gross profit = grand_total - grand_total_cogs
-            gross_profit = (sale.grand_total or Decimal('0')) - (sale.grand_total_cogs or Decimal('0'))
-            total += gross_profit
+            try:
+                revenue = sale.grand_total or Decimal('0')
+                cogs = pos_sale_cogs(sale)
+                gross_profit = revenue - cogs
+                total += gross_profit
+            except Exception:
+                # Skip sales with missing items, use revenue only
+                total += (sale.grand_total or Decimal('0'))
+                continue
 
-        # Delivery Notes (if they track revenue/COGS)
-        # For now, we'll use Invoice data if available
+        # Invoices - use stored grand_total_cogs
         from core.models import Invoice
         invoices = Invoice.objects.filter(
             is_void=False,
@@ -243,8 +250,12 @@ class Command(BaseCommand):
             paid_at__lt=end_date,
         )
         for inv in invoices:
-            gross_profit = (inv.grand_total or Decimal('0')) - (inv.grand_total_cogs or Decimal('0'))
-            total += gross_profit
+            try:
+                gross_profit = (inv.grand_total or Decimal('0')) - (inv.grand_total_cogs or Decimal('0'))
+                total += gross_profit
+            except Exception:
+                # Skip invoices with errors
+                continue
 
         return total
 
