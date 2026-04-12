@@ -27,59 +27,292 @@ def _log(transaction, action, user, details='', old_values=None, new_values=None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TRANSACTION LIST
+# TRANSACTION LIST - MONTHLY VIEW
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def transaction_list(request):
-    qs = CashFlowTransaction.objects.select_related('created_by', 'approved_by').all()
-
-    # Filters
-    category = request.GET.get('category', '')
-    flow_type = request.GET.get('flow_type', '')
-    status = request.GET.get('status', '')
-    date_from = request.GET.get('date_from', '')
-    date_to = request.GET.get('date_to', '')
-
-    if category:
-        qs = qs.filter(category=category)
-    if flow_type:
-        qs = qs.filter(flow_type=flow_type)
-    if status:
-        qs = qs.filter(status=status)
-    if date_from:
-        qs = qs.filter(transaction_date__gte=date_from)
-    if date_to:
-        qs = qs.filter(transaction_date__lte=date_to)
-
-    # Summary totals — only APPROVED transactions count toward the net
-    approved_q = Q(status=CashFlowStatus.APPROVED)
-    totals = qs.aggregate(
-        total_in=Coalesce(
-            Sum('amount', filter=approved_q & Q(flow_type=CashFlowType.CASH_IN)),
-            0, output_field=DecimalField(),
-        ),
-        total_out=Coalesce(
-            Sum('amount', filter=approved_q & Q(flow_type=CashFlowType.CASH_OUT)),
-            0, output_field=DecimalField(),
-        ),
-    )
-
-    return render(request, 'cashflow/transaction_list.html', {
-        'transactions': qs,
-        'filters': {
-            'category': category,
-            'flow_type': flow_type,
-            'status': status,
-            'date_from': date_from,
-            'date_to': date_to,
-        },
-        'total_in': totals['total_in'],
-        'total_out': totals['total_out'],
-        'net': totals['total_in'] - totals['total_out'],
-        'category_choices': CashFlowTransaction._meta.get_field('category').choices,
-        'flow_type_choices': CashFlowTransaction._meta.get_field('flow_type').choices,
-        'status_choices': CashFlowTransaction._meta.get_field('status').choices,
-    })
+    """Monthly cashflow view with comprehensive breakdown, pagination, filters, and search."""
+    from datetime import date, datetime
+    from decimal import Decimal
+    from calendar import month_name
+    from cashflow.monthly_signals import update_monthly_summary
+    from cashflow.models import MonthlyCashflowSummary
+    from pos.models import POSSale, SaleStatus
+    from core.models import Invoice, Expense
+    from procurement.models import GoodsReceipt
+    from core.models import DocumentStatus
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    from django.db.models import Q
+    
+    # Get current month or requested month
+    today = date.today()
+    year = int(request.GET.get('year', today.year))
+    month = int(request.GET.get('month', today.month))
+    
+    # Ensure valid month
+    if month < 1 or month > 12:
+        month = today.month
+    
+    # Get or create monthly summary
+    try:
+        summary = MonthlyCashflowSummary.objects.get(year=year, month=month)
+    except MonthlyCashflowSummary.DoesNotExist:
+        summary = update_monthly_summary(year, month, user=request.user)
+    
+    # Date range for this month
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+    start_date = date(year, month, 1)
+    end_date = next_month
+    
+    # ── Filters & Search ─────────────────────────────────────────────────
+    search_query = request.GET.get('search', '').strip()
+    filter_type = request.GET.get('filter_type', 'all')  # all, sales, cash_in, procurement, expenses, cash_out
+    per_page = int(request.GET.get('per_page', 20))
+    
+    # Get detailed breakdown
+    # Capital - Sales
+    from core.cogs import pos_sale_cogs
+    
+    pos_sales_qs = POSSale.objects.filter(
+        status=SaleStatus.POSTED,
+        created_at__gte=start_date,
+        created_at__lt=end_date,
+    ).select_related('created_by').prefetch_related('lines__item', 'lines__unit', 'bundle_lines__price_list__items')
+    
+    invoices_qs = Invoice.objects.filter(
+        is_void=False,
+        paid_at__gte=start_date,
+        paid_at__lt=end_date,
+    ).select_related('created_by')
+    
+    # Apply search to sales
+    if search_query and filter_type in ['all', 'sales']:
+        pos_sales_qs = pos_sales_qs.filter(
+            Q(sale_no__icontains=search_query) |
+            Q(created_by__username__icontains=search_query)
+        )
+        invoices_qs = invoices_qs.filter(
+            Q(invoice_number__icontains=search_query) |
+            Q(created_by__username__icontains=search_query)
+        )
+    
+    # Capital - Other Cash In
+    cash_in_txns_qs = CashFlowTransaction.objects.filter(
+        status=CashFlowStatus.APPROVED,
+        flow_type=CashFlowType.CASH_IN,
+        transaction_date__gte=start_date,
+        transaction_date__lt=end_date,
+    ).select_related('created_by', 'approved_by')
+    
+    # Apply search to cash in
+    if search_query and filter_type in ['all', 'cash_in']:
+        cash_in_txns_qs = cash_in_txns_qs.filter(
+            Q(transaction_number__icontains=search_query) |
+            Q(reason__icontains=search_query) |
+            Q(reference_no__icontains=search_query)
+        )
+    
+    # Expenses - Procurement
+    grns_qs = GoodsReceipt.objects.filter(
+        status=DocumentStatus.POSTED,
+        receipt_date__gte=start_date,
+        receipt_date__lt=end_date,
+    ).select_related('supplier', 'warehouse', 'purchase_order').prefetch_related('lines')
+    
+    # Apply search to procurement
+    if search_query and filter_type in ['all', 'procurement']:
+        grns_qs = grns_qs.filter(
+            Q(document_number__icontains=search_query) |
+            Q(supplier__name__icontains=search_query)
+        )
+    
+    # Expenses - Operational
+    expenses_qs = Expense.objects.filter(
+        status='APPROVED',
+        date__gte=start_date,
+        date__lt=end_date,
+    ).select_related('category', 'created_by')
+    
+    # Apply search to expenses
+    if search_query and filter_type in ['all', 'expenses']:
+        expenses_qs = expenses_qs.filter(
+            Q(memo__icontains=search_query) |
+            Q(vendor__icontains=search_query) |
+            Q(category__name__icontains=search_query)
+        )
+    
+    # Expenses - Other Cash Out
+    cash_out_txns_qs = CashFlowTransaction.objects.filter(
+        status=CashFlowStatus.APPROVED,
+        flow_type=CashFlowType.CASH_OUT,
+        transaction_date__gte=start_date,
+        transaction_date__lt=end_date,
+    ).select_related('created_by', 'approved_by')
+    
+    # Apply search to cash out
+    if search_query and filter_type in ['all', 'cash_out']:
+        cash_out_txns_qs = cash_out_txns_qs.filter(
+            Q(transaction_number__icontains=search_query) |
+            Q(reason__icontains=search_query) |
+            Q(reference_no__icontains=search_query)
+        )
+    
+    # ── Build Breakdown Lists ────────────────────────────────────────────
+    sales_breakdown = []
+    
+    # Only process if filter allows
+    if filter_type in ['all', 'sales']:
+        # POS Sales - handle missing items gracefully
+        for sale in pos_sales_qs:
+            try:
+                revenue = sale.grand_total or Decimal('0')
+                cogs = pos_sale_cogs(sale)  # Calculate COGS dynamically
+                gross_profit = revenue - cogs
+                sales_breakdown.append({
+                    'type': 'POS Sale',
+                    'number': sale.sale_no,
+                    'date': sale.created_at,
+                    'revenue': revenue,
+                    'cogs': cogs,
+                    'gross_profit': gross_profit,
+                })
+            except Exception as e:
+                # Skip sales with missing items or other errors
+                # Still add entry with zero COGS to show the sale exists
+                sales_breakdown.append({
+                    'type': 'POS Sale',
+                    'number': sale.sale_no,
+                    'date': sale.created_at,
+                    'revenue': sale.grand_total or Decimal('0'),
+                    'cogs': Decimal('0'),
+                    'gross_profit': sale.grand_total or Decimal('0'),
+                })
+                continue
+        
+        # Invoices - handle missing data gracefully
+        for inv in invoices_qs:
+            try:
+                gross_profit = (inv.grand_total or Decimal('0')) - (inv.grand_total_cogs or Decimal('0'))
+                sales_breakdown.append({
+                    'type': 'Invoice',
+                    'number': inv.invoice_number,
+                    'date': inv.paid_at,
+                    'revenue': inv.grand_total,
+                    'cogs': inv.grand_total_cogs,
+                    'gross_profit': gross_profit,
+                })
+            except Exception:
+                # Skip invoices with errors
+                continue
+    
+    procurement_breakdown = []
+    if filter_type in ['all', 'procurement']:
+        for grn in grns_qs:
+            try:
+                total_cost = Decimal('0')
+                if grn.purchase_order:
+                    for line in grn.lines.all():
+                        try:
+                            po_line = grn.purchase_order.lines.filter(item=line.item).first()
+                            if po_line:
+                                total_cost += line.qty * po_line.unit_price
+                        except Exception:
+                            # Skip lines with missing items
+                            continue
+                procurement_breakdown.append({
+                    'number': grn.document_number,
+                    'date': grn.receipt_date,
+                    'supplier': grn.supplier.name if grn.supplier else 'N/A',
+                    'amount': total_cost,
+                })
+            except Exception:
+                # Skip GRNs with errors
+                continue
+    
+    # ── Pagination ───────────────────────────────────────────────────────
+    # Paginate sales breakdown
+    sales_paginator = Paginator(sales_breakdown, per_page)
+    sales_page = request.GET.get('sales_page', 1)
+    try:
+        sales_breakdown_paginated = sales_paginator.page(sales_page)
+    except PageNotAnInteger:
+        sales_breakdown_paginated = sales_paginator.page(1)
+    except EmptyPage:
+        sales_breakdown_paginated = sales_paginator.page(sales_paginator.num_pages)
+    
+    # Paginate cash in transactions
+    cash_in_paginator = Paginator(cash_in_txns_qs, per_page)
+    cash_in_page = request.GET.get('cash_in_page', 1)
+    try:
+        cash_in_txns = cash_in_paginator.page(cash_in_page)
+    except PageNotAnInteger:
+        cash_in_txns = cash_in_paginator.page(1)
+    except EmptyPage:
+        cash_in_txns = cash_in_paginator.page(cash_in_paginator.num_pages)
+    
+    # Paginate procurement breakdown
+    procurement_paginator = Paginator(procurement_breakdown, per_page)
+    procurement_page = request.GET.get('procurement_page', 1)
+    try:
+        procurement_breakdown_paginated = procurement_paginator.page(procurement_page)
+    except PageNotAnInteger:
+        procurement_breakdown_paginated = procurement_paginator.page(1)
+    except EmptyPage:
+        procurement_breakdown_paginated = procurement_paginator.page(procurement_paginator.num_pages)
+    
+    # Paginate expenses
+    expenses_paginator = Paginator(expenses_qs, per_page)
+    expenses_page = request.GET.get('expenses_page', 1)
+    try:
+        expenses = expenses_paginator.page(expenses_page)
+    except PageNotAnInteger:
+        expenses = expenses_paginator.page(1)
+    except EmptyPage:
+        expenses = expenses_paginator.page(expenses_paginator.num_pages)
+    
+    # Paginate cash out transactions
+    cash_out_paginator = Paginator(cash_out_txns_qs, per_page)
+    cash_out_page = request.GET.get('cash_out_page', 1)
+    try:
+        cash_out_txns = cash_out_paginator.page(cash_out_page)
+    except PageNotAnInteger:
+        cash_out_txns = cash_out_paginator.page(1)
+    except EmptyPage:
+        cash_out_txns = cash_out_paginator.page(cash_out_paginator.num_pages)
+    
+    # Available months for navigation
+    available_months = []
+    for m in range(1, 13):
+        available_months.append({
+            'number': m,
+            'name': month_name[m],
+            'year': year,
+        })
+    
+    # Available years
+    available_years = list(range(year - 2, year + 2))
+    
+    context = {
+        'summary': summary,
+        'year': year,
+        'month': month,
+        'month_name': month_name[month],
+        'available_months': available_months,
+        'available_years': available_years,
+        'sales_breakdown': sales_breakdown_paginated,
+        'cash_in_txns': cash_in_txns,
+        'procurement_breakdown': procurement_breakdown_paginated,
+        'expenses': expenses,
+        'cash_out_txns': cash_out_txns,
+        'search_query': search_query,
+        'filter_type': filter_type,
+        'per_page': per_page,
+    }
+    
+    return render(request, 'cashflow/monthly_transaction_list.html', context)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

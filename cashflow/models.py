@@ -167,14 +167,27 @@ class CashFlowLog(TimeStampedModel):
 
 class MonthlyCashflowSummary(TimeStampedModel):
     """
-    Monthly cashflow summary — aggregates capital, expenses, and net profit.
+    Monthly cashflow summary with opening/closing balance tracking.
     
-    Capital = Gross Profit from Sales + Other Cash-In
-    Expenses = Procurement Costs + Operational Expenses + Other Cash-Out
-    Net Profit = Capital - Expenses
+    Formula:
+    - Opening Balance = Previous month's closing balance
+    - Total Inflow = Gross Profit from Sales + Other Cash-In
+    - Total Outflow = Procurement Costs + Operational Expenses + Other Cash-Out
+    - Net Cash Flow = Total Inflow - Total Outflow
+    - Closing Balance = Opening Balance + Net Cash Flow
     """
     year = models.IntegerField(db_index=True)
     month = models.IntegerField(db_index=True)  # 1-12
+    
+    # ── Opening/Closing Balance ──────────────────────────────────────────────
+    opening_balance = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Opening balance carried from previous month',
+    )
+    closing_balance = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Closing balance (opening + net cash flow)',
+    )
     
     # ── Capital (Cash In) ────────────────────────────────────────────────────
     capital_sales = models.DecimalField(
@@ -208,10 +221,22 @@ class MonthlyCashflowSummary(TimeStampedModel):
         help_text='Total expenses (procurement + operational + other)',
     )
     
-    # ── Net Profit ───────────────────────────────────────────────────────────
+    # ── Totals & Net Flow ────────────────────────────────────────────────────
+    total_inflow = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Total cash inflow (capital_total)',
+    )
+    total_outflow = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Total cash outflow (expenses_total)',
+    )
+    net_cash_flow = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Net cash flow (total_inflow - total_outflow)',
+    )
     net_profit = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
-        help_text='Net profit (capital - expenses)',
+        help_text='Net profit (capital - expenses) - DEPRECATED, use net_cash_flow',
     )
     
     # ── Metadata ─────────────────────────────────────────────────────────────

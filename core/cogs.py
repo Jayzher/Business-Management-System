@@ -7,23 +7,34 @@ def pos_sale_cogs(pos_sale):
     Calculate COGS for a POS sale with unit conversions applied.
 
     Includes both regular lines and bundle lines.
+    Gracefully handles missing items (orphaned FKs) by skipping them.
     """
     total = Decimal('0')
 
     # Regular sale lines
     for line in pos_sale.lines.select_related('item', 'unit').all():
-        cogs = calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
-        total += cogs
+        try:
+            if line.item and line.unit:
+                cogs = calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
+                total += cogs
+        except Exception:
+            # Skip lines with missing items or other errors
+            continue
 
     # Bundle lines (PriceList bundles)
     for bundle in pos_sale.bundle_lines.prefetch_related(
         'price_list__items__item', 'price_list__items__unit'
     ).all():
-        for pli in bundle.price_list.items.all():
-            item_cogs = calculate_line_cogs_with_conversion(
-                pli.item, pli.min_qty, pli.unit
-            )
-            total += item_cogs * bundle.qty_sets
+        try:
+            for pli in bundle.price_list.items.all():
+                if pli.item and pli.unit:
+                    item_cogs = calculate_line_cogs_with_conversion(
+                        pli.item, pli.min_qty, pli.unit
+                    )
+                    total += item_cogs * bundle.qty_sets
+        except Exception:
+            # Skip bundles with missing items or other errors
+            continue
 
     return total
 
@@ -34,26 +45,37 @@ def sales_order_cogs(sales_order):
     Calculate COGS for a sales order with unit conversions applied.
     
     Includes both regular lines and price list bundle lines.
+    Gracefully handles missing items (orphaned FKs) by skipping them.
     """
     total = Decimal('0')
     
     # Regular order lines
     for line in sales_order.lines.select_related('item', 'unit').all():
-        cogs = calculate_line_cogs_with_conversion(line.item, line.qty_ordered, line.unit)
-        total += cogs
+        try:
+            if line.item and line.unit:
+                cogs = calculate_line_cogs_with_conversion(line.item, line.qty_ordered, line.unit)
+                total += cogs
+        except Exception:
+            # Skip lines with missing items or other errors
+            continue
     
     # Price list bundle lines
     for bundle in sales_order.price_list_lines.prefetch_related(
         'price_list__items__item', 'price_list__items__unit'
     ).all():
-        for pli in bundle.price_list.items.all():
-            item_cogs = calculate_line_cogs_with_conversion(
-                pli.item,
-                pli.min_qty,
-                pli.unit
-            )
-            # Multiply by qty_multiplier for the bundle
-            total += item_cogs * bundle.qty_multiplier
+        try:
+            for pli in bundle.price_list.items.all():
+                if pli.item and pli.unit:
+                    item_cogs = calculate_line_cogs_with_conversion(
+                        pli.item,
+                        pli.min_qty,
+                        pli.unit
+                    )
+                    # Multiply by qty_multiplier for the bundle
+                    total += item_cogs * bundle.qty_multiplier
+        except Exception:
+            # Skip bundles with missing items or other errors
+            continue
     
     return total
 
@@ -71,6 +93,8 @@ def service_invoice_cogs(invoice):
     Excludes:
       - Other materials (ServiceOtherMaterial): unit_price is the customer-facing selling
         price, not a cost — including it would inflate COGS with revenue figures.
+    
+    Gracefully handles missing items (orphaned FKs) by skipping them.
     """
     total = Decimal('0')
     for svc in invoice.customer_services.prefetch_related(
@@ -79,18 +103,28 @@ def service_invoice_cogs(invoice):
     ).all():
         # Product lines (skip scrap / waste)
         for line in svc.lines.all():
-            if getattr(line, 'is_scrap', False):
+            try:
+                if getattr(line, 'is_scrap', False):
+                    continue
+                if line.item and line.unit:
+                    cogs = calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
+                    total += cogs
+            except Exception:
+                # Skip lines with missing items or other errors
                 continue
-            cogs = calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
-            total += cogs
 
         # Bundle lines (PriceList bundles)
         for bundle in svc.bundles.all():
-            for pli in bundle.price_list.items.all():
-                item_cogs = calculate_line_cogs_with_conversion(
-                    pli.item, pli.min_qty, pli.unit
-                )
-                total += item_cogs * bundle.qty
+            try:
+                for pli in bundle.price_list.items.all():
+                    if pli.item and pli.unit:
+                        item_cogs = calculate_line_cogs_with_conversion(
+                            pli.item, pli.min_qty, pli.unit
+                        )
+                        total += item_cogs * bundle.qty
+            except Exception:
+                # Skip bundles with missing items or other errors
+                continue
 
     return total
 

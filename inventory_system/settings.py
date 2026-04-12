@@ -128,7 +128,8 @@ PUSHER_CLUSTER = os.environ.get('PUSHER_CLUSTER', 'ap1')
 # Run a full Neon→SQLite sync once when the Django server process starts.
 # Set NEON_INITIAL_SYNC=false to skip (e.g. CI, fast restarts).
 # NEON_INITIAL_SYNC = os.environ.get('NEON_INITIAL_SYNC', 'true').lower() in ('true', '1', 'yes')
-NEON_INITIAL_SYNC = True
+# Disabled to prevent database locking issues during development
+NEON_INITIAL_SYNC = False
 
 # Timer-based interval sync is replaced by Pusher event-driven sync.
 # Set > 0 to re-enable the fallback timer (seconds). 0 = disabled.

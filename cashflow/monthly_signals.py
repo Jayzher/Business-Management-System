@@ -35,25 +35,38 @@ def update_monthly_summary(year, month, user=None):
     # Sales Gross Profit
     capital_sales = Decimal('0')
     
-    # POS Sales
+    # POS Sales - calculate COGS from sale lines
+    from core.cogs import pos_sale_cogs
     pos_sales = POSSale.objects.filter(
         status=SaleStatus.POSTED,
         created_at__gte=start_date,
         created_at__lt=end_date,
-    )
-    for sale in pos_sales:
-        gross_profit = (sale.grand_total or Decimal('0')) - (sale.grand_total_cogs or Decimal('0'))
-        capital_sales += gross_profit
+    ).prefetch_related('lines__item', 'lines__unit', 'bundle_lines__price_list__items')
     
-    # Invoices
+    for sale in pos_sales:
+        try:
+            revenue = sale.grand_total or Decimal('0')
+            cogs = pos_sale_cogs(sale)
+            gross_profit = revenue - cogs
+            capital_sales += gross_profit
+        except Exception:
+            # Skip sales with missing items, use revenue only
+            capital_sales += (sale.grand_total or Decimal('0'))
+            continue
+    
+    # Invoices - use stored grand_total_cogs
     invoices = Invoice.objects.filter(
         is_void=False,
         paid_at__gte=start_date,
         paid_at__lt=end_date,
     )
     for inv in invoices:
-        gross_profit = (inv.grand_total or Decimal('0')) - (inv.grand_total_cogs or Decimal('0'))
-        capital_sales += gross_profit
+        try:
+            gross_profit = (inv.grand_total or Decimal('0')) - (inv.grand_total_cogs or Decimal('0'))
+            capital_sales += gross_profit
+        except Exception:
+            # Skip invoices with errors
+            continue
     
     # Other Cash-In
     result = CashFlowTransaction.objects.filter(
@@ -78,12 +91,20 @@ def update_monthly_summary(year, month, user=None):
     ).prefetch_related('lines', 'purchase_order__lines')
     
     for grn in grns:
-        for line in grn.lines.all():
-            if grn.purchase_order:
-                po_line = grn.purchase_order.lines.filter(item=line.item).first()
-                if po_line:
-                    cost = line.qty * po_line.unit_price
-                    expenses_procurement += cost
+        try:
+            for line in grn.lines.all():
+                try:
+                    if grn.purchase_order:
+                        po_line = grn.purchase_order.lines.filter(item=line.item).first()
+                        if po_line:
+                            cost = line.qty * po_line.unit_price
+                            expenses_procurement += cost
+                except Exception:
+                    # Skip lines with missing items
+                    continue
+        except Exception:
+            # Skip GRNs with errors
+            continue
     
     # Operational Expenses
     result = Expense.objects.filter(
@@ -106,8 +127,31 @@ def update_monthly_summary(year, month, user=None):
     
     expenses_total = expenses_procurement + expenses_operational + expenses_other
     
-    # ── Calculate Net Profit ─────────────────────────────────────────────
-    net_profit = capital_total - expenses_total
+    # ── Calculate Totals & Net Flow ──────────────────────────────────────
+    total_inflow = capital_total
+    total_outflow = expenses_total
+    net_cash_flow = total_inflow - total_outflow
+    net_profit = net_cash_flow  # Keep for backward compatibility
+    
+    # ── Get Opening Balance from Previous Month ──────────────────────────
+    opening_balance = Decimal('0')
+    if month == 1:
+        # January - get from December of previous year
+        try:
+            prev_summary = MonthlyCashflowSummary.objects.get(year=year-1, month=12)
+            opening_balance = prev_summary.closing_balance
+        except MonthlyCashflowSummary.DoesNotExist:
+            opening_balance = Decimal('0')
+    else:
+        # Get from previous month of same year
+        try:
+            prev_summary = MonthlyCashflowSummary.objects.get(year=year, month=month-1)
+            opening_balance = prev_summary.closing_balance
+        except MonthlyCashflowSummary.DoesNotExist:
+            opening_balance = Decimal('0')
+    
+    # ── Calculate Closing Balance ────────────────────────────────────────
+    closing_balance = opening_balance + net_cash_flow
     
     # ── Get counts ───────────────────────────────────────────────────────
     sales_count = (
@@ -145,6 +189,7 @@ def update_monthly_summary(year, month, user=None):
         year=year,
         month=month,
         defaults={
+            'opening_balance': opening_balance,
             'capital_sales': capital_sales,
             'capital_other': capital_other,
             'capital_total': capital_total,
@@ -152,6 +197,10 @@ def update_monthly_summary(year, month, user=None):
             'expenses_operational': expenses_operational,
             'expenses_other': expenses_other,
             'expenses_total': expenses_total,
+            'total_inflow': total_inflow,
+            'total_outflow': total_outflow,
+            'net_cash_flow': net_cash_flow,
+            'closing_balance': closing_balance,
             'net_profit': net_profit,
             'sales_count': sales_count,
             'procurement_count': procurement_count,
@@ -160,6 +209,22 @@ def update_monthly_summary(year, month, user=None):
             'calculated_at': timezone.now(),
         }
     )
+    
+    # ── Update Next Month's Opening Balance ──────────────────────────────
+    # When this month's closing balance changes, update next month's opening
+    if month == 12:
+        next_year, next_month = year + 1, 1
+    else:
+        next_year, next_month = year, month + 1
+    
+    try:
+        next_summary = MonthlyCashflowSummary.objects.get(year=next_year, month=next_month)
+        if next_summary.opening_balance != closing_balance:
+            # Recalculate next month to cascade the balance change
+            update_monthly_summary(next_year, next_month, user=user)
+    except MonthlyCashflowSummary.DoesNotExist:
+        # Next month doesn't exist yet, that's fine
+        pass
     
     return summary
 
