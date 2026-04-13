@@ -8,7 +8,7 @@ from django.db.models.functions import Coalesce
 
 from cashflow.models import (
     CashFlowTransaction, CashFlowLog, CashFlowLogAction,
-    CashFlowStatus, CashFlowType,
+    CashFlowStatus, CashFlowType, CashFlowCategory,
 )
 from cashflow.forms import CashFlowTransactionForm, CashFlowRejectForm
 from accounts.decorators import write_denied_for_viewer
@@ -105,6 +105,8 @@ def transaction_list(request):
         flow_type=CashFlowType.CASH_IN,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
+    ).exclude(
+        category=CashFlowCategory.SALES
     ).select_related('created_by', 'approved_by')
     
     # Apply search to cash in

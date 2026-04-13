@@ -620,6 +620,39 @@ def financial_statement_view(request):
         inv.grand_total for inv in invoice_rows
         if not inv.sales_order_id and not inv.pos_sale_id
     )
+    
+    # ── Separate P&L: Materials Sales vs Services ──────────────────────
+    # Materials Sales = POS + Sales Orders
+    materials_revenue = pos_invoice_revenue + so_invoice_revenue
+    materials_discount = sum(
+        inv.discount_total for inv in invoice_rows 
+        if inv.sales_order_id or inv.pos_sale_id
+    )
+    materials_cogs = sum(
+        invoice_cogs_map[inv.pk] for inv in invoice_rows 
+        if inv.sales_order_id or inv.pos_sale_id
+    )
+    materials_gross_profit = materials_revenue - materials_discount - materials_cogs
+    materials_gross_margin = (
+        (materials_gross_profit / (materials_revenue - materials_discount) * 100) 
+        if (materials_revenue - materials_discount) > 0 else Decimal('0')
+    )
+    
+    # Services = Everything else (customer services)
+    services_revenue = svc_invoice_revenue
+    services_discount = sum(
+        inv.discount_total for inv in invoice_rows 
+        if not inv.sales_order_id and not inv.pos_sale_id
+    )
+    services_cogs = sum(
+        invoice_cogs_map[inv.pk] for inv in invoice_rows 
+        if not inv.sales_order_id and not inv.pos_sale_id
+    )
+    services_gross_profit = services_revenue - services_discount - services_cogs
+    services_gross_margin = (
+        (services_gross_profit / (services_revenue - services_discount) * 100) 
+        if (services_revenue - services_discount) > 0 else Decimal('0')
+    )
 
     net_revenue = invoice_revenue - discount
 
@@ -634,14 +667,10 @@ def financial_statement_view(request):
         total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField())
     )['total']
 
-    # ── Other Materials cost (service invoices only) ────────────────────
-    other_mat_total = Decimal('0')
-    for _inv in invoice_rows:
-        for _svc in _inv.customer_services.all():
-            for _mat in _svc.other_materials.all():
-                other_mat_total += Decimal(str(_mat.line_total or 0))
-
-    total_cogs = cogs_from_invoices + cogs_expenses + other_mat_total
+    # ── Total COGS ──────────────────────────────────────────────────────
+    # Note: Other materials COGS is now included in cogs_from_invoices
+    # via the updated service_invoice_cogs() function
+    total_cogs = cogs_from_invoices + cogs_expenses
     gross_profit = net_revenue - total_cogs
     gross_margin = (gross_profit / net_revenue * 100) if net_revenue > 0 else Decimal('0')
 
@@ -702,8 +731,9 @@ def financial_statement_view(request):
             source_type = 'SVC'
             svc_obj = inv.customer_services.first()
             ref = svc_obj.service_number
+            # Calculate other materials COGS (cost, not selling price)
             other_mat_cost = sum(
-                (mat.line_total for mat in svc_obj.other_materials.all()),
+                (mat.line_cost for mat in svc_obj.other_materials.all()),
                 Decimal('0'),
             )
         cogs_val = invoice_cogs_map[inv.pk]
@@ -719,8 +749,8 @@ def financial_statement_view(request):
             'revenue': inv.grand_total,
             'discount': inv.discount_total,
             'cogs': cogs_val,
-            'other_mat_cost': other_mat_cost,
-            'gross_profit': inv.grand_total - inv.discount_total - cogs_val - other_mat_cost,
+            'other_mat_cost': other_mat_cost,  # Now shows COGS, not revenue
+            'gross_profit': inv.grand_total - inv.discount_total - cogs_val,
             'payment_methods': payment_methods,
         })
 
@@ -759,10 +789,21 @@ def financial_statement_view(request):
         'net_revenue': net_revenue,
         'cogs_from_invoices': cogs_from_invoices,
         'cogs_expenses': cogs_expenses,
-        'other_mat_total': other_mat_total,
+        # 'other_mat_total': removed - now included in cogs_from_invoices
         'total_cogs': total_cogs,
         'gross_profit': gross_profit,
         'gross_margin': gross_margin,
+        # Separate P&L for Materials vs Services
+        'materials_revenue': materials_revenue,
+        'materials_discount': materials_discount,
+        'materials_cogs': materials_cogs,
+        'materials_gross_profit': materials_gross_profit,
+        'materials_gross_margin': materials_gross_margin,
+        'services_revenue': services_revenue,
+        'services_discount': services_discount,
+        'services_cogs': services_cogs,
+        'services_gross_profit': services_gross_profit,
+        'services_gross_margin': services_gross_margin,
         'opex_rows': opex_rows,
         'total_opex': total_opex,
         'net_profit': net_profit,

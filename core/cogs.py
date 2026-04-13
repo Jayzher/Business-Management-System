@@ -85,14 +85,12 @@ def service_invoice_cogs(invoice):
     """
     Calculate COGS for a service invoice with unit conversions applied.
 
-    Formula: Product Lines COGS + Bundles COGS = Total COGS
+    Formula: Product Lines COGS + Bundles COGS + Other Materials COGS = Total COGS
 
     Includes:
       - Product lines (ServiceLine): item cost_price × qty (with unit conversion), scrap excluded
       - Bundle lines (ServiceBundle): each PriceListItem cost_price × min_qty × bundle qty
-    Excludes:
-      - Other materials (ServiceOtherMaterial): unit_price is the customer-facing selling
-        price, not a cost — including it would inflate COGS with revenue figures.
+      - Other materials (ServiceOtherMaterial): unit_cost × qty (cost paid to vendor)
     
     Gracefully handles missing items (orphaned FKs) by skipping them.
     """
@@ -100,6 +98,7 @@ def service_invoice_cogs(invoice):
     for svc in invoice.customer_services.prefetch_related(
         'lines__item', 'lines__unit',
         'bundles__price_list__items__item', 'bundles__price_list__items__unit',
+        'other_materials',  # Added to prefetch
     ).all():
         # Product lines (skip scrap / waste)
         for line in svc.lines.all():
@@ -124,6 +123,14 @@ def service_invoice_cogs(invoice):
                         total += item_cogs * bundle.qty
             except Exception:
                 # Skip bundles with missing items or other errors
+                continue
+        
+        # Other materials - use cost price (unit_cost), not selling price (unit_price)
+        for mat in svc.other_materials.all():
+            try:
+                total += mat.line_cost  # Uses unit_cost * qty
+            except Exception:
+                # Skip materials with errors
                 continue
 
     return total

@@ -15,7 +15,7 @@ from django.http import JsonResponse
 from django.core.management import call_command
 from io import StringIO
 
-from cashflow.models import MonthlyCashflowSummary, CashFlowTransaction, CashFlowType, CashFlowStatus
+from cashflow.models import MonthlyCashflowSummary, CashFlowTransaction, CashFlowType, CashFlowStatus, CashFlowCategory
 from core.models import Expense
 from pos.models import POSSale, SaleStatus
 from procurement.models import GoodsReceipt
@@ -126,6 +126,8 @@ def monthly_detail(request, year, month):
         flow_type=CashFlowType.CASH_IN,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
+    ).exclude(
+        category=CashFlowCategory.SALES
     ).order_by('-transaction_date')
     
     cash_out_transactions = CashFlowTransaction.objects.filter(
