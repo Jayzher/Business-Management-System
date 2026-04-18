@@ -192,14 +192,29 @@ class ServiceOtherMaterial(models.Model):
     qty = models.DecimalField(max_digits=15, decimal_places=4)
     unit_price = models.DecimalField(
         max_digits=15, decimal_places=4, default=0,
-        help_text='Price charged per unit',
+        help_text='Price charged to customer per unit',
+    )
+    unit_cost = models.DecimalField(
+        max_digits=15, decimal_places=4, default=0,
+        help_text='Cost paid to vendor per unit (for COGS calculation)',
     )
     vendor = models.CharField(max_length=200, blank=True, default='')
     notes = models.CharField(max_length=255, blank=True, default='')
 
     @property
     def line_total(self):
+        """Revenue from this material (price charged to customer)."""
         return (self.qty or 0) * (self.unit_price or 0)
+    
+    @property
+    def line_cost(self):
+        """COGS for this material (cost paid to vendor)."""
+        return (self.qty or 0) * (self.unit_cost or 0)
+    
+    @property
+    def line_profit(self):
+        """Gross profit from this material."""
+        return self.line_total - self.line_cost
 
     def __str__(self):
         return f"OtherMat: {self.item_name} x{self.qty}"

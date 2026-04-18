@@ -15,6 +15,7 @@
   .bdg-pos { background:#28a745; color:#fff; font-size:.72rem; padding:.2rem .45rem; border-radius:.25rem; }
   .bdg-so  { background:#007bff; color:#fff; font-size:.72rem; padding:.2rem .45rem; border-radius:.25rem; }
   .bdg-svc { background:#6f42c1; color:#fff; font-size:.72rem; padding:.2rem .45rem; border-radius:.25rem; }
+  .bg-purple { background-color: #6f42c1 !important; color: white !important; }
 </style>
 {% endblock %}
 
@@ -54,25 +55,63 @@
         </div>
         <table class="table pnl-table mb-0">
           <tbody>
-            <!-- REVENUE -->
-            <tr class="pnl-section"><td colspan="2">REVENUE <small class="text-muted font-weight-normal">(from paid invoices)</small></td></tr>
-            {% if so_invoice_revenue %}<tr><td class="ps-4">Sales Orders Revenue</td><td class="text-right">&#8369; {{ so_invoice_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- MATERIALS SALES P&L (POS + Sales Orders) -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <tr class="pnl-section" style="background: #e3f2fd;"><td colspan="2"><i class="fas fa-box mr-2"></i>MATERIALS SALES (POS + Sales Orders)</td></tr>
+            
+            <!-- Materials Revenue -->
             {% if pos_invoice_revenue %}<tr><td class="ps-4">POS Revenue</td><td class="text-right">&#8369; {{ pos_invoice_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
-            {% if svc_invoice_revenue %}<tr><td class="ps-4">Services Revenue</td><td class="text-right">&#8369; {{ svc_invoice_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
-            <tr><td class="ps-4">Invoice Revenue (gross)</td><td class="text-right">&#8369; {{ invoice_revenue|floatformat:2|intcomma }}</td></tr>
-            {% if discount %}<tr><td class="ps-4">Less: Discounts</td><td class="text-right negative">(&#8369; {{ discount|floatformat:2|intcomma }})</td></tr>{% endif %}
+            {% if so_invoice_revenue %}<tr><td class="ps-4">Sales Orders Revenue</td><td class="text-right">&#8369; {{ so_invoice_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
+            <tr><td class="ps-4">Materials Revenue (gross)</td><td class="text-right">&#8369; {{ materials_revenue|floatformat:2|intcomma }}</td></tr>
+            {% if materials_discount %}<tr><td class="ps-4">Less: Discounts</td><td class="text-right negative">(&#8369; {{ materials_discount|floatformat:2|intcomma }})</td></tr>{% endif %}
+            <tr><td class="ps-4 font-weight-bold">Net Materials Revenue</td><td class="text-right font-weight-bold">&#8369; {{ materials_revenue|floatformat:2|intcomma }}</td></tr>
+            
+            <!-- Materials COGS -->
+            <tr><td class="ps-4">Materials COGS</td><td class="text-right">&#8369; {{ materials_cogs|floatformat:2|intcomma }}</td></tr>
+            
+            <!-- Materials Gross Profit -->
+            <tr class="pnl-total" style="background: #bbdefb;">
+              <td><i class="fas fa-chart-line mr-2"></i>Materials Gross Profit 
+                <span class="badge {% if materials_gross_margin >= 20 %}bg-success{% elif materials_gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ materials_gross_margin|floatformat:1 }}%</span>
+              </td>
+              <td class="text-right {% if materials_gross_profit >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ materials_gross_profit|floatformat:2|intcomma }}</td>
+            </tr>
+
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- SERVICES P&L -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <tr class="pnl-section" style="background: #f3e5f5;"><td colspan="2"><i class="fas fa-tools mr-2"></i>SERVICES REVENUE</td></tr>
+            
+            <!-- Services Revenue -->
+            <tr><td class="ps-4">Services Revenue (gross)</td><td class="text-right">&#8369; {{ services_revenue|floatformat:2|intcomma }}</td></tr>
+            {% if services_discount %}<tr><td class="ps-4">Less: Discounts</td><td class="text-right negative">(&#8369; {{ services_discount|floatformat:2|intcomma }})</td></tr>{% endif %}
+            <tr><td class="ps-4 font-weight-bold">Net Services Revenue</td><td class="text-right font-weight-bold">&#8369; {{ services_revenue|floatformat:2|intcomma }}</td></tr>
+            
+            <!-- Services COGS -->
+            <tr><td class="ps-4">Services COGS (materials + labor)</td><td class="text-right">&#8369; {{ services_cogs|floatformat:2|intcomma }}</td></tr>
+            
+            <!-- Services Gross Profit -->
+            <tr class="pnl-total" style="background: #e1bee7;">
+              <td><i class="fas fa-chart-line mr-2"></i>Services Gross Profit 
+                <span class="badge {% if services_gross_margin >= 20 %}bg-success{% elif services_gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ services_gross_margin|floatformat:1 }}%</span>
+              </td>
+              <td class="text-right {% if services_gross_profit >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ services_gross_profit|floatformat:2|intcomma }}</td>
+            </tr>
+
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- COMBINED TOTALS -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <tr class="pnl-section"><td colspan="2">COMBINED REVENUE & COGS</td></tr>
+            <tr><td class="ps-4">Total Revenue (gross)</td><td class="text-right">&#8369; {{ invoice_revenue|floatformat:2|intcomma }}</td></tr>
+            {% if discount %}<tr><td class="ps-4">Less: Total Discounts</td><td class="text-right negative">(&#8369; {{ discount|floatformat:2|intcomma }})</td></tr>{% endif %}
             <tr class="pnl-total"><td>Net Revenue</td><td class="text-right">&#8369; {{ net_revenue|floatformat:2|intcomma }}</td></tr>
+            
+            <tr><td class="ps-4">Total COGS (Inventory + Direct Costs)</td><td class="text-right">&#8369; {{ total_cogs|floatformat:2|intcomma }}</td></tr>
 
-            <!-- COGS -->
-            <tr class="pnl-section"><td colspan="2">COST OF GOODS SOLD</td></tr>
-            {% if cogs_from_invoices %}<tr><td class="ps-4">Inventory COGS (from invoices)</td><td class="text-right">&#8369; {{ cogs_from_invoices|floatformat:2|intcomma }}</td></tr>{% endif %}
-            {% if cogs_expenses %}<tr><td class="ps-4">Direct Cost Expenses (COGS categories)</td><td class="text-right">&#8369; {{ cogs_expenses|floatformat:2|intcomma }}</td></tr>{% endif %}
-            {% if other_mat_total %}<tr><td class="ps-4">Services – Other Materials Cost</td><td class="text-right">&#8369; {{ other_mat_total|floatformat:2|intcomma }}</td></tr>{% endif %}
-            <tr class="pnl-total"><td>Total COGS</td><td class="text-right">&#8369; {{ total_cogs|floatformat:2|intcomma }}</td></tr>
-
-            <!-- GROSS PROFIT -->
+            <!-- COMBINED GROSS PROFIT -->
             <tr class="pnl-grand">
-              <td>GROSS PROFIT <span class="badge {% if gross_margin >= 20 %}bg-success{% elif gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ gross_margin|floatformat:1 }}%</span></td>
+              <td>TOTAL GROSS PROFIT <span class="badge {% if gross_margin >= 20 %}bg-success{% elif gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ gross_margin|floatformat:1 }}%</span></td>
               <td class="text-right {% if gross_profit >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ gross_profit|floatformat:2|intcomma }}</td>
             </tr>
 
@@ -119,19 +158,21 @@
       </div>
       <div class="col-6">
         <div class="info-box bg-primary">
-          <span class="info-box-icon"><i class="fas fa-chart-line"></i></span>
+          <span class="info-box-icon"><i class="fas fa-box"></i></span>
           <div class="info-box-content">
-            <span class="info-box-text">Revenue</span>
-            <span class="info-box-number">&#8369; {{ net_revenue|floatformat:2|intcomma }}</span>
+            <span class="info-box-text">Materials GP</span>
+            <span class="info-box-number">&#8369; {{ materials_gross_profit|floatformat:2|intcomma }}</span>
+            <small class="text-white-50">{{ materials_gross_margin|floatformat:1 }}% margin</small>
           </div>
         </div>
       </div>
       <div class="col-6">
-        <div class="info-box bg-warning">
-          <span class="info-box-icon"><i class="fas fa-coins"></i></span>
+        <div class="info-box bg-purple">
+          <span class="info-box-icon"><i class="fas fa-tools"></i></span>
           <div class="info-box-content">
-            <span class="info-box-text">Total Costs (COGS+OPEX)</span>
-            <span class="info-box-number">&#8369; {{ total_cogs|floatformat:2|intcomma }}</span>
+            <span class="info-box-text">Services GP</span>
+            <span class="info-box-number">&#8369; {{ services_gross_profit|floatformat:2|intcomma }}</span>
+            <small class="text-white-50">{{ services_gross_margin|floatformat:1 }}% margin</small>
           </div>
         </div>
       </div>
@@ -181,7 +222,7 @@
                     <th class="text-right">Revenue</th>
                     <th class="text-right text-warning">Discount</th>
                     <th class="text-right text-danger">COGS</th>
-                    <th class="text-right text-warning">Other Mat. Cost</th>
+                    <th class="text-right text-danger">Other Mat. COGS</th>
                     <th class="text-right text-success">Gross Profit</th>
                   </tr>
                 </thead>
@@ -203,8 +244,8 @@
                       {% if row.discount %}&minus;&#8369; {{ row.discount|floatformat:2|intcomma }}{% else %}—{% endif %}
                     </td>
                     <td class="text-right text-danger">&#8369; {{ row.cogs|floatformat:2|intcomma }}</td>
-                    <td class="text-right text-warning">
-                      {% if row.other_mat_cost %}&minus;&#8369; {{ row.other_mat_cost|floatformat:2|intcomma }}{% else %}&mdash;{% endif %}
+                    <td class="text-right text-danger">
+                      {% if row.other_mat_cost %}&#8369; {{ row.other_mat_cost|floatformat:2|intcomma }}{% else %}&mdash;{% endif %}
                     </td>
                     <td class="text-right {% if row.gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
                       &#8369; {{ row.gross_profit|floatformat:2|intcomma }}
@@ -225,8 +266,8 @@
                       {% if breakdown_total_discount %}&minus;&#8369; {{ breakdown_total_discount|floatformat:2|intcomma }}{% else %}—{% endif %}
                     </td>
                     <td class="text-right text-danger">&#8369; {{ breakdown_total_cogs|floatformat:2|intcomma }}</td>
-                    <td class="text-right text-warning">
-                      {% if breakdown_total_other_mat %}&minus;&#8369; {{ breakdown_total_other_mat|floatformat:2|intcomma }}{% else %}—{% endif %}
+                    <td class="text-right text-danger">
+                      {% if breakdown_total_other_mat %}&#8369; {{ breakdown_total_other_mat|floatformat:2|intcomma }}{% else %}—{% endif %}
                     </td>
                     <td class="text-right {% if breakdown_total_gp >= 0 %}text-success{% else %}text-danger{% endif %}">
                       &#8369; {{ breakdown_total_gp|floatformat:2|intcomma }}
