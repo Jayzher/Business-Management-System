@@ -522,35 +522,56 @@ def service_complete(request, pk):
     partial_paid = svc.partial_payment_amount_value
     if partial_paid > grand_total:
         partial_paid = grand_total
+    
+    # Calculate remaining balance after partial payment
+    # This ensures we don't double-count revenue in P&L
+    remaining_balance = max(grand_total - partial_paid, Decimal('0'))
+    
+    # Determine invoice amounts based on whether there was a partial payment
+    if partial_paid > 0:
+        # Invoice shows only the remaining balance
+        invoice_subtotal = remaining_balance
+        invoice_discount = Decimal('0')  # Discount already applied in grand_total calculation
+        invoice_grand_total = remaining_balance
+        invoice_notes = f'Service: {svc.service_name} (Remaining balance after ₱{partial_paid:,.2f} partial payment)'
+    else:
+        # No partial payment, invoice shows full amount
+        invoice_subtotal = subtotal
+        invoice_discount = discount_amt
+        invoice_grand_total = grand_total
+        invoice_notes = f'Service: {svc.service_name}'
 
     inv = Invoice.objects.create(
         invoice_number=_next_invoice_number(),
         date=now.date(),
         customer_name=svc.customer_name,
         customer_address=svc.address,
-        subtotal=subtotal,
-        discount_total=discount_amt,
-        grand_total=grand_total,
+        subtotal=invoice_subtotal,
+        discount_total=invoice_discount,
+        grand_total=invoice_grand_total,
         grand_total_cogs=Decimal('0'),
-        notes=f'Service: {svc.service_name}',
+        notes=invoice_notes,
         created_by=request.user,
     )
 
-    if svc.payment_status == ServicePaymentStatus.PAID and grand_total > 0:
-        partial_paid = grand_total
+    if svc.payment_status == ServicePaymentStatus.PAID and invoice_grand_total > 0:
+        # If already marked as paid, create payment for the remaining balance
+        final_payment = invoice_grand_total
+    else:
+        final_payment = Decimal('0')
 
-    if partial_paid > 0:
+    if final_payment > 0:
         InvoicePayment.objects.create(
             invoice=inv,
             date=now.date(),
             method=PaymentMethod.CASH,
-            amount=partial_paid,
+            amount=final_payment,
             reference_no='',
-            notes=f'Initial payment recorded from service {svc.service_number}',
+            notes=f'Final payment for service {svc.service_number}',
             created_by=request.user,
         )
 
-    if partial_paid >= grand_total and grand_total > 0:
+    if final_payment >= invoice_grand_total and invoice_grand_total > 0:
         inv.is_paid = True
         inv.paid_at = now
         inv.paid_date = now.date()
@@ -560,14 +581,19 @@ def service_complete(request, pk):
     # If there's a quotation, the customer is billed for the quoted amount only.
     # Material/part costs are internal COGS and do not appear as customer line items.
     if svc.quotation_amount > 0:
+        # Show the remaining balance amount (after partial payment)
+        line_description = svc.service_name or 'Service'
+        if partial_paid > 0:
+            line_description += f' (Balance after ₱{partial_paid:,.2f} partial payment)'
+        
         InvoiceLine.objects.create(
             invoice=inv,
             item_code='SVC-QUOT',
-            item_name=svc.service_name or 'Service',
+            item_name=line_description,
             qty=Decimal('1'),
             unit='svc',
-            unit_price=svc.quotation_amount,
-            line_total=svc.quotation_amount,
+            unit_price=invoice_grand_total,
+            line_total=invoice_grand_total,
         )
     else:
         # No quotation — show individual product/material lines
