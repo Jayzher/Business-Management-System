@@ -293,11 +293,12 @@ class Command(BaseCommand):
         return total
 
     def _calculate_operational_expenses(self, start_date, end_date):
-        """Calculate operational expenses (utilities, salaries, etc.)."""
+        """Calculate operational expenses (utilities, salaries, etc.) - excludes COGS/procurement."""
         result = Expense.objects.filter(
             status='APPROVED',
             date__gte=start_date,
             date__lt=end_date,
+            category__is_cogs=False,  # Exclude procurement/COGS expenses
         ).aggregate(total=Sum('amount'))
         return result['total'] or Decimal('0')
 

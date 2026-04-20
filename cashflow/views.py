@@ -131,11 +131,12 @@ def transaction_list(request):
             Q(supplier__name__icontains=search_query)
         )
     
-    # Expenses - Operational
+    # Expenses - Operational (exclude COGS/procurement expenses)
     expenses_qs = Expense.objects.filter(
         status='APPROVED',
         date__gte=start_date,
         date__lt=end_date,
+        category__is_cogs=False,  # Exclude procurement/COGS expenses
     ).select_related('category', 'created_by')
     
     # Apply search to expenses

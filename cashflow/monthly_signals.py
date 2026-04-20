@@ -106,11 +106,12 @@ def update_monthly_summary(year, month, user=None):
             # Skip GRNs with errors
             continue
     
-    # Operational Expenses
+    # Operational Expenses (exclude COGS/procurement expenses)
     result = Expense.objects.filter(
         status='APPROVED',
         date__gte=start_date,
         date__lt=end_date,
+        category__is_cogs=False,  # Exclude procurement/COGS expenses
     ).aggregate(total=Sum('amount'))
     expenses_operational = result['total'] or Decimal('0')
     
