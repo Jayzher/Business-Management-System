@@ -354,7 +354,7 @@ def transaction_create(request):
             _log(txn, CashFlowLogAction.CREATED, request.user,
                  f'Transaction {txn.transaction_number} created.')
             messages.success(request, f'Transaction {txn.transaction_number} created.')
-            return redirect('cashflow_list')
+            return redirect('cashflow:cashflow_list')
     else:
         form = CashFlowTransactionForm()
     return render(request, 'cashflow/transaction_form.html', {
@@ -371,7 +371,7 @@ def transaction_edit(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if txn.status not in (CashFlowStatus.PENDING, CashFlowStatus.REJECTED):
         messages.warning(request, 'Only Pending or Rejected transactions can be edited.')
-        return redirect('cashflow_detail', pk=pk)
+        return redirect('cashflow:cashflow_detail', pk=pk)
 
     old_data = {
         'category': txn.category, 'flow_type': txn.flow_type,
@@ -396,7 +396,7 @@ def transaction_edit(request, pk):
                  f'Transaction {txn.transaction_number} updated.',
                  old_values=old_data, new_values=new_data)
             messages.success(request, f'Transaction {txn.transaction_number} updated.')
-            return redirect('cashflow_list')
+            return redirect('cashflow:cashflow_list')
     else:
         form = CashFlowTransactionForm(instance=txn)
     return render(request, 'cashflow/transaction_form.html', {
@@ -413,14 +413,14 @@ def transaction_delete(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if txn.status == CashFlowStatus.APPROVED:
         messages.warning(request, 'Approved transactions cannot be deleted.')
-        return redirect('cashflow_detail', pk=pk)
+        return redirect('cashflow:cashflow_detail', pk=pk)
 
     if request.method == 'POST':
         _log(txn, CashFlowLogAction.DELETED, request.user,
              f'Transaction {txn.transaction_number} deleted.')
         txn.soft_delete()
         messages.success(request, f'Transaction {txn.transaction_number} deleted.')
-        return redirect('cashflow_list')
+        return redirect('cashflow:cashflow_list')
     return render(request, 'cashflow/transaction_delete.html', {'object': txn})
 
 
@@ -432,10 +432,10 @@ def transaction_delete(request, pk):
 def transaction_approve(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if request.method != 'POST':
-        return redirect('cashflow_detail', pk=pk)
+        return redirect('cashflow:cashflow_detail', pk=pk)
     if txn.status != CashFlowStatus.PENDING:
         messages.warning(request, 'Only Pending transactions can be approved.')
-        return redirect('cashflow_detail', pk=pk)
+        return redirect('cashflow:cashflow_detail', pk=pk)
 
     txn.status = CashFlowStatus.APPROVED
     txn.approved_by = request.user
@@ -444,7 +444,7 @@ def transaction_approve(request, pk):
     _log(txn, CashFlowLogAction.APPROVED, request.user,
          f'Transaction {txn.transaction_number} approved.')
     messages.success(request, f'Transaction {txn.transaction_number} approved.')
-    return redirect('cashflow_detail', pk=pk)
+    return redirect('cashflow:cashflow_detail', pk=pk)
 
 
 @login_required
@@ -452,10 +452,10 @@ def transaction_approve(request, pk):
 def transaction_reject(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if request.method != 'POST':
-        return redirect('cashflow_detail', pk=pk)
+        return redirect('cashflow:cashflow_detail', pk=pk)
     if txn.status != CashFlowStatus.PENDING:
         messages.warning(request, 'Only Pending transactions can be rejected.')
-        return redirect('cashflow_detail', pk=pk)
+        return redirect('cashflow:cashflow_detail', pk=pk)
 
     form = CashFlowRejectForm(request.POST)
     reason = ''
@@ -472,7 +472,7 @@ def transaction_reject(request, pk):
     _log(txn, CashFlowLogAction.REJECTED, request.user,
          f'Transaction {txn.transaction_number} rejected. Reason: {reason}')
     messages.success(request, f'Transaction {txn.transaction_number} rejected.')
-    return redirect('cashflow_detail', pk=pk)
+    return redirect('cashflow:cashflow_detail', pk=pk)
 
 
 @login_required
@@ -480,10 +480,10 @@ def transaction_reject(request, pk):
 def transaction_cancel(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if request.method != 'POST':
-        return redirect('cashflow_detail', pk=pk)
+        return redirect('cashflow:cashflow_detail', pk=pk)
     if txn.status == CashFlowStatus.CANCELLED:
         messages.warning(request, 'Transaction is already cancelled.')
-        return redirect('cashflow_detail', pk=pk)
+        return redirect('cashflow:cashflow_detail', pk=pk)
 
     old_status = txn.status
     txn.status = CashFlowStatus.CANCELLED
@@ -491,7 +491,7 @@ def transaction_cancel(request, pk):
     _log(txn, CashFlowLogAction.CANCELLED, request.user,
          f'Transaction {txn.transaction_number} cancelled (was {old_status}).')
     messages.success(request, f'Transaction {txn.transaction_number} cancelled.')
-    return redirect('cashflow_detail', pk=pk)
+    return redirect('cashflow:cashflow_detail', pk=pk)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -519,7 +519,7 @@ def sync_cashflow(request):
     Returns JSON so the frontend can show results via Swal.fire.
     """
     if request.method != 'POST':
-        return redirect('cashflow_list')
+        return redirect('cashflow:cashflow_list')
 
     from cashflow.sync import sync_all
     try:

@@ -16,6 +16,24 @@
   .bdg-so  { background:#007bff; color:#fff; font-size:.72rem; padding:.2rem .45rem; border-radius:.25rem; }
   .bdg-svc { background:#6f42c1; color:#fff; font-size:.72rem; padding:.2rem .45rem; border-radius:.25rem; }
   .bg-purple { background-color: #6f42c1 !important; color: white !important; }
+  .info-tooltip { 
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    line-height: 14px;
+    text-align: center;
+    border-radius: 50%;
+    background: #17a2b8;
+    color: white;
+    font-size: 11px;
+    font-weight: bold;
+    margin-left: 6px;
+    cursor: help;
+    border: 1px solid #138496;
+  }
+  .info-tooltip:hover {
+    background: #138496;
+  }
 </style>
 {% endblock %}
 
@@ -58,22 +76,53 @@
             <!-- ═══════════════════════════════════════════════════════════ -->
             <!-- MATERIALS SALES P&L (POS + Sales Orders) -->
             <!-- ═══════════════════════════════════════════════════════════ -->
-            <tr class="pnl-section" style="background: #e3f2fd;"><td colspan="2"><i class="fas fa-box mr-2"></i>MATERIALS SALES (POS + Sales Orders)</td></tr>
+            <tr class="pnl-section" style="background: #e3f2fd;">
+              <td colspan="2">
+                <i class="fas fa-box mr-2"></i>MATERIALS SALES (POS + Sales Orders)
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Revenue from selling physical products through Point of Sale (POS) and Sales Orders">?</span>
+              </td>
+            </tr>
             
             <!-- Materials Revenue -->
-            {% if pos_invoice_revenue %}<tr><td class="ps-4">POS Revenue</td><td class="text-right">&#8369; {{ pos_invoice_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
-            {% if so_invoice_revenue %}<tr><td class="ps-4">Sales Orders Revenue</td><td class="text-right">&#8369; {{ so_invoice_revenue|floatformat:2|intcomma }}</td></tr>{% endif %}
-            <tr><td class="ps-4">Materials Revenue (gross)</td><td class="text-right">&#8369; {{ materials_revenue|floatformat:2|intcomma }}</td></tr>
-            {% if materials_discount %}<tr><td class="ps-4">Less: Discounts</td><td class="text-right negative">(&#8369; {{ materials_discount|floatformat:2|intcomma }})</td></tr>{% endif %}
-            <tr><td class="ps-4 font-weight-bold">Net Materials Revenue</td><td class="text-right font-weight-bold">&#8369; {{ materials_revenue|floatformat:2|intcomma }}</td></tr>
+            <tr>
+              <td class="ps-4">
+                Materials Revenue (gross)
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total revenue from materials sales before any discounts are applied">?</span>
+              </td>
+              <td class="text-right">&#8369; {{ materials_revenue|floatformat:2|intcomma }}</td>
+            </tr>
+            {% if materials_discount %}
+            <tr>
+              <td class="ps-4">
+                Less: Discounts
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total discounts given on materials sales (reduces revenue)">?</span>
+              </td>
+              <td class="text-right negative">(&#8369; {{ materials_discount|floatformat:2|intcomma }})</td>
+            </tr>
+            {% endif %}
+            <tr>
+              <td class="ps-4 font-weight-bold">
+                Net Materials Revenue
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Materials revenue after discounts (Gross Revenue - Discounts)">?</span>
+              </td>
+              <td class="text-right font-weight-bold">&#8369; {{ materials_net_revenue|floatformat:2|intcomma }}</td>
+            </tr>
             
             <!-- Materials COGS -->
-            <tr><td class="ps-4">Materials COGS</td><td class="text-right">&#8369; {{ materials_cogs|floatformat:2|intcomma }}</td></tr>
+            <tr>
+              <td class="ps-4">
+                Materials COGS
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Cost of Goods Sold - the inventory cost of materials sold (what you paid to acquire/produce the products)">?</span>
+              </td>
+              <td class="text-right">&#8369; {{ materials_cogs|floatformat:2|intcomma }}</td>
+            </tr>
             
             <!-- Materials Gross Profit -->
             <tr class="pnl-total" style="background: #bbdefb;">
-              <td><i class="fas fa-chart-line mr-2"></i>Materials Gross Profit 
+              <td>
+                <i class="fas fa-chart-line mr-2"></i>Materials Gross Profit 
                 <span class="badge {% if materials_gross_margin >= 20 %}bg-success{% elif materials_gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ materials_gross_margin|floatformat:1 }}%</span>
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Profit from materials sales after deducting cost of goods (Net Revenue - COGS). Margin shows profit as % of net revenue">?</span>
               </td>
               <td class="text-right {% if materials_gross_profit >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ materials_gross_profit|floatformat:2|intcomma }}</td>
             </tr>
@@ -81,52 +130,150 @@
             <!-- ═══════════════════════════════════════════════════════════ -->
             <!-- SERVICES P&L -->
             <!-- ═══════════════════════════════════════════════════════════ -->
-            <tr class="pnl-section" style="background: #f3e5f5;"><td colspan="2"><i class="fas fa-tools mr-2"></i>SERVICES REVENUE</td></tr>
+            <tr class="pnl-section" style="background: #f3e5f5;">
+              <td colspan="2">
+                <i class="fas fa-tools mr-2"></i>SERVICES REVENUE
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Revenue from providing services to customers (labor, repairs, installations, etc.)">?</span>
+              </td>
+            </tr>
             
             <!-- Services Revenue -->
-            <tr><td class="ps-4">Services Revenue (gross)</td><td class="text-right">&#8369; {{ services_revenue|floatformat:2|intcomma }}</td></tr>
-            {% if services_discount %}<tr><td class="ps-4">Less: Discounts</td><td class="text-right negative">(&#8369; {{ services_discount|floatformat:2|intcomma }})</td></tr>{% endif %}
-            <tr><td class="ps-4 font-weight-bold">Net Services Revenue</td><td class="text-right font-weight-bold">&#8369; {{ services_revenue|floatformat:2|intcomma }}</td></tr>
+            <tr>
+              <td class="ps-4">
+                Services Revenue (gross)
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total revenue from services before discounts. Includes both fully paid services and partial payments received">?</span>
+              </td>
+              <td class="text-right">&#8369; {{ services_revenue_with_partial|floatformat:2|intcomma }}</td>
+            </tr>
+            {% if partial_services_revenue %}
+            <tr>
+              <td class="ps-5 text-info small">
+                <i class="fas fa-clock mr-1"></i>Includes &#8369;{{ partial_services_revenue|floatformat:2|intcomma }} from {{ partial_services_count }} partial payment{{ partial_services_count|pluralize }}
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Partial payments from services in any status (Draft, In Progress, or Completed) are recognized proportionally - only the percentage of work paid for is included in revenue and COGS">?</span>
+              </td>
+              <td></td>
+            </tr>
+            {% endif %}
+            {% if services_discount %}
+            <tr>
+              <td class="ps-4">
+                Less: Discounts
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total discounts given on services (reduces revenue)">?</span>
+              </td>
+              <td class="text-right negative">(&#8369; {{ services_discount|floatformat:2|intcomma }})</td>
+            </tr>
+            {% endif %}
+            <tr>
+              <td class="ps-4 font-weight-bold">
+                Net Services Revenue
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Services revenue after discounts (Gross Revenue - Discounts)">?</span>
+              </td>
+              <td class="text-right font-weight-bold">&#8369; {{ services_net_revenue|floatformat:2|intcomma }}</td>
+            </tr>
             
             <!-- Services COGS -->
-            <tr><td class="ps-4">Services COGS (materials + labor)</td><td class="text-right">&#8369; {{ services_cogs|floatformat:2|intcomma }}</td></tr>
+            <tr>
+              <td class="ps-4">
+                Services COGS (materials + labor)
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Direct costs of providing services: parts/materials used, labor costs, and other direct expenses. For partial payments, COGS is calculated proportionally">?</span>
+              </td>
+              <td class="text-right">&#8369; {{ services_cogs_with_partial|floatformat:2|intcomma }}</td>
+            </tr>
             
             <!-- Services Gross Profit -->
             <tr class="pnl-total" style="background: #e1bee7;">
-              <td><i class="fas fa-chart-line mr-2"></i>Services Gross Profit 
-                <span class="badge {% if services_gross_margin >= 20 %}bg-success{% elif services_gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ services_gross_margin|floatformat:1 }}%</span>
+              <td>
+                <i class="fas fa-chart-line mr-2"></i>Services Gross Profit 
+                <span class="badge {% if services_gross_margin_with_partial >= 20 %}bg-success{% elif services_gross_margin_with_partial >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ services_gross_margin_with_partial|floatformat:1 }}%</span>
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Profit from services after deducting direct costs (Net Revenue - COGS). Margin shows profit as % of net revenue">?</span>
               </td>
-              <td class="text-right {% if services_gross_profit >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ services_gross_profit|floatformat:2|intcomma }}</td>
+              <td class="text-right {% if services_gross_profit_with_partial >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ services_gross_profit_with_partial|floatformat:2|intcomma }}</td>
             </tr>
 
             <!-- ═══════════════════════════════════════════════════════════ -->
             <!-- COMBINED TOTALS -->
             <!-- ═══════════════════════════════════════════════════════════ -->
-            <tr class="pnl-section"><td colspan="2">COMBINED REVENUE & COGS</td></tr>
-            <tr><td class="ps-4">Total Revenue (gross)</td><td class="text-right">&#8369; {{ invoice_revenue|floatformat:2|intcomma }}</td></tr>
-            {% if discount %}<tr><td class="ps-4">Less: Total Discounts</td><td class="text-right negative">(&#8369; {{ discount|floatformat:2|intcomma }})</td></tr>{% endif %}
-            <tr class="pnl-total"><td>Net Revenue</td><td class="text-right">&#8369; {{ net_revenue|floatformat:2|intcomma }}</td></tr>
+            <tr class="pnl-section">
+              <td colspan="2">
+                COMBINED REVENUE & COGS
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Combined totals from both Materials Sales and Services Revenue">?</span>
+              </td>
+            </tr>
+            <tr>
+              <td class="ps-4">
+                Total Revenue (gross)
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Sum of all revenue from materials and services before discounts">?</span>
+              </td>
+              <td class="text-right">&#8369; {{ invoice_revenue|floatformat:2|intcomma }}</td>
+            </tr>
+            {% if discount %}
+            <tr>
+              <td class="ps-4">
+                Less: Total Discounts
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Sum of all discounts given across materials and services">?</span>
+              </td>
+              <td class="text-right negative">(&#8369; {{ discount|floatformat:2|intcomma }})</td>
+            </tr>
+            {% endif %}
+            <tr class="pnl-total">
+              <td>
+                Net Revenue
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total revenue after all discounts (Total Gross Revenue - Total Discounts)">?</span>
+              </td>
+              <td class="text-right">&#8369; {{ net_revenue|floatformat:2|intcomma }}</td>
+            </tr>
             
-            <tr><td class="ps-4">Total COGS (Inventory + Direct Costs)</td><td class="text-right">&#8369; {{ total_cogs|floatformat:2|intcomma }}</td></tr>
+            <tr>
+              <td class="ps-4">
+                Total COGS (Inventory + Direct Costs)
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Sum of all Cost of Goods Sold from materials inventory and direct service costs">?</span>
+              </td>
+              <td class="text-right">&#8369; {{ total_cogs|floatformat:2|intcomma }}</td>
+            </tr>
 
             <!-- COMBINED GROSS PROFIT -->
             <tr class="pnl-grand">
-              <td>TOTAL GROSS PROFIT <span class="badge {% if gross_margin >= 20 %}bg-success{% elif gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ gross_margin|floatformat:1 }}%</span></td>
+              <td>
+                TOTAL GROSS PROFIT 
+                <span class="badge {% if gross_margin >= 20 %}bg-success{% elif gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ gross_margin|floatformat:1 }}%</span>
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total profit after deducting all COGS from net revenue (Net Revenue - Total COGS). This is profit before operating expenses">?</span>
+              </td>
               <td class="text-right {% if gross_profit >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ gross_profit|floatformat:2|intcomma }}</td>
             </tr>
 
             <!-- OPERATING EXPENSES -->
-            <tr class="pnl-section"><td colspan="2">OPERATING EXPENSES</td></tr>
+            <tr class="pnl-section">
+              <td colspan="2">
+                OPERATING EXPENSES
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Indirect costs of running the business (not directly tied to producing goods/services). Includes salaries, rent, utilities, marketing, etc.">?</span>
+              </td>
+            </tr>
             {% for row in opex_rows %}
-            <tr><td class="ps-4">{{ row.category__name }}</td><td class="text-right">&#8369; {{ row.total|floatformat:2|intcomma }}</td></tr>
+            <tr>
+              <td class="ps-4">
+                {{ row.category__name }}
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Expense category: {{ row.category__name }}">?</span>
+              </td>
+              <td class="text-right">&#8369; {{ row.total|floatformat:2|intcomma }}</td>
+            </tr>
             {% empty %}
             <tr><td class="ps-4 text-muted" colspan="2">No operating expenses recorded</td></tr>
             {% endfor %}
-            <tr class="pnl-total"><td>Total Operating Expenses</td><td class="text-right">&#8369; {{ total_opex|floatformat:2|intcomma }}</td></tr>
+            <tr class="pnl-total">
+              <td>
+                Total Operating Expenses
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Sum of all operating expenses for the period">?</span>
+              </td>
+              <td class="text-right">&#8369; {{ total_opex|floatformat:2|intcomma }}</td>
+            </tr>
 
             <!-- NET PROFIT -->
             <tr class="pnl-grand" style="background:#f0f7ff;">
-              <td>NET PROFIT <span class="badge {% if net_margin >= 10 %}bg-success{% elif net_margin >= 0 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ net_margin|floatformat:1 }}%</span></td>
+              <td>
+                NET PROFIT 
+                <span class="badge {% if net_margin >= 10 %}bg-success{% elif net_margin >= 0 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ net_margin|floatformat:1 }}%</span>
+                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Final profit after all costs (Gross Profit - Operating Expenses). This is your bottom line - the actual profit available to the business">?</span>
+              </td>
               <td class="text-right {% if net_profit >= 0 %}positive{% else %}negative{% endif %}" style="font-size:1.2rem;">&#8369; {{ net_profit|floatformat:2|intcomma }}</td>
             </tr>
           </tbody>
@@ -171,8 +318,8 @@
           <span class="info-box-icon"><i class="fas fa-tools"></i></span>
           <div class="info-box-content">
             <span class="info-box-text">Services GP</span>
-            <span class="info-box-number">&#8369; {{ services_gross_profit|floatformat:2|intcomma }}</span>
-            <small class="text-white-50">{{ services_gross_margin|floatformat:1 }}% margin</small>
+            <span class="info-box-number">&#8369; {{ services_gross_profit_with_partial|floatformat:2|intcomma }}</span>
+            <small class="text-white-50">{{ services_gross_margin_with_partial|floatformat:1 }}% margin</small>
           </div>
         </div>
       </div>
@@ -198,6 +345,11 @@
           <li class="nav-item">
             <a class="nav-link active" id="tab-invoices" data-toggle="tab" href="#pane-invoices" role="tab">
               <i class="fas fa-file-invoice mr-1"></i> Invoices ({{ breakdown_rows|length }})
+            </a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" id="tab-partial" data-toggle="tab" href="#pane-partial" role="tab">
+              <i class="fas fa-clock mr-1 text-info"></i> Partial Payments ({{ partial_services_count }})
             </a>
           </li>
           <li class="nav-item">
@@ -279,6 +431,94 @@
             </div>
           </div>
 
+          <!-- ── Partial Payments tab ── -->
+          <div class="tab-pane fade" id="pane-partial" role="tabpanel">
+            <div class="p-3">
+              <p class="text-muted small mb-3">
+                <i class="fas fa-info-circle mr-1"></i>
+                Services with partial payments received (not yet fully invoiced). Includes services in DRAFT, IN PROGRESS, and COMPLETED status. Revenue and COGS are recognized proportionally based on payment percentage.
+              </p>
+              
+              <!-- Debug Information -->
+              <div class="alert alert-info mb-3">
+                <strong><i class="fas fa-bug mr-1"></i> Debug Information:</strong>
+                <ul class="mb-0 mt-2">
+                  <li>Total non-cancelled services: <strong>{{ debug_total_services }}</strong></li>
+                  <li>Services with partial_payment_amount > 0: <strong>{{ debug_services_with_amount }}</strong></li>
+                  <li>Services where partial < quotation: <strong>{{ debug_services_partial_lt_quotation }}</strong></li>
+                  <li>Services with payment_status=PARTIAL: <strong>{{ debug_services_with_status }}</strong></li>
+                  <li>Services matching query (before date filter): <strong>{{ debug_query_count }}</strong></li>
+                  <li>Services shown in table (after all filters): <strong>{{ partial_services_count }}</strong></li>
+                </ul>
+                <small class="text-muted mt-2 d-block">
+                  <strong>Query Logic:</strong> Shows services where partial_payment_amount > 0 AND (partial_payment_amount < quotation OR no invoice yet)
+                  <br><strong>Example:</strong> Service with ₱30,000 partial payment out of ₱75,000 quotation will show here
+                </small>
+              </div>
+              
+              <table class="table table-sm table-hover table-bordered mb-0" id="partialTable">
+                <thead class="thead-dark">
+                  <tr>
+                    <th>Service #</th>
+                    <th>Status</th>
+                    <th>Customer</th>
+                    <th>Service Date</th>
+                    <th class="text-right">Quotation</th>
+                    <th class="text-right">Partial Payment</th>
+                    <th class="text-right">% Paid</th>
+                    <th class="text-right text-danger">Proportional COGS</th>
+                    <th class="text-right text-success">Gross Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in partial_services_breakdown %}
+                  <tr>
+                    <td class="font-monospace small">{{ item.service.service_number }}</td>
+                    <td>
+                      {% if item.service.status == 'DRAFT' %}
+                        <span class="badge badge-secondary">Draft</span>
+                      {% elif item.service.status == 'IN_PROGRESS' %}
+                        <span class="badge badge-primary">In Progress</span>
+                      {% elif item.service.status == 'COMPLETED' %}
+                        <span class="badge badge-success">Completed</span>
+                      {% else %}
+                        <span class="badge badge-secondary">{{ item.service.get_status_display }}</span>
+                      {% endif %}
+                    </td>
+                    <td class="small">{{ item.service.customer_name }}</td>
+                    <td class="small">{{ item.service.service_date|date:"M d, Y"|default:"—" }}</td>
+                    <td class="text-right">&#8369; {{ item.service.quotation_amount|floatformat:2|intcomma }}</td>
+                    <td class="text-right text-info"><strong>&#8369; {{ item.revenue|floatformat:2|intcomma }}</strong></td>
+                    <td class="text-right"><span class="badge badge-info">{{ item.payment_percentage|floatformat:0 }}%</span></td>
+                    <td class="text-right text-danger">&#8369; {{ item.cogs|floatformat:2|intcomma }}</td>
+                    <td class="text-right {% if item.gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
+                      <strong>&#8369; {{ item.gross_profit|floatformat:2|intcomma }}</strong>
+                    </td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="9" class="text-center text-muted py-4">
+                    <i class="fas fa-inbox mr-1"></i>No partial payments found for the selected period.
+                    <br><small class="text-muted">Check the debug information above to see why no services are showing.</small>
+                  </td></tr>
+                  {% endfor %}
+                </tbody>
+                {% if partial_services_breakdown %}
+                <tfoot class="table-dark font-weight-bold">
+                  <tr>
+                    <td colspan="5" class="text-right">TOTALS</td>
+                    <td class="text-right text-info">&#8369; {{ partial_services_revenue|floatformat:2|intcomma }}</td>
+                    <td class="text-right">—</td>
+                    <td class="text-right text-danger">&#8369; {{ partial_services_cogs|floatformat:2|intcomma }}</td>
+                    <td class="text-right text-success">
+                      &#8369; {{ partial_services_revenue|floatformat:2|intcomma|add:"-"|add:partial_services_cogs|floatformat:2|intcomma }}
+                    </td>
+                  </tr>
+                </tfoot>
+                {% endif %}
+              </table>
+            </div>
+          </div>
+
           <!-- ── Payment method tab ── -->
           <div class="tab-pane fade" id="pane-payments" role="tabpanel">
             <div class="p-3">
@@ -340,6 +580,15 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
+// Initialize Bootstrap tooltips
+$(function () {
+  $('[data-toggle="tooltip"]').tooltip({
+    html: true,
+    trigger: 'hover',
+    boundary: 'window'
+  });
+});
+
 new Chart(document.getElementById('trendChart'), {
   type: 'bar',
   data: {

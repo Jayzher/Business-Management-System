@@ -15,6 +15,49 @@ from warehouses.models import Warehouse
 from core.cogs import compute_invoice_cogs
 
 
+def _calculate_service_cogs(service):
+    """
+    Calculate COGS for a service (used for partial payment calculations).
+    Similar to service_invoice_cogs but works directly on CustomerService object.
+    """
+    from decimal import Decimal
+    from catalog.utils import calculate_line_cogs_with_conversion
+    
+    total = Decimal('0')
+    
+    # Product lines (skip scrap)
+    for line in service.lines.all():
+        try:
+            if line.is_scrap:
+                continue
+            if line.item and line.unit:
+                cogs = calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
+                total += cogs
+        except Exception:
+            continue
+    
+    # Bundles
+    for bundle in service.bundles.all():
+        try:
+            for pli in bundle.price_list.items.all():
+                if pli.item and pli.unit:
+                    item_cogs = calculate_line_cogs_with_conversion(
+                        pli.item, pli.min_qty, pli.unit
+                    )
+                    total += item_cogs * bundle.qty
+        except Exception:
+            continue
+    
+    # Other materials (at cost)
+    for mat in service.other_materials.all():
+        try:
+            total += mat.line_cost
+        except Exception:
+            continue
+    
+    return total
+
+
 # ── API Views ──────────────────────────────────────────────────────────────
 
 @api_view(['GET'])
@@ -571,6 +614,7 @@ def profit_margin_view(request):
 @login_required
 def financial_statement_view(request):
     from core.models import Expense, Invoice
+    from services.models import CustomerService, ServicePaymentStatus
 
     today = date.today()
     first_of_month = today.replace(day=1)
@@ -653,6 +697,102 @@ def financial_statement_view(request):
         (services_gross_profit / (services_revenue - services_discount) * 100) 
         if (services_revenue - services_discount) > 0 else Decimal('0')
     )
+    
+    # ── Partial Payments from Services (All Statuses) ──────────────────
+    # Include services with partial payments
+    # This includes services where partial_payment_amount < quotation_amount
+    # (meaning they received a partial payment before invoicing)
+    from services.models import ServiceStatus
+    from django.db.models import Q
+    
+    # Query for services with partial payments
+    # Include services where partial payment was less than the full quotation
+    # This shows the partial payment revenue that was recognized
+    partial_services_qs = CustomerService.objects.filter(
+        partial_payment_amount__gt=0,
+        partial_payment_amount__isnull=False,
+    ).filter(
+        # Only include if partial payment is less than quotation (true partial)
+        # OR if no invoice exists yet (still in progress)
+        Q(partial_payment_amount__lt=F('quotation')) | Q(invoice__isnull=True)
+    ).exclude(
+        status=ServiceStatus.CANCELLED  # Exclude cancelled services
+    )
+    
+    # Date filter: use service_date for filtering (when the service was scheduled/started)
+    if date_from:
+        partial_services_qs = partial_services_qs.filter(service_date__gte=date_from)
+    if date_to:
+        partial_services_qs = partial_services_qs.filter(service_date__lte=date_to)
+    
+    partial_services_qs = partial_services_qs.select_related('warehouse').prefetch_related(
+        'lines__item', 'lines__unit',
+        'bundles__price_list__items__item', 'bundles__price_list__items__unit',
+        'other_materials',
+    )
+    
+    partial_services_revenue = Decimal('0')
+    partial_services_cogs = Decimal('0')
+    partial_services_breakdown = []
+    
+    # Debug: Count total services for comparison
+    debug_total_services = CustomerService.objects.exclude(status=ServiceStatus.CANCELLED).count()
+    debug_services_with_amount = CustomerService.objects.filter(
+        partial_payment_amount__gt=0
+    ).exclude(status=ServiceStatus.CANCELLED).count()
+    debug_services_partial_lt_quotation = CustomerService.objects.filter(
+        partial_payment_amount__gt=0,
+        partial_payment_amount__lt=F('quotation')
+    ).exclude(status=ServiceStatus.CANCELLED).count()
+    debug_services_with_status = CustomerService.objects.filter(
+        payment_status=ServicePaymentStatus.PARTIAL
+    ).exclude(status=ServiceStatus.CANCELLED).count()
+    debug_query_count = partial_services_qs.count()
+    
+    for svc in partial_services_qs:
+        # Revenue = partial payment amount received
+        partial_revenue = svc.partial_payment_amount_value
+        
+        # Skip if no actual partial payment (safety check)
+        if partial_revenue <= 0:
+            continue
+        
+        # Calculate full COGS for this service
+        full_cogs = _calculate_service_cogs(svc)
+        
+        # Calculate payment percentage
+        payment_percentage = (
+            partial_revenue / svc.quotation_amount 
+            if svc.quotation_amount > 0 else Decimal('0')
+        )
+        
+        # Proportional COGS = full COGS × payment percentage
+        proportional_cogs = (full_cogs * payment_percentage).quantize(Decimal('0.01'))
+        
+        partial_services_revenue += partial_revenue
+        partial_services_cogs += proportional_cogs
+        
+        # Store for breakdown table
+        partial_services_breakdown.append({
+            'service': svc,
+            'revenue': partial_revenue,
+            'cogs': proportional_cogs,
+            'gross_profit': partial_revenue - proportional_cogs,
+            'payment_percentage': payment_percentage * 100,
+        })
+    
+    # Update services totals to include partial payments
+    services_revenue_with_partial = services_revenue + partial_services_revenue
+    services_cogs_with_partial = services_cogs + partial_services_cogs
+    services_gross_profit_with_partial = services_revenue_with_partial - services_discount - services_cogs_with_partial
+    services_gross_margin_with_partial = (
+        (services_gross_profit_with_partial / (services_revenue_with_partial - services_discount) * 100) 
+        if (services_revenue_with_partial - services_discount) > 0 else Decimal('0')
+    )
+    
+    # Calculate net revenues (after discounts)
+    materials_net_revenue = materials_revenue - materials_discount
+    services_net_revenue = services_revenue_with_partial - services_discount
 
     net_revenue = invoice_revenue - discount
 
@@ -797,13 +937,30 @@ def financial_statement_view(request):
         'materials_revenue': materials_revenue,
         'materials_discount': materials_discount,
         'materials_cogs': materials_cogs,
+        'materials_net_revenue': materials_net_revenue,
         'materials_gross_profit': materials_gross_profit,
         'materials_gross_margin': materials_gross_margin,
         'services_revenue': services_revenue,
         'services_discount': services_discount,
         'services_cogs': services_cogs,
+        'services_net_revenue': services_net_revenue,
         'services_gross_profit': services_gross_profit,
         'services_gross_margin': services_gross_margin,
+        # Partial payments
+        'partial_services_revenue': partial_services_revenue,
+        'partial_services_cogs': partial_services_cogs,
+        'partial_services_count': len(partial_services_breakdown),
+        'services_revenue_with_partial': services_revenue_with_partial,
+        'services_cogs_with_partial': services_cogs_with_partial,
+        'services_gross_profit_with_partial': services_gross_profit_with_partial,
+        'services_gross_margin_with_partial': services_gross_margin_with_partial,
+        'partial_services_breakdown': partial_services_breakdown,
+        # Debug info
+        'debug_total_services': debug_total_services,
+        'debug_services_with_amount': debug_services_with_amount,
+        'debug_services_partial_lt_quotation': debug_services_partial_lt_quotation,
+        'debug_services_with_status': debug_services_with_status,
+        'debug_query_count': debug_query_count,
         'opex_rows': opex_rows,
         'total_opex': total_opex,
         'net_profit': net_profit,
