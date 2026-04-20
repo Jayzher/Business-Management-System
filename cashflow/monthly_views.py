@@ -151,12 +151,13 @@ def monthly_detail(request, year, month):
         receipt_date__lt=end_date,
     ).select_related('supplier', 'warehouse').order_by('-receipt_date')
     
-    # Get expenses
+    # Get operational expenses (exclude COGS/procurement expenses)
     expenses = Expense.objects.filter(
         status='APPROVED',
         date__gte=start_date,
         date__lt=end_date,
-    ).select_related('category', 'created_by').order_by('-date')
+        category__is_cogs=False,  # Only operational expenses, not procurement
+    ).select_related('category').order_by('-date')
     
     context = {
         'summary': summary,
@@ -164,7 +165,7 @@ def monthly_detail(request, year, month):
         'cash_out_transactions': cash_out_transactions,
         'pos_sales': pos_sales,
         'procurements': procurements,
-        'expenses': expenses,
+        'expenses': expenses,  # Operational expenses only
     }
     
     return render(request, 'cashflow/monthly_detail.html', context)
