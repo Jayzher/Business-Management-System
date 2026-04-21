@@ -6,49 +6,56 @@
   <title>Invoice INV-{{ invoice.invoice_number }}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #333; padding: 30px; }
-    .header { display: flex; justify-content: space-between; margin-bottom: 30px; border-bottom: 3px solid #007bff; padding-bottom: 15px; }
-    .header .company h2 { color: #007bff; margin-bottom: 4px; }
-    .header .company p { margin: 2px 0; font-size: 12px; color: #666; }
-    .header .inv-title { text-align: right; }
-    .header .inv-title h1 { font-size: 28px; color: #007bff; letter-spacing: 2px; }
-    .header .inv-title p { margin: 2px 0; font-size: 12px; }
-    .bill-to { margin-bottom: 20px; }
-    .bill-to strong { display: block; margin-bottom: 4px; color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-    th { background: #f4f6f9; color: #555; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; border-bottom: 2px solid #dee2e6; text-align: left; }
-    td { padding: 7px 10px; border-bottom: 1px solid #eee; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #333; padding: 20px; line-height: 1.3; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; border-bottom: 3px solid #007bff; padding-bottom: 8px; }
+    .header .company { flex: 1; }
+    .header .company h2 { color: #007bff; margin-bottom: 3px; font-size: 22px; font-weight: 700; line-height: 1.2; }
+    .header .company p { margin: 1px 0; font-size: 11px; color: #555; font-weight: 400; line-height: 1.3; }
+    .header .inv-title { text-align: right; flex-shrink: 0; }
+    .header .inv-title h1 { font-size: 36px; color: #007bff; letter-spacing: 4px; font-weight: 700; margin-bottom: 4px; line-height: 1; }
+    .header .inv-title p { margin: 2px 0; font-size: 12px; font-weight: 500; color: #333; line-height: 1.3; }
+    .header .inv-title p strong { font-weight: 700; }
+    .bill-to { margin-bottom: 12px; }
+    .bill-to strong { display: block; margin-bottom: 3px; color: #333; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
+    .bill-to { font-size: 12px; line-height: 1.4; color: #555; font-weight: 400; }
+    .bill-to .customer-name { font-size: 16px; font-weight: 700; color: #333; display: block; margin-bottom: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    th { background: #f4f6f9; color: #333; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 6px 8px; border-bottom: 2px solid #dee2e6; text-align: left; font-weight: 700; line-height: 1.2; }
+    td { padding: 5px 8px; border-bottom: 1px solid #eee; font-size: 11px; color: #333; font-weight: 400; line-height: 1.2; }
+    td strong { font-weight: 700; }
     .text-right { text-align: right; }
-    .totals td { border-bottom: none; padding: 4px 10px; }
-    .totals .grand { font-size: 16px; font-weight: 700; color: #007bff; border-top: 2px solid #007bff; padding-top: 8px; }
-    .footer { margin-top: 30px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 10px; }
-    .badge-paid { background: #28a745; color: #fff; padding: 3px 10px; border-radius: 3px; font-size: 11px; }
-    .badge-unpaid { background: #ffc107; color: #333; padding: 3px 10px; border-radius: 3px; font-size: 11px; }
-    @media print { body { padding: 0; } @page { margin: 15mm; } }
+    .totals td { border-bottom: none; padding: 3px 10px; font-size: 13px; font-weight: 500; line-height: 1.3; }
+    .totals .grand { font-size: 17px; font-weight: 700; color: #007bff; border-top: 2px solid #007bff; padding-top: 6px; }
+    .notes { margin-top: 12px; padding: 8px; background: #f8f9fa; border-left: 4px solid #007bff; font-size: 11px; line-height: 1.4; display: none; }
+    .notes strong { font-weight: 700; color: #333; }
+    .footer { margin-top: 20px; text-align: center; font-size: 13px; color: #666; border-top: 1px solid #dee2e6; padding-top: 10px; font-weight: 500; font-style: italic; line-height: 1.4; }
+    .badge-paid { background: #28a745; color: #fff; padding: 3px 10px; border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .badge-unpaid { background: #ffc107; color: #333; padding: 3px 10px; border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    @media print { body { padding: 10px; } @page { margin: 10mm; } }
   </style>
 </head>
 <body>
   <div class="header">
-    <div class="company">
-      {% if profile.logo %}<img src="{{ profile.logo.url }}" alt="Logo" style="max-height:50px;margin-bottom:8px;display:block;">{% endif %}
+    <div class="company col">
+      {% if profile.logo %}<img src="{{ profile.logo.url }}" alt="{{ profile.name }} Logo">{% endif %}
       <h2>{{ profile.name }}</h2>
       <p>{{ profile.address }}</p>
       <p>{{ profile.city }}{% if profile.province %}, {{ profile.province }}{% endif %} {{ profile.zip_code }}</p>
       <p>{{ profile.phone }}{% if profile.email %} | {{ profile.email }}{% endif %}</p>
-      {% if profile.tin %}<p>TIN: {{ profile.tin }}</p>{% endif %}
+      {% if profile.tin %}<p><strong>TIN:</strong> {{ profile.tin }}</p>{% endif %}
     </div>
-    <div class="inv-title">
+    <div class="inv-title col">
       <h1>INVOICE</h1>
       <p><strong>INV-{{ invoice.invoice_number }}</strong></p>
-      <p>Date: {{ invoice.date|date:"F d, Y" }}</p>
-      {% if invoice.due_date %}<p>Due: {{ invoice.due_date|date:"F d, Y" }}</p>{% endif %}
+      <p><strong>Date:</strong> {{ invoice.date|date:"F d, Y" }}</p>
+      {% if invoice.due_date %}<p><strong>Due:</strong> {{ invoice.due_date|date:"F d, Y" }}</p>{% endif %}
       <p>{% if invoice.is_paid %}<span class="badge-paid">PAID</span>{% else %}<span class="badge-unpaid">UNPAID</span>{% endif %}</p>
     </div>
   </div>
 
   <div class="bill-to">
     <strong>Bill To</strong>
-    {{ invoice.customer_name|default:"Walk-in Customer" }}<br>
+    <span class="customer-name">{{ invoice.customer_name|default:"Walk-in Customer" }}</span>
     {% if invoice.customer_address %}{{ invoice.customer_address }}<br>{% endif %}
     {% if invoice.customer_tin %}TIN: {{ invoice.customer_tin }}{% endif %}
   </div>
@@ -87,16 +94,22 @@
   </table>
 
   <table class="totals" style="width:350px;margin-left:auto;">
-    <tr><td class="text-right">Subtotal</td><td class="text-right">{{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
-    {% if invoice.discount_total %}<tr><td class="text-right">Discount</td><td class="text-right">({{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
-    {% if invoice.tax_total %}<tr><td class="text-right">Tax</td><td class="text-right">{{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
+    <tr><td class="text-right"><strong>Subtotal</strong></td><td class="text-right"><strong>{{ invoice.subtotal|floatformat:2|intcomma }}</strong></td></tr>
+    {% if invoice.discount_total %}<tr><td class="text-right"><strong>Discount</strong></td><td class="text-right"><strong>({{ invoice.discount_total|floatformat:2|intcomma }})</strong></td></tr>{% endif %}
+    {% if invoice.tax_total %}<tr><td class="text-right"><strong>Tax</strong></td><td class="text-right"><strong>{{ invoice.tax_total|floatformat:2|intcomma }}</strong></td></tr>{% endif %}
     <tr><td class="text-right grand">TOTAL ({{ profile.currency }})</td><td class="text-right grand">{{ invoice.grand_total|floatformat:2|intcomma }}</td></tr>
   </table>
 
-  {% if invoice.notes %}<p style="margin-top:15px;"><strong>Notes:</strong> {{ invoice.notes }}</p>{% endif %}
+  {% if invoice.notes %}
+  <div class="notes">
+    <strong>Notes:</strong> {{ invoice.notes }}
+  </div>
+  {% endif %}
 
   {% if profile.receipt_footer %}
-  <div class="footer">{{ profile.receipt_footer }}</div>
+  <div class="footer">
+    {{ profile.receipt_footer }}
+  </div>
   {% endif %}
 
   <script>window.onload = function(){ window.print(); };</script>
