@@ -37,6 +37,11 @@ class SalesOrder(TransactionalDocument):
         max_length=20, choices=PaymentStatus.choices,
         default=PaymentStatus.UNPAID, db_index=True,
     )
+    partial_payment_amount = models.DecimalField(
+        max_digits=15, decimal_places=2,
+        null=True, blank=True, default=0,
+        help_text='Amount already paid by the customer when payment status is Partially Paid.',
+    )
     sales_channel = models.ForeignKey(
         SalesChannel, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='sales_orders',
@@ -98,6 +103,18 @@ class SalesOrder(TransactionalDocument):
     @property
     def grand_total(self):
         return self.line_amount_total + self.bundle_amount_total
+
+    @property
+    def partial_payment_amount_value(self):
+        """Return partial payment amount or 0."""
+        from decimal import Decimal
+        return self.partial_payment_amount or Decimal('0')
+
+    @property
+    def remaining_balance(self):
+        """Calculate remaining balance after partial payment."""
+        from decimal import Decimal
+        return max(self.grand_total - self.partial_payment_amount_value, Decimal('0'))
 
 
 class SalesOrderLine(models.Model):
