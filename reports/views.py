@@ -869,13 +869,16 @@ def financial_statement_view(request):
             ref = inv.pos_sale.sale_no
         elif hasattr(inv, 'customer_services') and inv.customer_services.exists():
             source_type = 'SVC'
-            svc_obj = inv.customer_services.first()
-            ref = svc_obj.service_number
-            # Calculate other materials COGS (cost, not selling price)
-            other_mat_cost = sum(
-                (mat.line_cost for mat in svc_obj.other_materials.all()),
-                Decimal('0'),
-            )
+            # Get all services linked to this invoice (could be multiple)
+            services = inv.customer_services.all()
+            # Use first service number as reference
+            ref = services[0].service_number if services else ''
+            # Calculate other materials COGS from ALL services (cost, not selling price)
+            for svc_obj in services:
+                other_mat_cost += sum(
+                    (mat.line_cost for mat in svc_obj.other_materials.all()),
+                    Decimal('0'),
+                )
         cogs_val = invoice_cogs_map[inv.pk]
         payment_methods = ', '.join(
             p.get_method_display() for p in inv.payments.all()

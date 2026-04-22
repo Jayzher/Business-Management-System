@@ -208,8 +208,10 @@ class ServiceOtherMaterial(models.Model):
     
     @property
     def line_cost(self):
-        """COGS for this material (cost paid to vendor)."""
-        return (self.qty or 0) * (self.unit_cost or 0)
+        """COGS for this material (cost paid to vendor).
+        Falls back to unit_price if unit_cost is not set (assumes cost = price)."""
+        cost = self.unit_cost if self.unit_cost > 0 else self.unit_price
+        return (self.qty or 0) * (cost or 0)
     
     @property
     def line_profit(self):
