@@ -342,23 +342,23 @@
       <div class="modal-body p-0">
         <!-- Tabs -->
         <ul class="nav nav-tabs px-3 pt-2" id="breakdownTabs" role="tablist">
-          <li class="nav-item">
-            <a class="nav-link active" id="tab-invoices" data-toggle="tab" href="#pane-invoices" role="tab">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-invoices" data-bs-toggle="tab" data-bs-target="#pane-invoices" type="button" role="tab" aria-controls="pane-invoices" aria-selected="true">
               <i class="fas fa-file-invoice mr-1"></i> Invoices ({{ breakdown_rows|length }})
-            </a>
+            </button>
           </li>
-          <li class="nav-item">
-            <a class="nav-link" id="tab-partial" data-toggle="tab" href="#pane-partial" role="tab">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-partial" data-bs-toggle="tab" data-bs-target="#pane-partial" type="button" role="tab" aria-controls="pane-partial" aria-selected="false">
               <i class="fas fa-clock mr-1 text-info"></i> Partial Payments ({{ partial_services_count }})
-            </a>
+            </button>
           </li>
-          <li class="nav-item">
-            <a class="nav-link" id="tab-payments" data-toggle="tab" href="#pane-payments" role="tab">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-payments" data-bs-toggle="tab" data-bs-target="#pane-payments" type="button" role="tab" aria-controls="pane-payments" aria-selected="false">
               <i class="fas fa-credit-card mr-1"></i> Payment Methods
-            </a>
+            </button>
           </li>
         </ul>
-        <div class="tab-content">
+        <div class="tab-content"
           <!-- ── Invoice breakdown tab ── -->
           <div class="tab-pane fade show active" id="pane-invoices" role="tabpanel">
             <div class="table-responsive">
