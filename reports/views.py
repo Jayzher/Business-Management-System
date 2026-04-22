@@ -615,6 +615,7 @@ def profit_margin_view(request):
 def financial_statement_view(request):
     from core.models import Expense, Invoice
     from services.models import CustomerService, ServicePaymentStatus
+    from sales.models import SalesOrder
 
     today = date.today()
     first_of_month = today.replace(day=1)
@@ -699,87 +700,111 @@ def financial_statement_view(request):
     )
     
     # ── Partial Payments from Services (All Statuses) ──────────────────
-    # Include services with partial payments
-    # This includes services where partial_payment_amount < quotation_amount
-    # (meaning they received a partial payment before invoicing)
+    # Show invoices with partial payments (not fully paid yet)
+    # These are invoices where customers have made some payments but haven't paid the full amount
     from services.models import ServiceStatus
-    from django.db.models import Q
+    from django.db.models import Q, Sum as DjangoSum
     
-    # Query for services with partial payments
-    # Include services where partial payment was less than the full quotation
-    # This shows the partial payment revenue that was recognized
-    partial_services_qs = CustomerService.objects.filter(
-        partial_payment_amount__gt=0,
-        partial_payment_amount__isnull=False,
+    # Get invoices with partial payments (not fully paid)
+    partial_invoice_qs = Invoice.objects.filter(
+        is_paid=False,  # Not fully paid
+        is_void=False,  # Not voided
+        payments__isnull=False,  # Has at least one payment
+    ).annotate(
+        total_paid_amount=Coalesce(DjangoSum('payments__amount'), Decimal('0'), output_field=DecimalField())
     ).filter(
-        # Only include if partial payment is less than quotation (true partial)
-        # OR if no invoice exists yet (still in progress)
-        Q(partial_payment_amount__lt=F('quotation')) | Q(invoice__isnull=True)
-    ).exclude(
-        status=ServiceStatus.CANCELLED  # Exclude cancelled services
-    )
+        total_paid_amount__gt=0,  # Has received some payment
+        total_paid_amount__lt=F('grand_total'),  # But not the full amount
+    ).distinct()
     
-    # Date filter: use service_date for filtering (when the service was scheduled/started)
-    if date_from:
-        partial_services_qs = partial_services_qs.filter(service_date__gte=date_from)
-    if date_to:
-        partial_services_qs = partial_services_qs.filter(service_date__lte=date_to)
+    # Date filter: use payment date for filtering
+    if date_from or date_to:
+        # Filter by the date of the latest payment
+        partial_invoice_qs = partial_invoice_qs.filter(
+            payments__date__gte=date_from if date_from else date(1900, 1, 1),
+            payments__date__lte=date_to if date_to else date(2100, 12, 31),
+        ).distinct()
     
-    partial_services_qs = partial_services_qs.select_related('warehouse').prefetch_related(
-        'lines__item', 'lines__unit',
-        'bundles__price_list__items__item', 'bundles__price_list__items__unit',
-        'other_materials',
+    partial_invoice_qs = partial_invoice_qs.select_related(
+        'sales_order__customer', 'pos_sale__customer'
+    ).prefetch_related(
+        'payments',
+        'customer_services',
     )
     
     partial_services_revenue = Decimal('0')
     partial_services_cogs = Decimal('0')
     partial_services_breakdown = []
     
-    # Debug: Count total services for comparison
-    debug_total_services = CustomerService.objects.exclude(status=ServiceStatus.CANCELLED).count()
-    debug_services_with_amount = CustomerService.objects.filter(
-        partial_payment_amount__gt=0
-    ).exclude(status=ServiceStatus.CANCELLED).count()
-    debug_services_partial_lt_quotation = CustomerService.objects.filter(
-        partial_payment_amount__gt=0,
-        partial_payment_amount__lt=F('quotation')
-    ).exclude(status=ServiceStatus.CANCELLED).count()
-    debug_services_with_status = CustomerService.objects.filter(
-        payment_status=ServicePaymentStatus.PARTIAL
-    ).exclude(status=ServiceStatus.CANCELLED).count()
-    debug_query_count = partial_services_qs.count()
+    partial_so_revenue = Decimal('0')
+    partial_so_cogs = Decimal('0')
+    partial_so_breakdown = []
     
-    for svc in partial_services_qs:
-        # Revenue = partial payment amount received
-        partial_revenue = svc.partial_payment_amount_value
+    # Debug: Count total for comparison
+    debug_total_partial_invoices = partial_invoice_qs.count()
+    debug_services_with_partial = 0
+    debug_so_with_partial = 0
+    
+    for inv in partial_invoice_qs:
+        # Calculate how much has been paid
+        total_paid = inv.total_paid
+        payment_percentage = (total_paid / inv.grand_total) if inv.grand_total > 0 else Decimal('0')
         
-        # Skip if no actual partial payment (safety check)
-        if partial_revenue <= 0:
-            continue
+        # Cap at 100%
+        if payment_percentage > Decimal('1.0'):
+            payment_percentage = Decimal('1.0')
         
-        # Calculate full COGS for this service
-        full_cogs = _calculate_service_cogs(svc)
-        
-        # Calculate payment percentage
-        payment_percentage = (
-            partial_revenue / svc.quotation_amount 
-            if svc.quotation_amount > 0 else Decimal('0')
-        )
-        
-        # Proportional COGS = full COGS × payment percentage
+        # Calculate COGS for this invoice
+        full_cogs = compute_invoice_cogs(inv)
         proportional_cogs = (full_cogs * payment_percentage).quantize(Decimal('0.01'))
         
-        partial_services_revenue += partial_revenue
-        partial_services_cogs += proportional_cogs
-        
-        # Store for breakdown table
-        partial_services_breakdown.append({
-            'service': svc,
-            'revenue': partial_revenue,
-            'cogs': proportional_cogs,
-            'gross_profit': partial_revenue - proportional_cogs,
-            'payment_percentage': payment_percentage * 100,
-        })
+        # Determine if this is a service or sales order/POS
+        if hasattr(inv, 'customer_services') and inv.customer_services.exists():
+            # This is a service invoice
+            debug_services_with_partial += 1
+            partial_services_revenue += total_paid
+            partial_services_cogs += proportional_cogs
+            
+            services = inv.customer_services.all()
+            partial_services_breakdown.append({
+                'invoice': inv,
+                'service': services[0] if services else None,
+                'revenue': total_paid,
+                'cogs': proportional_cogs,
+                'gross_profit': total_paid - proportional_cogs,
+                'payment_percentage': payment_percentage * 100,
+                'balance_due': inv.balance_due,
+            })
+        elif inv.sales_order_id or inv.pos_sale_id:
+            # This is a sales order or POS invoice
+            debug_so_with_partial += 1
+            partial_so_revenue += total_paid
+            partial_so_cogs += proportional_cogs
+            
+            partial_so_breakdown.append({
+                'invoice': inv,
+                'sales_order': inv.sales_order if inv.sales_order_id else None,
+                'pos_sale': inv.pos_sale if inv.pos_sale_id else None,
+                'revenue': total_paid,
+                'cogs': proportional_cogs,
+                'gross_profit': total_paid - proportional_cogs,
+                'payment_percentage': payment_percentage * 100,
+                'balance_due': inv.balance_due,
+            })
+    
+    # Debug info
+    debug_total_services = CustomerService.objects.exclude(status=ServiceStatus.CANCELLED).count()
+    debug_services_with_amount = debug_services_with_partial
+    debug_services_not_invoiced = 0
+    debug_services_with_status = debug_services_with_partial
+    debug_query_count = debug_services_with_partial
+    debug_invoiced_service_count = 0
+    
+    debug_total_so = SalesOrder.objects.count()
+    debug_so_with_amount = debug_so_with_partial
+    debug_so_not_invoiced = 0
+    debug_so_with_status = debug_so_with_partial
+    debug_so_query_count = debug_so_with_partial
     
     # Update services totals to include partial payments
     services_revenue_with_partial = services_revenue + partial_services_revenue
@@ -790,8 +815,17 @@ def financial_statement_view(request):
         if (services_revenue_with_partial - services_discount) > 0 else Decimal('0')
     )
     
+    # Update materials totals to include partial payments from sales orders/POS
+    materials_revenue_with_partial = materials_revenue + partial_so_revenue
+    materials_cogs_with_partial = materials_cogs + partial_so_cogs
+    materials_gross_profit_with_partial = materials_revenue_with_partial - materials_discount - materials_cogs_with_partial
+    materials_gross_margin_with_partial = (
+        (materials_gross_profit_with_partial / (materials_revenue_with_partial - materials_discount) * 100) 
+        if (materials_revenue_with_partial - materials_discount) > 0 else Decimal('0')
+    )
+    
     # Calculate net revenues (after discounts)
-    materials_net_revenue = materials_revenue - materials_discount
+    materials_net_revenue = materials_revenue_with_partial - materials_discount
     services_net_revenue = services_revenue_with_partial - services_discount
 
     net_revenue = invoice_revenue - discount
@@ -943,13 +977,17 @@ def financial_statement_view(request):
         'materials_net_revenue': materials_net_revenue,
         'materials_gross_profit': materials_gross_profit,
         'materials_gross_margin': materials_gross_margin,
+        'materials_revenue_with_partial': materials_revenue_with_partial,
+        'materials_cogs_with_partial': materials_cogs_with_partial,
+        'materials_gross_profit_with_partial': materials_gross_profit_with_partial,
+        'materials_gross_margin_with_partial': materials_gross_margin_with_partial,
         'services_revenue': services_revenue,
         'services_discount': services_discount,
         'services_cogs': services_cogs,
         'services_net_revenue': services_net_revenue,
         'services_gross_profit': services_gross_profit,
         'services_gross_margin': services_gross_margin,
-        # Partial payments
+        # Partial payments - Services
         'partial_services_revenue': partial_services_revenue,
         'partial_services_cogs': partial_services_cogs,
         'partial_services_count': len(partial_services_breakdown),
@@ -958,12 +996,24 @@ def financial_statement_view(request):
         'services_gross_profit_with_partial': services_gross_profit_with_partial,
         'services_gross_margin_with_partial': services_gross_margin_with_partial,
         'partial_services_breakdown': partial_services_breakdown,
-        # Debug info
+        # Partial payments - Sales Orders
+        'partial_so_revenue': partial_so_revenue,
+        'partial_so_cogs': partial_so_cogs,
+        'partial_so_count': len(partial_so_breakdown),
+        'partial_so_breakdown': partial_so_breakdown,
+        # Debug info - Services
         'debug_total_services': debug_total_services,
         'debug_services_with_amount': debug_services_with_amount,
-        'debug_services_partial_lt_quotation': debug_services_partial_lt_quotation,
+        'debug_services_not_invoiced': debug_services_not_invoiced,
         'debug_services_with_status': debug_services_with_status,
         'debug_query_count': debug_query_count,
+        'debug_invoiced_service_count': debug_invoiced_service_count,
+        # Debug info - Sales Orders
+        'debug_total_so': debug_total_so,
+        'debug_so_with_amount': debug_so_with_amount,
+        'debug_so_not_invoiced': debug_so_not_invoiced,
+        'debug_so_with_status': debug_so_with_status,
+        'debug_so_query_count': debug_so_query_count,
         'opex_rows': opex_rows,
         'total_opex': total_opex,
         'net_profit': net_profit,
