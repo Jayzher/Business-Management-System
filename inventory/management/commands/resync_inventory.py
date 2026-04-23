@@ -405,7 +405,6 @@ def _iter_expected_moves(warn_fn):
         ('DeliveryNote', DeliveryNote.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('SalesPickup', SalesPickup.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('StockTransfer', StockTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__from_location', 'lines__to_location')),
-        ('StockAdjustment', StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('DamagedReport', DamagedReport.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('POSSale', POSSale.objects.filter(status=SaleStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('location')),
         ('POSRefund', POSRefund.objects.filter(status=RefundStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
@@ -413,6 +412,8 @@ def _iter_expected_moves(warn_fn):
         ('PurchaseReturn', PurchaseReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('SalesReturn', SalesReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('CustomerService', CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('warehouse')),
+        # StockAdjustment LAST - Applied after all other movements
+        ('StockAdjustment', StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
     ]
 
     for ref_type, docs in doc_specs:
@@ -862,7 +863,7 @@ def _build_balance_from_documents(warn_fn):
                               f"Pickup#{sp.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.location_id, -q)
 
-    # ── StockTransfer ────────────────────────────────────────────────────────
+    # ── StockTransfer ────────────────────────────────────────────────────
     for tr in StockTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit',
         'lines__from_location', 'lines__to_location'
@@ -873,20 +874,6 @@ def _build_balance_from_documents(warn_fn):
                               f"Transfer#{tr.pk} item={line.item.code}", warn_fn, item=line.item)
             _accumulate(bal, line.item_id, line.from_location_id, -q)
             _accumulate(bal, line.item_id, line.to_location_id, q)
-
-    # ── StockAdjustment ──────────────────────────────────────────────────────
-    for adj in StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
-        'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
-    ):
-        for line in adj.lines.all():
-            raw_diff = line.qty_counted - line.qty_system
-            if raw_diff == 0:
-                continue
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(abs(raw_diff), line.unit, target_unit,
-                              f"Adj#{adj.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id,
-                        q if raw_diff > 0 else -q)
 
     # ── DamagedReport ────────────────────────────────────────────────────────
     for dr in DamagedReport.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
@@ -1009,6 +996,20 @@ def _build_balance_from_documents(warn_fn):
                             f"Service#{svc.pk} bundle item={item.code}", warn_fn, item=item,
                         )
                         _accumulate(bal, item.pk, default_loc_id, -q)
+
+    # ── StockAdjustment (LAST STEP - Applied after all other movements) ─────
+    for adj in StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+        'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
+    ):
+        for line in adj.lines.all():
+            raw_diff = line.qty_counted - line.qty_system
+            if raw_diff == 0:
+                continue
+            target_unit = _inventory_unit(line.item)
+            q = _safe_convert(abs(raw_diff), line.unit, target_unit,
+                              f"Adj#{adj.pk} item={line.item.code}", warn_fn, item=line.item)
+            _accumulate(bal, line.item_id, line.location_id,
+                        q if raw_diff > 0 else -q)
 
     return bal
 
