@@ -792,10 +792,95 @@ def financial_statement_view(request):
                 'balance_due': inv.balance_due,
             })
     
+    # ── Non-Invoiced Services with Partial Payments ────────────────────
+    # Services that have partial_payment_amount set but haven't been invoiced yet
+    non_invoiced_services_qs = CustomerService.objects.filter(
+        invoice__isnull=True,  # Not yet invoiced
+        partial_payment_amount__gt=0,  # Has received payment
+        payment_status=ServicePaymentStatus.PARTIAL,  # Status is PARTIAL
+    ).exclude(
+        status=ServiceStatus.CANCELLED  # Exclude cancelled services
+    )
+    
+    # Date filter: use service_date for filtering (since there's no invoice/payment date yet)
+    if date_from:
+        non_invoiced_services_qs = non_invoiced_services_qs.filter(service_date__gte=date_from)
+    if date_to:
+        non_invoiced_services_qs = non_invoiced_services_qs.filter(service_date__lte=date_to)
+    
+    non_invoiced_services_qs = non_invoiced_services_qs.prefetch_related(
+        'lines__item',
+        'lines__unit',
+        'other_materials',
+        'bundles__price_list__items__item',
+        'bundles__price_list__items__unit',
+    )
+    
+    # Process non-invoiced services with partial payments
+    for svc in non_invoiced_services_qs:
+        # Calculate payment percentage
+        grand_total = svc.grand_total
+        if grand_total <= 0:
+            continue
+            
+        payment_amount = svc.partial_payment_amount or Decimal('0')
+        payment_percentage = (payment_amount / grand_total) if grand_total > 0 else Decimal('0')
+        
+        # Cap at 100%
+        if payment_percentage > Decimal('1.0'):
+            payment_percentage = Decimal('1.0')
+        
+        # Calculate COGS for this service
+        # Product lines COGS
+        lines_cogs = sum(
+            (line.qty * (line.item.cost_price or Decimal('0')) for line in svc.lines.all() if not line.is_scrap),
+            Decimal('0'),
+        )
+        
+        # Other materials COGS
+        other_mat_cogs = sum(
+            (mat.line_cost for mat in svc.other_materials.all()),
+            Decimal('0'),
+        )
+        
+        # Bundle COGS
+        bundle_cogs = Decimal('0')
+        for bundle in svc.bundles.all():
+            for pli in bundle.price_list.items.all():
+                item_cost = pli.item.cost_price or Decimal('0')
+                bundle_cogs += item_cost * pli.qty * bundle.qty
+        
+        full_cogs = lines_cogs + other_mat_cogs + bundle_cogs
+        proportional_cogs = (full_cogs * payment_percentage).quantize(Decimal('0.01'))
+        
+        # Add to breakdown
+        debug_services_with_partial += 1
+        partial_services_revenue += payment_amount
+        partial_services_cogs += proportional_cogs
+        
+        # Create a pseudo-invoice object for template compatibility
+        class PseudoInvoice:
+            def __init__(self, svc):
+                self.invoice_number = f"(Not Invoiced)"
+                self.customer_name = svc.customer_name
+                self.date = svc.service_date
+                self.grand_total = svc.grand_total
+                self.balance_due = svc.grand_total - (svc.partial_payment_amount or Decimal('0'))
+        
+        partial_services_breakdown.append({
+            'invoice': PseudoInvoice(svc),
+            'service': svc,
+            'revenue': payment_amount,
+            'cogs': proportional_cogs,
+            'gross_profit': payment_amount - proportional_cogs,
+            'payment_percentage': payment_percentage * 100,
+            'balance_due': svc.grand_total - payment_amount,
+        })
+    
     # Debug info
     debug_total_services = CustomerService.objects.exclude(status=ServiceStatus.CANCELLED).count()
     debug_services_with_amount = debug_services_with_partial
-    debug_services_not_invoiced = 0
+    debug_services_not_invoiced = non_invoiced_services_qs.count()
     debug_services_with_status = debug_services_with_partial
     debug_query_count = debug_services_with_partial
     debug_invoiced_service_count = 0
