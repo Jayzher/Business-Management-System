@@ -405,6 +405,7 @@ def _iter_expected_moves(warn_fn):
         ('DeliveryNote', DeliveryNote.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('SalesPickup', SalesPickup.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('StockTransfer', StockTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__from_location', 'lines__to_location')),
+        ('StockAdjustment', StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('DamagedReport', DamagedReport.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('POSSale', POSSale.objects.filter(status=SaleStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('location')),
         ('POSRefund', POSRefund.objects.filter(status=RefundStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
@@ -412,8 +413,6 @@ def _iter_expected_moves(warn_fn):
         ('PurchaseReturn', PurchaseReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('SalesReturn', SalesReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('CustomerService', CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('warehouse')),
-        # StockAdjustment LAST - Applied after all other movements
-        ('StockAdjustment', StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
     ]
 
     for ref_type, docs in doc_specs:
@@ -823,67 +822,68 @@ def _accumulate(bucket, item_id, location_id, delta):
 
 def _build_balance_from_documents(warn_fn):
     """
-    Walk every POSTED document, apply correct base-unit conversion, accumulate
-    (item, location) → qty_on_hand delta.  Returns a defaultdict.
+    Walk every POSTED document in CHRONOLOGICAL ORDER (by posted_at/created_at),
+    apply correct base-unit conversion, accumulate (item, location) → qty_on_hand delta.
+    Returns a defaultdict.
+    
+    This replays inventory history as it actually happened, processing all document
+    types (GRN, DN, Adjustments, etc.) in the order they were posted/created.
     """
     from procurement.models import GoodsReceipt, PurchaseReturn
     from sales.models import DeliveryNote, SalesPickup, SalesReturn
     from inventory.models import StockTransfer, StockAdjustment, DamagedReport, InventoryToSupplyTransfer
     from pos.models import POSSale, POSRefund, SaleStatus, RefundStatus
+    from services.models import CustomerService, ServiceStatus
+    from warehouses.models import Location as _WLocation
 
     bal = defaultdict(Decimal)
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # COLLECT ALL DOCUMENTS WITH THEIR POSTED/CREATED DATES
+    # ══════════════════════════════════════════════════════════════════════════
+    
+    all_documents = []
+    
+    # Helper to get document date (prefer posted_at, fallback to created_at)
+    def _doc_date(doc):
+        return getattr(doc, 'posted_at', None) or getattr(doc, 'created_at', None) or timezone.now()
+    
     # ── GoodsReceipt ────────────────────────────────────────────────────────
     for grn in GoodsReceipt.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
-        for line in grn.lines.all():
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"GRN#{grn.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id, q)
+        all_documents.append(('GoodsReceipt', grn, _doc_date(grn)))
 
     # ── DeliveryNote ────────────────────────────────────────────────────────
     for dn in DeliveryNote.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
-        for line in dn.lines.all():
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"DN#{dn.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id, -q)
+        all_documents.append(('DeliveryNote', dn, _doc_date(dn)))
 
     # ── SalesPickup ─────────────────────────────────────────────────────────
     for sp in SalesPickup.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
-        for line in sp.lines.all():
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"Pickup#{sp.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id, -q)
+        all_documents.append(('SalesPickup', sp, _doc_date(sp)))
 
-    # ── StockTransfer ────────────────────────────────────────────────────
+    # ── StockTransfer ────────────────────────────────────────────────────────
     for tr in StockTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit',
         'lines__from_location', 'lines__to_location'
     ):
-        for line in tr.lines.all():
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"Transfer#{tr.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.from_location_id, -q)
-            _accumulate(bal, line.item_id, line.to_location_id, q)
+        all_documents.append(('StockTransfer', tr, _doc_date(tr)))
+
+    # ── StockAdjustment ──────────────────────────────────────────────────────
+    for adj in StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+        'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
+    ):
+        all_documents.append(('StockAdjustment', adj, _doc_date(adj)))
 
     # ── DamagedReport ────────────────────────────────────────────────────────
     for dr in DamagedReport.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
-        for line in dr.lines.all():
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"Damaged#{dr.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id, -q)
+        all_documents.append(('DamagedReport', dr, _doc_date(dr)))
 
     # ── POSSale ──────────────────────────────────────────────────────────────
     for sale in POSSale.objects.filter(status=SaleStatus.POSTED).prefetch_related(
@@ -893,123 +893,194 @@ def _build_balance_from_documents(warn_fn):
         'bundle_lines__price_list__items__item__stock_unit',
         'bundle_lines__price_list__items__unit',
     ).select_related('location'):
-        for line in sale.lines.all():
-            loc_id = line.location_id or sale.location_id
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"POSSale#{sale.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, loc_id, -q)
-
-        # Bundle component deductions — each bundle set consumes its component items
-        for bundle_line in sale.bundle_lines.all():
-            for pli in bundle_line.price_list.items.all():
-                item = pli.item
-                qty = pli.min_qty * bundle_line.qty_sets
-                if qty <= Decimal('0'):
-                    continue
-                target_unit = _inventory_unit(item)
-                q = _safe_convert(qty, pli.unit, target_unit,
-                                  f"POSSale#{sale.pk} bundle={bundle_line.price_list.name} item={item.code}",
-                                  warn_fn, item=item)
-                _accumulate(bal, item.pk, sale.location_id, -q)
+        all_documents.append(('POSSale', sale, _doc_date(sale)))
 
     # ── POSRefund ────────────────────────────────────────────────────────────
     for refund in POSRefund.objects.filter(status=RefundStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
-        for line in refund.lines.all():
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"POSRefund#{refund.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id, q)
+        all_documents.append(('POSRefund', refund, _doc_date(refund)))
 
     # ── InventoryToSupplyTransfer ────────────────────────────────────────────
     for ist in InventoryToSupplyTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
-        for line in ist.lines.all():
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"IST#{ist.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id, -q)
+        all_documents.append(('InventoryToSupplyTransfer', ist, _doc_date(ist)))
 
     # ── PurchaseReturn ───────────────────────────────────────────────────────
     for pr in PurchaseReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
-        for line in pr.lines.all():
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"PurchReturn#{pr.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id, -q)
+        all_documents.append(('PurchaseReturn', pr, _doc_date(pr)))
 
     # ── SalesReturn ──────────────────────────────────────────────────────────
     for sr in SalesReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
-        for line in sr.lines.all():
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"SalesReturn#{sr.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id, q)
+        all_documents.append(('SalesReturn', sr, _doc_date(sr)))
 
     # ── CustomerService ──────────────────────────────────────────────────────
-    from services.models import CustomerService, ServiceStatus
-    from warehouses.models import Location as _WLocation
     for svc in CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location',
         'bundles__price_list__items__item__default_unit',
         'bundles__price_list__items__item__selling_unit',
         'bundles__price_list__items__unit',
     ).select_related('warehouse'):
-        # Product lines (skip scrap — they are not deducted from inventory)
-        for line in svc.lines.all():
-            if getattr(line, 'is_scrap', False):
-                continue
-            if line.location_id is None:
-                continue
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(line.qty, line.unit, target_unit,
-                              f"Service#{svc.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id, -q)
+        all_documents.append(('CustomerService', svc, _doc_date(svc)))
 
-        # Bundle component deductions (use warehouse default pickable location,
-        # matching the same logic as service_complete)
-        if svc.warehouse_id:
-            default_loc_id = (
-                _WLocation.objects
-                .filter(warehouse_id=svc.warehouse_id, is_pickable=True)
-                .order_by('code')
-                .values_list('id', flat=True)
-                .first()
-            )
-            if default_loc_id:
-                for bundle in svc.bundles.all():
-                    for pli in bundle.price_list.items.all():
-                        item = pli.item
-                        bundle_qty = (bundle.qty or Decimal('0')) * (pli.min_qty or Decimal('0'))
-                        if bundle_qty <= Decimal('0'):
-                            continue
-                        target_unit = _inventory_unit(item)
-                        q = _safe_convert(
-                            bundle_qty, pli.unit, target_unit,
-                            f"Service#{svc.pk} bundle item={item.code}", warn_fn, item=item,
-                        )
-                        _accumulate(bal, item.pk, default_loc_id, -q)
-
-    # ── StockAdjustment (LAST STEP - Applied after all other movements) ─────
-    for adj in StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
-        'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
-    ):
-        for line in adj.lines.all():
-            raw_diff = line.qty_counted - line.qty_system
-            if raw_diff == 0:
-                continue
-            target_unit = _inventory_unit(line.item)
-            q = _safe_convert(abs(raw_diff), line.unit, target_unit,
-                              f"Adj#{adj.pk} item={line.item.code}", warn_fn, item=line.item)
-            _accumulate(bal, line.item_id, line.location_id,
-                        q if raw_diff > 0 else -q)
+    # ══════════════════════════════════════════════════════════════════════════
+    # SORT ALL DOCUMENTS BY DATE (CHRONOLOGICAL ORDER)
+    # ══════════════════════════════════════════════════════════════════════════
+    
+    all_documents.sort(key=lambda x: (x[2], x[0], x[1].pk))  # Sort by date, then type, then ID
+    
+    warn_fn(f"  [CHRONOLOGICAL] Processing {len(all_documents)} documents in chronological order...")
+    
+    # Track document type counts for reporting
+    doc_type_counts = defaultdict(int)
+    
+    # ══════════════════════════════════════════════════════════════════════════
+    # PROCESS DOCUMENTS IN CHRONOLOGICAL ORDER
+    # ══════════════════════════════════════════════════════════════════════════
+    
+    for doc_type, doc, doc_date in all_documents:
+        doc_type_counts[doc_type] += 1
+        
+        if doc_type == 'GoodsReceipt':
+            for line in doc.lines.all():
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"GRN#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.location_id, q)
+        
+        elif doc_type == 'DeliveryNote':
+            for line in doc.lines.all():
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"DN#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.location_id, -q)
+        
+        elif doc_type == 'SalesPickup':
+            for line in doc.lines.all():
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"Pickup#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.location_id, -q)
+        
+        elif doc_type == 'StockTransfer':
+            for line in doc.lines.all():
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"Transfer#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.from_location_id, -q)
+                _accumulate(bal, line.item_id, line.to_location_id, q)
+        
+        elif doc_type == 'StockAdjustment':
+            for line in doc.lines.all():
+                raw_diff = line.qty_counted - line.qty_system
+                if raw_diff == 0:
+                    continue
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(abs(raw_diff), line.unit, target_unit,
+                                  f"Adj#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.location_id,
+                            q if raw_diff > 0 else -q)
+        
+        elif doc_type == 'DamagedReport':
+            for line in doc.lines.all():
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"Damaged#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.location_id, -q)
+        
+        elif doc_type == 'POSSale':
+            for line in doc.lines.all():
+                loc_id = line.location_id or doc.location_id
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"POSSale#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, loc_id, -q)
+            
+            # Bundle component deductions
+            for bundle_line in doc.bundle_lines.all():
+                for pli in bundle_line.price_list.items.all():
+                    item = pli.item
+                    qty = pli.min_qty * bundle_line.qty_sets
+                    if qty <= Decimal('0'):
+                        continue
+                    target_unit = _inventory_unit(item)
+                    q = _safe_convert(qty, pli.unit, target_unit,
+                                      f"POSSale#{doc.pk} bundle={bundle_line.price_list.name} item={item.code}",
+                                      warn_fn, item=item)
+                    _accumulate(bal, item.pk, doc.location_id, -q)
+        
+        elif doc_type == 'POSRefund':
+            for line in doc.lines.all():
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"POSRefund#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.location_id, q)
+        
+        elif doc_type == 'InventoryToSupplyTransfer':
+            for line in doc.lines.all():
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"IST#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.location_id, -q)
+        
+        elif doc_type == 'PurchaseReturn':
+            for line in doc.lines.all():
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"PurchReturn#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.location_id, -q)
+        
+        elif doc_type == 'SalesReturn':
+            for line in doc.lines.all():
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"SalesReturn#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.location_id, q)
+        
+        elif doc_type == 'CustomerService':
+            # Product lines (skip scrap)
+            for line in doc.lines.all():
+                if getattr(line, 'is_scrap', False):
+                    continue
+                if line.location_id is None:
+                    continue
+                target_unit = _inventory_unit(line.item)
+                q = _safe_convert(line.qty, line.unit, target_unit,
+                                  f"Service#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                _accumulate(bal, line.item_id, line.location_id, -q)
+            
+            # Bundle component deductions
+            if doc.warehouse_id:
+                default_loc_id = (
+                    _WLocation.objects
+                    .filter(warehouse_id=doc.warehouse_id, is_pickable=True)
+                    .order_by('code')
+                    .values_list('id', flat=True)
+                    .first()
+                )
+                if default_loc_id:
+                    for bundle in doc.bundles.all():
+                        for pli in bundle.price_list.items.all():
+                            item = pli.item
+                            bundle_qty = (bundle.qty or Decimal('0')) * (pli.min_qty or Decimal('0'))
+                            if bundle_qty <= Decimal('0'):
+                                continue
+                            target_unit = _inventory_unit(item)
+                            q = _safe_convert(
+                                bundle_qty, pli.unit, target_unit,
+                                f"Service#{doc.pk} bundle item={item.code}", warn_fn, item=item,
+                            )
+                            _accumulate(bal, item.pk, default_loc_id, -q)
+    
+    # Report document type counts
+    warn_fn("  [CHRONOLOGICAL] Document counts by type:")
+    for doc_type in sorted(doc_type_counts.keys()):
+        warn_fn(f"    {doc_type:<30} {doc_type_counts[doc_type]:>5} documents")
 
     return bal
 
