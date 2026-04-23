@@ -828,7 +828,9 @@ def financial_statement_view(request):
     materials_net_revenue = materials_revenue_with_partial - materials_discount
     services_net_revenue = services_revenue_with_partial - services_discount
 
-    net_revenue = invoice_revenue - discount
+    # Update total revenue to include partial payments
+    invoice_revenue_with_partial = invoice_revenue + partial_services_revenue + partial_so_revenue
+    net_revenue = invoice_revenue_with_partial - discount
 
     # ── COGS from expense categories marked as COGS ────────────────────
     exp_qs = Expense.objects.all()
@@ -844,7 +846,8 @@ def financial_statement_view(request):
     # ── Total COGS ──────────────────────────────────────────────────────
     # Note: Other materials COGS is now included in cogs_from_invoices
     # via the updated service_invoice_cogs() function
-    total_cogs = cogs_from_invoices + cogs_expenses
+    # Include partial payment COGS
+    total_cogs = cogs_from_invoices + cogs_expenses + partial_services_cogs + partial_so_cogs
     gross_profit = net_revenue - total_cogs
     gross_margin = (gross_profit / net_revenue * 100) if net_revenue > 0 else Decimal('0')
 
@@ -958,7 +961,7 @@ def financial_statement_view(request):
     inv_count = inv_qs.count()
 
     return render(request, 'reports/financial_statement.html', {
-        'invoice_revenue': invoice_revenue,
+        'invoice_revenue': invoice_revenue_with_partial,  # Updated to include partial payments
         'so_invoice_revenue': so_invoice_revenue,
         'pos_invoice_revenue': pos_invoice_revenue,
         'svc_invoice_revenue': svc_invoice_revenue,
@@ -1001,6 +1004,10 @@ def financial_statement_view(request):
         'partial_so_cogs': partial_so_cogs,
         'partial_so_count': len(partial_so_breakdown),
         'partial_so_breakdown': partial_so_breakdown,
+        # Debug info - Partial Invoices
+        'debug_total_partial_invoices': debug_total_partial_invoices,
+        'debug_services_with_partial': debug_services_with_partial,
+        'debug_so_with_partial': debug_so_with_partial,
         # Debug info - Services
         'debug_total_services': debug_total_services,
         'debug_services_with_amount': debug_services_with_amount,
