@@ -12,7 +12,7 @@ class CustomerServiceForm(forms.ModelForm):
         fields = [
             'service_number', 'service_name', 'customer_name',
             'service_date', 'address', 'payment_status', 'partial_payment_amount',
-            'quotation', 'discount_type', 'discount_value',
+            'amount', 'quotation', 'discount_type', 'discount_value',
             'warehouse', 'notes',
         ]
         widgets = {
@@ -23,6 +23,7 @@ class CustomerServiceForm(forms.ModelForm):
             'address': forms.Textarea(attrs={'class': _SM, 'rows': 2, 'placeholder': 'Service address'}),
             'payment_status': forms.Select(attrs={'class': _SM, 'id': 'id_payment_status'}),
             'partial_payment_amount': forms.NumberInput(attrs={**_NUM, 'placeholder': '0.00', 'id': 'id_partial_payment_amount'}),
+            'amount': forms.NumberInput(attrs={**_NUM, 'placeholder': '0.00', 'id': 'id_amount'}),
             'quotation': forms.NumberInput(attrs={**_NUM, 'placeholder': '0.00', 'id': 'id_quotation'}),
             'discount_type': forms.Select(attrs={'class': _SM, 'id': 'id_discount_type'}),
             'discount_value': forms.NumberInput(attrs={**_NUM, 'placeholder': '0.00', 'id': 'id_discount_value'}),
@@ -37,6 +38,7 @@ class CustomerServiceForm(forms.ModelForm):
             'address': 'Service location address.',
             'payment_status': 'Current payment status.',
             'partial_payment_amount': 'Required when payment status is Partially Paid.',
+            'amount': 'Legacy manual override amount (optional).',
             'quotation': 'Total amount quoted to the customer for this service.',
             'discount_type': 'How the discount is applied.',
             'discount_value': 'Discount amount or percentage.',
@@ -46,6 +48,7 @@ class CustomerServiceForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['amount'].required = False
         self.fields['quotation'].required = False
         self.fields['warehouse'].required = False
         self.fields['discount_value'].required = False
