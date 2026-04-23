@@ -272,6 +272,8 @@ def item_detail_view(request, pk):
     from decimal import Decimal
     from django.db.models import Sum
     from django.db.models.functions import Coalesce
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    
     item = get_object_or_404(Item, pk=pk)
     item_conversions = item.unit_conversions.select_related('from_unit', 'to_unit').order_by('from_unit__name', 'to_unit__name')
     balances = StockBalance.objects.filter(
@@ -294,17 +296,32 @@ def item_detail_view(request, pk):
     totals['total_available'] = totals['total_on_hand'] - totals['total_reserved']
     totals['total_value'] = totals['total_on_hand'] * (item.cost_price or Decimal('0'))
 
+    # Stock movements with pagination - sorted by most recent first
     from inventory.models import StockMove
-    recent_moves = StockMove.objects.filter(
+    moves_list = StockMove.objects.filter(
         item=item, status='POSTED'
-    ).select_related('unit', 'from_location', 'to_location', 'created_by')[:20]
+    ).select_related(
+        'unit', 'from_location', 'to_location', 'created_by'
+    ).order_by('-posted_at', '-created_at', '-id')  # Most recent first
+    
+    # Pagination
+    page = request.GET.get('page', 1)
+    paginator = Paginator(moves_list, 25)  # 25 movements per page
+    
+    try:
+        moves = paginator.page(page)
+    except PageNotAnInteger:
+        moves = paginator.page(1)
+    except EmptyPage:
+        moves = paginator.page(paginator.num_pages)
+    
     return render(request, 'catalog/item_detail.html', {
         'item': item,
         'item_conversions': item_conversions,
         'balances': balances,
         'warehouse_summary': warehouse_summary,
         'totals': totals,
-        'recent_moves': recent_moves,
+        'moves': moves,  # Changed from recent_moves to moves (paginated)
     })
 
 
