@@ -53,7 +53,7 @@ class CustomerService(models.Model):
     amount = models.DecimalField(
         max_digits=15, decimal_places=2,
         null=True, blank=True,
-        help_text='Legacy manual override — use service_fee instead.',
+        help_text='Amount paid by customer when creating the service (for partial or full payment).',
     )
     quotation = models.DecimalField(
         max_digits=15, decimal_places=2,
