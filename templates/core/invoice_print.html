@@ -125,6 +125,7 @@
     <tr><td class="text-right"><strong>Subtotal</strong></td><td class="text-right"><strong>{{ invoice.subtotal|floatformat:2|intcomma }}</strong></td></tr>
     {% if invoice.discount_total %}<tr><td class="text-right"><strong>Discount</strong></td><td class="text-right"><strong>({{ invoice.discount_total|floatformat:2|intcomma }})</strong></td></tr>{% endif %}
     {% if invoice.tax_total %}<tr><td class="text-right"><strong>Tax</strong></td><td class="text-right"><strong>{{ invoice.tax_total|floatformat:2|intcomma }}</strong></td></tr>{% endif %}
+    {% if invoice.delivery_charge %}<tr><td class="text-right"><strong>Delivery Charge</strong></td><td class="text-right"><strong>{{ invoice.delivery_charge|floatformat:2|intcomma }}</strong></td></tr>{% endif %}
     <tr><td class="text-right grand">TOTAL ({{ profile.currency }})</td><td class="text-right grand">{{ invoice.grand_total|floatformat:2|intcomma }}</td></tr>
   </table>
 

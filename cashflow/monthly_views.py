@@ -3,6 +3,7 @@ Monthly Cashflow Views
 ======================
 Dashboard and detailed views for monthly cashflow summaries.
 """
+import json
 from datetime import date, datetime
 from decimal import Decimal
 from calendar import month_name
@@ -63,9 +64,14 @@ def monthly_dashboard(request):
     
     # Calculate year totals
     year_totals = summaries.aggregate(
-        capital_total=Sum('capital_total'),
-        expenses_total=Sum('expenses_total'),
+        revenue_accrual=Sum('revenue_accrual'),
+        gross_profit=Sum('gross_profit'),
         net_profit=Sum('net_profit'),
+        operating_cash_flow=Sum('operating_cash_flow'),
+        collection_rate_pct=Sum('collection_rate_pct'),
+        accounts_receivable_closing=Sum('accounts_receivable_closing'),
+        inventory_value_closing=Sum('inventory_value_closing'),
+        gross_margin_pct=Sum('gross_margin_pct'),
     )
     
     # Get available years
@@ -83,9 +89,10 @@ def monthly_dashboard(request):
     # Prepare chart data
     chart_data = {
         'labels': [month_name[s.month] for s in summaries],
-        'capital': [float(s.capital_total) for s in summaries],
-        'expenses': [float(s.expenses_total) for s in summaries],
-        'net_profit': [float(s.net_profit) for s in summaries],
+        'revenue': [float(s.revenue_accrual or 0) for s in summaries],
+        'gross_profit': [float(s.gross_profit or 0) for s in summaries],
+        'net_profit': [float(s.net_profit or 0) for s in summaries],
+        'cash_flow': [float(s.operating_cash_flow or 0) for s in summaries],
     }
     
     context = {
@@ -93,7 +100,7 @@ def monthly_dashboard(request):
         'year': year,
         'available_years': available_years,
         'year_totals': year_totals,
-        'chart_data': chart_data,
+        'chart_data': json.dumps(chart_data),  # Serialize to JSON string
         'current_year': current_year,
     }
     

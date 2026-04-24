@@ -182,11 +182,97 @@ class MonthlyCashflowSummary(TimeStampedModel):
     # ── Opening/Closing Balance ──────────────────────────────────────────────
     opening_balance = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
-        help_text='Opening balance carried from previous month',
+        help_text='Total Assets: Cash + Inventory + AR at start of month',
     )
     closing_balance = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
-        help_text='Closing balance (opening + net cash flow)',
+        help_text='Total Assets: Cash + Inventory + AR at end of month',
+    )
+    
+    # ── Inventory Asset Tracking ─────────────────────────────────────────────
+    inventory_value_opening = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Inventory asset value at start of month (cost basis)',
+    )
+    inventory_value_closing = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Inventory asset value at end of month (cost basis)',
+    )
+    inventory_purchased = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Total inventory purchased this month (procurement costs)',
+    )
+    cogs_actual = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Actual COGS from sales/services this month',
+    )
+    
+    # ── Cash Flow Statement (Actual Cash Movement) ───────────────────────────
+    cash_opening = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Actual cash balance at start of month',
+    )
+    cash_closing = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Actual cash balance at end of month',
+    )
+    cash_from_customers = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Actual cash received from customers (payments)',
+    )
+    cash_to_suppliers = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Actual cash paid to suppliers',
+    )
+    operating_cash_flow = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Net cash from operating activities',
+    )
+    
+    # ── Accounts Receivable & Payable ────────────────────────────────────────
+    accounts_receivable_opening = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Unpaid invoices at start of month',
+    )
+    accounts_receivable_closing = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Unpaid invoices at end of month',
+    )
+    accounts_payable_opening = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Unpaid bills at start of month',
+    )
+    accounts_payable_closing = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Unpaid bills at end of month',
+    )
+    
+    # ── P&L Statement (Accrual Basis) ────────────────────────────────────────
+    revenue_accrual = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Total revenue earned (invoiced) this month',
+    )
+    gross_profit = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Revenue - COGS',
+    )
+    gross_margin_pct = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0,
+        help_text='Gross profit margin percentage',
+    )
+    
+    # ── Performance Metrics ──────────────────────────────────────────────────
+    collection_rate_pct = models.DecimalField(
+        max_digits=5, decimal_places=2, default=0,
+        help_text='Percentage of invoices collected',
+    )
+    days_sales_outstanding = models.DecimalField(
+        max_digits=8, decimal_places=2, default=0,
+        help_text='Average days to collect payment',
+    )
+    inventory_turnover = models.DecimalField(
+        max_digits=8, decimal_places=2, default=0,
+        help_text='How many times inventory sold in month',
     )
     
     # ── Capital (Cash In) ────────────────────────────────────────────────────
@@ -206,7 +292,7 @@ class MonthlyCashflowSummary(TimeStampedModel):
     # ── Expenses (Cash Out) ──────────────────────────────────────────────────
     expenses_procurement = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
-        help_text='Total procurement costs (GRN posted amounts)',
+        help_text='⚠️ DEPRECATED for P&L - Use cogs_actual instead. Procurement is asset conversion (Cash→Inventory), not an expense. Keep for cash flow tracking only.',
     )
     expenses_operational = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
@@ -218,7 +304,7 @@ class MonthlyCashflowSummary(TimeStampedModel):
     )
     expenses_total = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
-        help_text='Total expenses (procurement + operational + other)',
+        help_text='Total expenses (COGS + operational + other) - excludes procurement',
     )
     
     # ── Totals & Net Flow ────────────────────────────────────────────────────

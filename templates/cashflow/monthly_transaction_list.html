@@ -15,20 +15,90 @@
     /* COMPACT CASHFLOW UI - Reduced Sizes & Spacing */
     .container-fluid { padding: 8px; font-size: 13px; }
     
-    /* Compact Balance Cards */
+    /* Compact Balance Cards - IMPROVED VISIBILITY */
     .balance-card {
-        border-radius: 6px;
-        padding: 8px 12px;
-        margin-bottom: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         display: flex;
         justify-content: space-between;
         align-items: center;
+        transition: transform 0.2s, box-shadow 0.2s;
+        position: relative;
+        overflow: hidden;
     }
-    .balance-card.opening { background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); border-left: 3px solid #ffc107; }
-    .balance-card.closing { background: linear-gradient(135deg, #d4edda 0%, #a8e6cf 100%); border-left: 3px solid #28a745; }
-    .balance-label { font-size: 11px; color: #333; font-weight: 600; }
-    .balance-value { font-size: 16px; font-weight: 700; }
+    .balance-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .balance-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: currentColor;
+    }
+    .balance-card.opening { 
+        background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%); 
+        color: #f57c00;
+    }
+    .balance-card.opening .balance-label {
+        color: #e65100 !important;
+        font-weight: 700 !important;
+        font-size: 13px !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+    }
+    .balance-card.opening .balance-value {
+        color: #bf360c !important;
+        font-weight: 800 !important;
+        font-size: 22px !important;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        line-height: 1;
+    }
+    .balance-card.closing { 
+        background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); 
+        color: #2e7d32;
+    }
+    .balance-card.closing .balance-label {
+        color: #1b5e20 !important;
+        font-weight: 700 !important;
+        font-size: 13px !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+    }
+    .balance-card.closing .balance-value {
+        color: #1b5e20 !important;
+        font-weight: 800 !important;
+        font-size: 22px !important;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        line-height: 1;
+    }
+    .balance-icon {
+        font-size: 36px;
+        opacity: 0.2;
+        position: absolute;
+        right: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+    .balance-content {
+        position: relative;
+        z-index: 1;
+    }
+    .balance-label { 
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .balance-label .emoji {
+        font-size: 18px;
+    }
     
     /* Compact Summary Cards */
     .summary-card {
@@ -221,10 +291,210 @@
         </div>
     </div>
 
-    <!-- Opening Balance -->
-    <div class="balance-card opening">
-        <div class="balance-label">💼 Opening Balance</div>
-        <div class="balance-value text-warning">₱{{ summary.opening_balance|floatformat:2|intcomma }}</div>
+    <!-- COMPREHENSIVE BALANCE SHEET - Liquidated vs Non-Liquidated Assets -->
+    <div class="row g-3 mb-3">
+        <!-- OPENING BALANCE BREAKDOWN -->
+        <div class="col-md-6">
+            <div class="balance-card opening">
+                <div class="balance-content">
+                    <div class="balance-label">
+                        <span class="emoji">💼</span>
+                        <span><strong>Opening Balance (Total Assets)</strong></span>
+                    </div>
+                    <div class="balance-value">₱{{ summary.opening_balance|floatformat:2|intcomma }}</div>
+                    
+                    <!-- Asset Breakdown -->
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.1);">
+                        <!-- Liquidated Assets (Cash) -->
+                        <div style="margin-bottom: 8px;">
+                            <div style="font-size: 10px; color: #666; font-weight: 600; text-transform: uppercase; margin-bottom: 4px;">
+                                💵 Liquidated Assets (Cash)
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(40, 167, 69, 0.1); border-radius: 4px;">
+                                <span style="font-size: 11px; color: #28a745;">Cash on Hand</span>
+                                <span style="font-size: 13px; font-weight: 700; color: #28a745;">
+                                    ₱{{ summary.cash_opening|default:0|floatformat:2|intcomma }}
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <!-- Non-Liquidated Assets -->
+                        <div style="margin-bottom: 8px;">
+                            <div style="font-size: 10px; color: #666; font-weight: 600; text-transform: uppercase; margin-bottom: 4px;">
+                                📦 Non-Liquidated Assets
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(255, 193, 7, 0.1); border-radius: 4px; margin-bottom: 3px;">
+                                <span style="font-size: 11px; color: #856404;">Inventory (Stock)</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #856404;">
+                                    ₱{{ summary.inventory_value_opening|default:0|floatformat:2|intcomma }}
+                                </span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(23, 162, 184, 0.1); border-radius: 4px;">
+                                <span style="font-size: 11px; color: #0c5460;">Accounts Receivable</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #0c5460;">
+                                    ₱{{ summary.accounts_receivable_opening|default:0|floatformat:2|intcomma }}
+                                </span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(108, 117, 125, 0.1); border-radius: 4px; margin-top: 3px; border-top: 1px solid rgba(0,0,0,0.1);">
+                                <span style="font-size: 10px; font-weight: 600; color: #495057;">Subtotal Non-Liquidated</span>
+                                <span style="font-size: 12px; font-weight: 700; color: #495057;">
+                                    ₱{{ summary.inventory_value_opening|default:0|add:summary.accounts_receivable_opening|default:0|floatformat:2|intcomma }}
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <!-- Liquidity Ratio -->
+                        <div style="padding: 6px 8px; background: rgba(0,0,0,0.05); border-radius: 4px; margin-top: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 10px; color: #666;">
+                                    <i class="fas fa-tint"></i> Liquidity Ratio
+                                </span>
+                                <span style="font-size: 11px; font-weight: 700; color: #495057;">
+                                    {% widthratio summary.cash_opening|default:0 summary.opening_balance 100 %}%
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="balance-icon">
+                    <i class="fas fa-wallet"></i>
+                </div>
+            </div>
+        </div>
+        
+        <!-- CLOSING BALANCE BREAKDOWN -->
+        <div class="col-md-6">
+            <div class="balance-card closing">
+                <div class="balance-content">
+                    <div class="balance-label">
+                        <span class="emoji">�</span>
+                        <span><strong>Closing Balance (Total Assets)</strong></span>
+                    </div>
+                    <div class="balance-value">₱{{ summary.closing_balance|floatformat:2|intcomma }}</div>
+                    
+                    <!-- Asset Breakdown -->
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,0.1);">
+                        <!-- Liquidated Assets (Cash) -->
+                        <div style="margin-bottom: 8px;">
+                            <div style="font-size: 10px; color: #666; font-weight: 600; text-transform: uppercase; margin-bottom: 4px;">
+                                💵 Liquidated Assets (Cash)
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(40, 167, 69, 0.15); border-radius: 4px;">
+                                <span style="font-size: 11px; color: #28a745;">Cash on Hand</span>
+                                <span style="font-size: 13px; font-weight: 700; color: #28a745;">
+                                    ₱{{ summary.cash_closing|default:0|floatformat:2|intcomma }}
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <!-- Non-Liquidated Assets -->
+                        <div style="margin-bottom: 8px;">
+                            <div style="font-size: 10px; color: #666; font-weight: 600; text-transform: uppercase; margin-bottom: 4px;">
+                                📦 Non-Liquidated Assets
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(255, 193, 7, 0.15); border-radius: 4px; margin-bottom: 3px;">
+                                <span style="font-size: 11px; color: #856404;">Inventory (Stock)</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #856404;">
+                                    ₱{{ summary.inventory_value_closing|default:0|floatformat:2|intcomma }}
+                                </span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(23, 162, 184, 0.15); border-radius: 4px;">
+                                <span style="font-size: 11px; color: #0c5460;">Accounts Receivable</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #0c5460;">
+                                    ₱{{ summary.accounts_receivable_closing|default:0|floatformat:2|intcomma }}
+                                </span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(108, 117, 125, 0.1); border-radius: 4px; margin-top: 3px; border-top: 1px solid rgba(0,0,0,0.1);">
+                                <span style="font-size: 10px; font-weight: 600; color: #495057;">Subtotal Non-Liquidated</span>
+                                <span style="font-size: 12px; font-weight: 700; color: #495057;">
+                                    ₱{{ summary.inventory_value_closing|default:0|add:summary.accounts_receivable_closing|default:0|floatformat:2|intcomma }}
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <!-- Liquidity Ratio -->
+                        <div style="padding: 6px 8px; background: rgba(0,0,0,0.05); border-radius: 4px; margin-top: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 10px; color: #666;">
+                                    <i class="fas fa-tint"></i> Liquidity Ratio
+                                </span>
+                                <span style="font-size: 11px; font-weight: 700; color: {% if summary.cash_closing|default:0 > summary.cash_opening|default:0 %}#28a745{% else %}#dc3545{% endif %};">
+                                    {% widthratio summary.cash_closing|default:0 summary.closing_balance 100 %}%
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="balance-icon">
+                    <i class="fas fa-piggy-bank"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Asset Movement Summary -->
+    <div class="row g-3 mb-3">
+        <div class="col-md-12">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 16px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+                    <!-- Cash Movement -->
+                    <div style="flex: 1; min-width: 200px;">
+                        <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">💵 Cash Movement</div>
+                        <div style="font-size: 18px; font-weight: 700;">
+                            {% with cash_change=summary.cash_closing|default:0|add:summary.cash_opening|default:0|floatformat:2|floatformat:"-2"|add:"-" %}
+                            {% if summary.cash_closing|default:0 >= summary.cash_opening|default:0 %}
+                                <span style="color: #4ade80;">+₱{{ summary.cash_closing|default:0|add:summary.cash_opening|default:0|floatformat:"-2"|floatformat:2|intcomma }}</span>
+                            {% else %}
+                                <span style="color: #f87171;">-₱{{ summary.cash_opening|default:0|add:summary.cash_closing|default:0|floatformat:"-2"|floatformat:2|intcomma }}</span>
+                            {% endif %}
+                            {% endwith %}
+                        </div>
+                    </div>
+                    
+                    <!-- Inventory Movement -->
+                    <div style="flex: 1; min-width: 200px;">
+                        <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">� Inventory Movement</div>
+                        <div style="font-size: 18px; font-weight: 700;">
+                            {% with inv_change=summary.inventory_value_closing|default:0|add:summary.inventory_value_opening|default:0|floatformat:"-2" %}
+                            {% if summary.inventory_value_closing|default:0 >= summary.inventory_value_opening|default:0 %}
+                                <span style="color: #fbbf24;">+₱{{ summary.inventory_value_closing|default:0|add:summary.inventory_value_opening|default:0|floatformat:"-2"|floatformat:2|intcomma }}</span>
+                            {% else %}
+                                <span style="color: #f87171;">-₱{{ summary.inventory_value_opening|default:0|add:summary.inventory_value_closing|default:0|floatformat:"-2"|floatformat:2|intcomma }}</span>
+                            {% endif %}
+                            {% endwith %}
+                        </div>
+                    </div>
+                    
+                    <!-- AR Movement -->
+                    <div style="flex: 1; min-width: 200px;">
+                        <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">📋 AR Movement</div>
+                        <div style="font-size: 18px; font-weight: 700;">
+                            {% with ar_change=summary.accounts_receivable_closing|default:0|add:summary.accounts_receivable_opening|default:0|floatformat:"-2" %}
+                            {% if summary.accounts_receivable_closing|default:0 >= summary.accounts_receivable_opening|default:0 %}
+                                <span style="color: #60a5fa;">+₱{{ summary.accounts_receivable_closing|default:0|add:summary.accounts_receivable_opening|default:0|floatformat:"-2"|floatformat:2|intcomma }}</span>
+                            {% else %}
+                                <span style="color: #4ade80;">-₱{{ summary.accounts_receivable_opening|default:0|add:summary.accounts_receivable_closing|default:0|floatformat:"-2"|floatformat:2|intcomma }}</span>
+                            {% endif %}
+                            {% endwith %}
+                        </div>
+                    </div>
+                    
+                    <!-- Total Asset Change -->
+                    <div style="flex: 1; min-width: 200px; border-left: 2px solid rgba(255,255,255,0.3); padding-left: 16px;">
+                        <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">📊 Total Asset Change</div>
+                        <div style="font-size: 20px; font-weight: 800;">
+                            {% with total_change=summary.closing_balance|add:summary.opening_balance|floatformat:"-2" %}
+                            {% if summary.closing_balance >= summary.opening_balance %}
+                                <span style="color: #4ade80;">+₱{{ summary.closing_balance|add:summary.opening_balance|floatformat:"-2"|floatformat:2|intcomma }}</span>
+                            {% else %}
+                                <span style="color: #f87171;">-₱{{ summary.opening_balance|add:summary.closing_balance|floatformat:"-2"|floatformat:2|intcomma }}</span>
+                            {% endif %}
+                            {% endwith %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Cashflow Summary Table -->
@@ -295,10 +565,220 @@
         </div>
     </div>
 
-    <!-- Closing Balance -->
-    <div class="balance-card closing">
-        <div class="balance-label">💰 Closing Balance</div>
-        <div class="balance-value text-success">₱{{ summary.closing_balance|floatformat:2|intcomma }}</div>
+    <hr class="my-4">
+
+    <!-- COMPREHENSIVE ASSET ANALYSIS -->
+    <h4 class="mb-3"><i class="fas fa-chart-pie"></i> Asset Composition & Liquidity Analysis</h4>
+    
+    <div class="row mb-4">
+        <!-- Liquidated Assets (Cash) -->
+        <div class="col-md-4">
+            <div style="background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); border-left: 4px solid #28a745; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); height: 100%;">
+                <div style="display: flex; align-items: center; margin-bottom: 12px;">
+                    <div style="font-size: 32px; margin-right: 12px;">💵</div>
+                    <div>
+                        <div style="font-size: 11px; color: #155724; font-weight: 600; text-transform: uppercase;">Liquidated Assets</div>
+                        <div style="font-size: 10px; color: #155724; opacity: 0.8;">Immediately Available Cash</div>
+                    </div>
+                </div>
+                
+                <div style="background: white; border-radius: 6px; padding: 12px; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-size: 11px; color: #666;">Opening Cash</span>
+                        <span style="font-size: 14px; font-weight: 700; color: #28a745;">₱{{ summary.cash_opening|default:0|floatformat:2|intcomma }}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 1px solid #e9ecef;">
+                        <span style="font-size: 11px; color: #666;">Closing Cash</span>
+                        <span style="font-size: 16px; font-weight: 800; color: #28a745;">₱{{ summary.cash_closing|default:0|floatformat:2|intcomma }}</span>
+                    </div>
+                </div>
+                
+                <div style="background: rgba(40, 167, 69, 0.1); border-radius: 6px; padding: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 10px; color: #155724; font-weight: 600;">Cash Change</span>
+                        <span style="font-size: 14px; font-weight: 700; color: {% if summary.cash_closing|default:0 >= summary.cash_opening|default:0 %}#28a745{% else %}#dc3545{% endif %};">
+                            {% if summary.cash_closing|default:0 >= summary.cash_opening|default:0 %}
+                                +₱{{ summary.cash_closing|default:0|add:summary.cash_opening|default:0|floatformat:"-2"|floatformat:2|intcomma }}
+                            {% else %}
+                                -₱{{ summary.cash_opening|default:0|add:summary.cash_closing|default:0|floatformat:"-2"|floatformat:2|intcomma }}
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 10px; color: #155724; font-weight: 600;">% of Total Assets</span>
+                        <span style="font-size: 13px; font-weight: 700; color: #155724;">
+                            {% widthratio summary.cash_closing|default:0 summary.closing_balance 100 %}%
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Non-Liquidated Assets -->
+        <div class="col-md-8">
+            <div style="background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); border-left: 4px solid #ffc107; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); height: 100%;">
+                <div style="display: flex; align-items: center; margin-bottom: 12px;">
+                    <div style="font-size: 32px; margin-right: 12px;">📦</div>
+                    <div>
+                        <div style="font-size: 11px; color: #856404; font-weight: 600; text-transform: uppercase;">Non-Liquidated Assets</div>
+                        <div style="font-size: 10px; color: #856404; opacity: 0.8;">Inventory & Accounts Receivable</div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <!-- Inventory -->
+                    <div class="col-md-6">
+                        <div style="background: white; border-radius: 6px; padding: 12px; margin-bottom: 10px; height: calc(100% - 10px);">
+                            <div style="font-size: 11px; color: #856404; font-weight: 600; margin-bottom: 8px;">
+                                <i class="fas fa-boxes"></i> Inventory (Stock Value)
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span style="font-size: 10px; color: #666;">Opening</span>
+                                <span style="font-size: 13px; font-weight: 600; color: #856404;">₱{{ summary.inventory_value_opening|default:0|floatformat:2|intcomma }}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span style="font-size: 10px; color: #666;">Purchased</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #28a745;">+₱{{ summary.inventory_purchased|default:0|floatformat:2|intcomma }}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span style="font-size: 10px; color: #666;">Sold (COGS)</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #dc3545;">-₱{{ summary.cogs_actual|default:0|floatformat:2|intcomma }}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 2px solid #ffc107;">
+                                <span style="font-size: 11px; color: #856404; font-weight: 700;">Closing</span>
+                                <span style="font-size: 15px; font-weight: 800; color: #856404;">₱{{ summary.inventory_value_closing|default:0|floatformat:2|intcomma }}</span>
+                            </div>
+                            <div style="margin-top: 8px; padding: 6px; background: rgba(255, 193, 7, 0.1); border-radius: 4px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 9px; color: #856404;">% of Total Assets</span>
+                                    <span style="font-size: 11px; font-weight: 700; color: #856404;">
+                                        {% widthratio summary.inventory_value_closing|default:0 summary.closing_balance 100 %}%
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Accounts Receivable -->
+                    <div class="col-md-6">
+                        <div style="background: white; border-radius: 6px; padding: 12px; margin-bottom: 10px; height: calc(100% - 10px);">
+                            <div style="font-size: 11px; color: #0c5460; font-weight: 600; margin-bottom: 8px;">
+                                <i class="fas fa-file-invoice-dollar"></i> Accounts Receivable
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span style="font-size: 10px; color: #666;">Opening</span>
+                                <span style="font-size: 13px; font-weight: 600; color: #0c5460;">₱{{ summary.accounts_receivable_opening|default:0|floatformat:2|intcomma }}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span style="font-size: 10px; color: #666;">New Credit Sales</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #28a745;">+₱{{ summary.accounts_receivable_closing|default:0|add:summary.accounts_receivable_opening|default:0|floatformat:"-2"|floatformat:2|intcomma }}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <span style="font-size: 10px; color: #666;">Collections</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #17a2b8;">₱{{ summary.cash_from_customers|default:0|floatformat:2|intcomma }}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 2px solid #17a2b8;">
+                                <span style="font-size: 11px; color: #0c5460; font-weight: 700;">Closing</span>
+                                <span style="font-size: 15px; font-weight: 800; color: #0c5460;">₱{{ summary.accounts_receivable_closing|default:0|floatformat:2|intcomma }}</span>
+                            </div>
+                            <div style="margin-top: 8px; padding: 6px; background: rgba(23, 162, 184, 0.1); border-radius: 4px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 9px; color: #0c5460;">% of Total Assets</span>
+                                    <span style="font-size: 11px; font-weight: 700; color: #0c5460;">
+                                        {% widthratio summary.accounts_receivable_closing|default:0 summary.closing_balance 100 %}%
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Non-Liquidated Total -->
+                <div style="background: rgba(255, 193, 7, 0.2); border-radius: 6px; padding: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 11px; color: #856404; font-weight: 700;">Total Non-Liquidated Assets</span>
+                        <span style="font-size: 16px; font-weight: 800; color: #856404;">
+                            ₱{{ summary.inventory_value_closing|default:0|add:summary.accounts_receivable_closing|default:0|floatformat:2|intcomma }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Asset Composition Chart -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div style="background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <h5 style="margin-bottom: 16px; color: #495057;">
+                    <i class="fas fa-chart-pie"></i> Asset Composition Breakdown
+                </h5>
+                
+                <div class="row">
+                    <!-- Visual Bar Chart -->
+                    <div class="col-md-8">
+                        <div style="margin-bottom: 20px;">
+                            <div style="font-size: 12px; color: #666; margin-bottom: 8px; font-weight: 600;">Closing Balance Composition</div>
+                            <div style="display: flex; height: 40px; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                                {% with cash_pct=summary.cash_closing|default:0|floatformat:0 inv_pct=summary.inventory_value_closing|default:0|floatformat:0 ar_pct=summary.accounts_receivable_closing|default:0|floatformat:0 total=summary.closing_balance|floatformat:0 %}
+                                <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); width: {% widthratio summary.cash_closing|default:0 summary.closing_balance 100 %}%; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 700;">
+                                    {% widthratio summary.cash_closing|default:0 summary.closing_balance 100 %}%
+                                </div>
+                                <div style="background: linear-gradient(135deg, #ffc107 0%, #ffb300 100%); width: {% widthratio summary.inventory_value_closing|default:0 summary.closing_balance 100 %}%; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 700;">
+                                    {% widthratio summary.inventory_value_closing|default:0 summary.closing_balance 100 %}%
+                                </div>
+                                <div style="background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); width: {% widthratio summary.accounts_receivable_closing|default:0 summary.closing_balance 100 %}%; display: flex; align-items: center; justify-content: center; color: white; font-size: 11px; font-weight: 700;">
+                                    {% widthratio summary.accounts_receivable_closing|default:0 summary.closing_balance 100 %}%
+                                </div>
+                                {% endwith %}
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px; color: #666;">
+                                <span><span style="display: inline-block; width: 12px; height: 12px; background: #28a745; border-radius: 2px; margin-right: 4px;"></span>Cash</span>
+                                <span><span style="display: inline-block; width: 12px; height: 12px; background: #ffc107; border-radius: 2px; margin-right: 4px;"></span>Inventory</span>
+                                <span><span style="display: inline-block; width: 12px; height: 12px; background: #17a2b8; border-radius: 2px; margin-right: 4px;"></span>AR</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Key Metrics -->
+                    <div class="col-md-4">
+                        <div style="background: #f8f9fa; border-radius: 6px; padding: 12px;">
+                            <div style="font-size: 11px; color: #666; font-weight: 600; margin-bottom: 10px;">Key Liquidity Metrics</div>
+                            
+                            <div style="margin-bottom: 8px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 10px; color: #666;">Liquidity Ratio</span>
+                                    <span style="font-size: 13px; font-weight: 700; color: {% if summary.cash_closing|default:0 > summary.closing_balance|floatformat:0|add:"0"|floatformat:0|add:"0.5" %}#28a745{% elif summary.cash_closing|default:0 > summary.closing_balance|floatformat:0|add:"0"|floatformat:0|add:"0.3" %}#ffc107{% else %}#dc3545{% endif %};">
+                                        {% widthratio summary.cash_closing|default:0 summary.closing_balance 100 %}%
+                                    </span>
+                                </div>
+                                <div style="font-size: 9px; color: #999; margin-top: 2px;">Cash / Total Assets</div>
+                            </div>
+                            
+                            <div style="margin-bottom: 8px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 10px; color: #666;">Inventory Ratio</span>
+                                    <span style="font-size: 13px; font-weight: 700; color: #856404;">
+                                        {% widthratio summary.inventory_value_closing|default:0 summary.closing_balance 100 %}%
+                                    </span>
+                                </div>
+                                <div style="font-size: 9px; color: #999; margin-top: 2px;">Inventory / Total Assets</div>
+                            </div>
+                            
+                            <div>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 10px; color: #666;">AR Ratio</span>
+                                    <span style="font-size: 13px; font-weight: 700; color: #0c5460;">
+                                        {% widthratio summary.accounts_receivable_closing|default:0 summary.closing_balance 100 %}%
+                                    </span>
+                                </div>
+                                <div style="font-size: 9px; color: #999; margin-top: 2px;">AR / Total Assets</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <hr class="my-4">
@@ -685,8 +1165,12 @@
         </div>
         {% endif %}
 
-        <!-- Other Cash Out -->
+        <!-- Other Cash Out (Capital Expenditures, Investments, etc.) -->
         <h6 class="mt-4 mb-2"><strong><i class="fas fa-money-bill-wave text-danger"></i> Other Cash Out</strong></h6>
+        <p style="font-size: 11px; color: #666; margin-bottom: 10px;">
+            <i class="fas fa-info-circle"></i> Capital expenditures, investments, withdrawals, and other non-operational cash outflows. 
+            <strong>Note:</strong> Procurement and operational expenses are listed separately above.
+        </p>
         {% if cash_out_txns %}
         <div class="table-responsive">
             <table class="breakdown-table">
