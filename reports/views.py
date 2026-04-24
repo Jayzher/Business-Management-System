@@ -848,7 +848,7 @@ def financial_statement_view(request):
         for bundle in svc.bundles.all():
             for pli in bundle.price_list.items.all():
                 item_cost = pli.item.cost_price or Decimal('0')
-                bundle_cogs += item_cost * pli.qty * bundle.qty
+                bundle_cogs += item_cost * pli.min_qty * bundle.qty
         
         full_cogs = lines_cogs + other_mat_cogs + bundle_cogs
         proportional_cogs = (full_cogs * payment_percentage).quantize(Decimal('0.01'))
