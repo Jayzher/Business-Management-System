@@ -82,7 +82,7 @@ def update_monthly_summary(year, month, user=None):
     capital_total = capital_sales + capital_other
     
     # ── Calculate Expenses (Cash Out) ────────────────────────────────────
-    # Procurement Costs
+    # Procurement Costs (for tracking cash flow, NOT for P&L expense)
     expenses_procurement = Decimal('0')
     grns = GoodsReceipt.objects.filter(
         status=DocumentStatus.POSTED,
@@ -106,6 +106,25 @@ def update_monthly_summary(year, month, user=None):
             # Skip GRNs with errors
             continue
     
+    # ── Calculate COGS (Actual Expense) ──────────────────────────────────
+    # COGS = Cost of inventory actually SOLD (not purchased)
+    cogs_actual = Decimal('0')
+    
+    # POS Sales COGS (already calculated above, recalculate for expense tracking)
+    for sale in pos_sales:
+        try:
+            cogs = pos_sale_cogs(sale)
+            cogs_actual += cogs
+        except Exception:
+            continue
+    
+    # Invoice COGS
+    for inv in invoices:
+        try:
+            cogs_actual += inv.grand_total_cogs or Decimal('0')
+        except Exception:
+            continue
+    
     # Operational Expenses (exclude COGS/procurement expenses)
     result = Expense.objects.filter(
         status='APPROVED',
@@ -126,13 +145,19 @@ def update_monthly_summary(year, month, user=None):
     ).aggregate(total=Sum('amount'))
     expenses_other = result['total'] or Decimal('0')
     
-    expenses_total = expenses_procurement + expenses_operational + expenses_other
+    # ✅ FIX: Cash expenses = actual cash spent (procurement + operational + other)
+    cash_expenses_total = expenses_procurement + expenses_operational + expenses_other
+    
+    # P&L expenses = COGS + operational + other (for profit calculation)
+    expenses_total = cogs_actual + expenses_operational + expenses_other
     
     # ── Calculate Totals & Net Flow ──────────────────────────────────────
     total_inflow = capital_total
-    total_outflow = expenses_total
+    total_outflow = cash_expenses_total  # ✅ FIX: Use cash expenses (includes procurement)
     net_cash_flow = total_inflow - total_outflow
-    net_profit = net_cash_flow  # Keep for backward compatibility
+    
+    # Net profit uses P&L expenses (COGS-based)
+    net_profit = capital_total - expenses_total
     
     # ── Get Opening Balance from Previous Month ──────────────────────────
     opening_balance = Decimal('0')
@@ -194,13 +219,14 @@ def update_monthly_summary(year, month, user=None):
             'capital_sales': capital_sales,
             'capital_other': capital_other,
             'capital_total': capital_total,
-            'expenses_procurement': expenses_procurement,
+            'cogs_actual': cogs_actual,  # ✅ Save COGS for P&L tracking
+            'expenses_procurement': expenses_procurement,  # Keep for cash flow tracking
             'expenses_operational': expenses_operational,
             'expenses_other': expenses_other,
-            'expenses_total': expenses_total,
+            'expenses_total': expenses_total,  # P&L expenses (COGS-based)
             'total_inflow': total_inflow,
-            'total_outflow': total_outflow,
-            'net_cash_flow': net_cash_flow,
+            'total_outflow': total_outflow,  # ✅ FIX: Now uses cash expenses
+            'net_cash_flow': net_cash_flow,  # ✅ FIX: Now reflects actual cash movement
             'closing_balance': closing_balance,
             'net_profit': net_profit,
             'sales_count': sales_count,

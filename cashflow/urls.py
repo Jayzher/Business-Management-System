@@ -1,6 +1,7 @@
 from django.urls import path
 from cashflow import views
 from cashflow import monthly_views
+from cashflow import views_financial
 
 app_name = 'cashflow'
 
@@ -28,5 +29,11 @@ urlpatterns = [
     path('monthly/recalculate-all/', monthly_views.recalculate_all, name='recalculate_all'),
     path('monthly/api/<int:year>/chart-data/', monthly_views.monthly_chart_data, name='monthly_chart_data'),
     path('monthly/api/<int:year>/<int:month>/auto-create/', monthly_views.auto_create_summary, name='auto_create_summary'),
+    
+    # New Financial Dashboard
+    path('financial/', views_financial.financial_dashboard, name='financial_dashboard'),
+    path('financial/cash-flow/<int:year>/<int:month>/', views_financial.cash_flow_statement, name='cash_flow_statement'),
+    path('financial/profit-loss/<int:year>/<int:month>/', views_financial.profit_loss_statement, name='profit_loss_statement'),
+    path('financial/balance-sheet/<int:year>/<int:month>/', views_financial.balance_sheet, name='balance_sheet'),
+    path('api/financial-metrics/', views_financial.financial_metrics_api, name='financial_metrics_api'),
 ]
-

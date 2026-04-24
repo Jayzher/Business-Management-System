@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+{% extends 'theme/base.html' %}
 {% load static %}
 
 {% block title %}Monthly Cashflow Dashboard{% endblock %}
@@ -101,27 +101,70 @@
 
     <!-- Year Summary Cards -->
     <div class="row g-3 mb-4">
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="stat-card">
-                <div class="stat-label">Total Capital ({{ year }})</div>
-                <div class="stat-value positive">₱{{ year_totals.capital_total|floatformat:2|default:"0.00" }}</div>
-                <small class="text-muted">Sales + Other Cash-In</small>
+                <div class="stat-label">Total Revenue ({{ year }})</div>
+                <div class="stat-value positive">₱{{ year_totals.revenue_accrual|floatformat:2|default:"0.00" }}</div>
+                <small class="text-muted">Accrual Basis</small>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="stat-card">
-                <div class="stat-label">Total Expenses ({{ year }})</div>
-                <div class="stat-value negative">₱{{ year_totals.expenses_total|floatformat:2|default:"0.00" }}</div>
-                <small class="text-muted">Procurement + Operational + Other</small>
+                <div class="stat-label">Gross Profit ({{ year }})</div>
+                <div class="stat-value {% if year_totals.gross_profit >= 0 %}positive{% else %}negative{% endif %}">
+                    ₱{{ year_totals.gross_profit|floatformat:2|default:"0.00" }}
+                </div>
+                <small class="text-muted">Revenue - COGS</small>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="stat-card">
                 <div class="stat-label">Net Profit ({{ year }})</div>
                 <div class="stat-value {% if year_totals.net_profit >= 0 %}positive{% else %}negative{% endif %}">
                     ₱{{ year_totals.net_profit|floatformat:2|default:"0.00" }}
                 </div>
-                <small class="text-muted">Capital - Expenses</small>
+                <small class="text-muted">After All Expenses</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Cash Flow ({{ year }})</div>
+                <div class="stat-value {% if year_totals.operating_cash_flow >= 0 %}positive{% else %}negative{% endif %}">
+                    ₱{{ year_totals.operating_cash_flow|floatformat:2|default:"0.00" }}
+                </div>
+                <small class="text-muted">Actual Cash Movement</small>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Additional Metrics Row -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Collection Rate</div>
+                <div class="stat-value neutral">{{ year_totals.collection_rate_pct|floatformat:1|default:"0.0" }}%</div>
+                <small class="text-muted">Cash Collected / Revenue</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Accounts Receivable</div>
+                <div class="stat-value neutral">₱{{ year_totals.accounts_receivable_closing|floatformat:2|default:"0.00" }}</div>
+                <small class="text-muted">Outstanding Invoices</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Inventory Value</div>
+                <div class="stat-value neutral">₱{{ year_totals.inventory_value_closing|floatformat:2|default:"0.00" }}</div>
+                <small class="text-muted">Stock on Hand</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Gross Margin</div>
+                <div class="stat-value neutral">{{ year_totals.gross_margin_pct|floatformat:1|default:"0.0" }}%</div>
+                <small class="text-muted">Profitability</small>
             </div>
         </div>
     </div>
@@ -142,9 +185,11 @@
                 <thead class="table-light">
                     <tr>
                         <th>Month</th>
-                        <th class="text-end">Capital</th>
-                        <th class="text-end">Expenses</th>
+                        <th class="text-end">Revenue</th>
+                        <th class="text-end">COGS</th>
+                        <th class="text-end">Gross Profit</th>
                         <th class="text-end">Net Profit</th>
+                        <th class="text-end">Cash Flow</th>
                         <th class="text-center">Margin</th>
                         <th class="text-center">Actions</th>
                     </tr>
@@ -159,16 +204,22 @@
                                 {{ summary.sales_count }} sales, {{ summary.procurement_count }} procurements
                             </small>
                         </td>
-                        <td class="text-end text-success">₱{{ summary.capital_total|floatformat:2 }}</td>
-                        <td class="text-end text-danger">₱{{ summary.expenses_total|floatformat:2 }}</td>
+                        <td class="text-end text-primary">₱{{ summary.revenue_accrual|floatformat:2|default:"0.00" }}</td>
+                        <td class="text-end text-danger">₱{{ summary.cogs_actual|floatformat:2|default:"0.00" }}</td>
+                        <td class="text-end text-success">₱{{ summary.gross_profit|floatformat:2|default:"0.00" }}</td>
                         <td class="text-end">
                             <strong class="{% if summary.net_profit >= 0 %}text-success{% else %}text-danger{% endif %}">
-                                ₱{{ summary.net_profit|floatformat:2 }}
+                                ₱{{ summary.net_profit|floatformat:2|default:"0.00" }}
+                            </strong>
+                        </td>
+                        <td class="text-end">
+                            <strong class="{% if summary.operating_cash_flow >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                ₱{{ summary.operating_cash_flow|floatformat:2|default:"0.00" }}
                             </strong>
                         </td>
                         <td class="text-center">
-                            <span class="profit-badge {% if summary.profit_margin >= 0 %}positive{% else %}negative{% endif %}">
-                                {{ summary.profit_margin|floatformat:1 }}%
+                            <span class="profit-badge {% if summary.gross_margin_pct >= 0 %}positive{% else %}negative{% endif %}">
+                                {{ summary.gross_margin_pct|floatformat:1|default:"0.0" }}%
                             </span>
                         </td>
                         <td class="text-center">
@@ -180,7 +231,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="6" class="text-center py-4">
+                        <td colspan="8" class="text-center py-4">
                             <div class="text-muted mb-3">
                                 <i class="bi bi-inbox" style="font-size: 48px;"></i>
                                 <p class="mt-2">No monthly summaries for {{ year }}</p>
@@ -215,29 +266,38 @@ document.addEventListener('DOMContentLoaded', function() {
             labels: chartData.labels,
             datasets: [
                 {
-                    label: 'Capital',
-                    data: chartData.capital,
+                    label: 'Revenue',
+                    data: chartData.revenue,
+                    borderColor: 'rgb(59, 130, 246)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                },
+                {
+                    label: 'Gross Profit',
+                    data: chartData.gross_profit,
                     borderColor: 'rgb(34, 197, 94)',
                     backgroundColor: 'rgba(34, 197, 94, 0.1)',
                     tension: 0.4,
                     fill: true,
                 },
                 {
-                    label: 'Expenses',
-                    data: chartData.expenses,
-                    borderColor: 'rgb(239, 68, 68)',
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                    tension: 0.4,
-                    fill: true,
-                },
-                {
                     label: 'Net Profit',
                     data: chartData.net_profit,
-                    borderColor: 'rgb(59, 130, 246)',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderColor: 'rgb(168, 85, 247)',
+                    backgroundColor: 'rgba(168, 85, 247, 0.1)',
                     tension: 0.4,
                     fill: true,
                     borderWidth: 3,
+                },
+                {
+                    label: 'Cash Flow',
+                    data: chartData.cash_flow,
+                    borderColor: 'rgb(234, 179, 8)',
+                    backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    borderDash: [5, 5],
                 }
             ]
         },

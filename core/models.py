@@ -210,6 +210,10 @@ class Invoice(TimeStampedModel):
     subtotal = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     discount_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     tax_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    delivery_charge = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Delivery/shipping charge added to the invoice total.',
+    )
     grand_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     grand_total_cogs = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,

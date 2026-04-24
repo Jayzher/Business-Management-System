@@ -18,6 +18,43 @@
     h1, h2, h3, h4, h5, h6 { margin-bottom: 8px; }
     .card { margin-bottom: 10px; }
     .row { margin-bottom: 10px; }
+    
+    /* ✅ FIX: High Contrast Balance Cards for Better Visibility */
+    .balance-card.opening {
+        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+        border-left: 4px solid #ffc107;
+    }
+    .balance-card.opening .balance-label {
+        color: #856404 !important; /* Dark brown for high contrast */
+        font-weight: 700 !important;
+        font-size: 14px !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .balance-card.opening .balance-value {
+        color: #856404 !important; /* Dark brown for high contrast */
+        font-weight: 800 !important;
+        font-size: 24px !important;
+        text-shadow: 0 1px 2px rgba(255,255,255,0.5);
+    }
+    
+    .balance-card.closing {
+        background: linear-gradient(135deg, #d4edda 0%, #a8e6cf 100%);
+        border-left: 4px solid #28a745;
+    }
+    .balance-card.closing .balance-label {
+        color: #155724 !important; /* Dark green for high contrast */
+        font-weight: 700 !important;
+        font-size: 14px !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .balance-card.closing .balance-value {
+        color: #155724 !important; /* Dark green for high contrast */
+        font-weight: 800 !important;
+        font-size: 24px !important;
+        text-shadow: 0 1px 2px rgba(255,255,255,0.5);
+    }
 </style>
 {% endblock %}
 
@@ -133,15 +170,15 @@
     <!-- Balance Cards -->
     <div class="row">
         <div class="col-md-6 mb-2">
-            <div class="balance-card opening">
-                <div class="balance-label">💼 Opening Balance</div>
-                <div class="balance-value text-warning">₱{{ summary.opening_balance|floatformat:2|intcomma }}</div>
+            <div class="balance-card opening" style="background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); border-left: 4px solid #ffc107; border-radius: 8px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div class="balance-label" style="color: #856404 !important; font-weight: 700 !important; font-size: 14px !important; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">💼 Opening Balance</div>
+                <div class="balance-value" style="color: #856404 !important; font-weight: 800 !important; font-size: 26px !important; text-shadow: 0 1px 2px rgba(255,255,255,0.5);">₱{{ summary.opening_balance|floatformat:2|intcomma }}</div>
             </div>
         </div>
         <div class="col-md-6 mb-2">
-            <div class="balance-card closing">
-                <div class="balance-label">💰 Closing Balance</div>
-                <div class="balance-value text-success">₱{{ summary.closing_balance|floatformat:2|intcomma }}</div>
+            <div class="balance-card closing" style="background: linear-gradient(135deg, #d4edda 0%, #a8e6cf 100%); border-left: 4px solid #28a745; border-radius: 8px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div class="balance-label" style="color: #155724 !important; font-weight: 700 !important; font-size: 14px !important; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">💰 Closing Balance</div>
+                <div class="balance-value" style="color: #155724 !important; font-weight: 800 !important; font-size: 26px !important; text-shadow: 0 1px 2px rgba(255,255,255,0.5);">₱{{ summary.closing_balance|floatformat:2|intcomma }}</div>
             </div>
         </div>
     </div>
@@ -186,8 +223,9 @@
                         <div class="summary-label">💸 EXPENSES</div>
                         <div class="summary-value text-danger">₱{{ summary.expenses_total|floatformat:2|intcomma }}</div>
                         <div class="summary-detail">
-                            Procurement: ₱{{ summary.expenses_procurement|floatformat:2|intcomma }}<br>
-                            Operational: ₱{{ summary.expenses_operational|floatformat:2|intcomma }}
+                            COGS: ₱{{ summary.cogs_actual|floatformat:2|intcomma }}<br>
+                            Operational: ₱{{ summary.expenses_operational|floatformat:2|intcomma }}<br>
+                            <small class="text-muted">Procurement (Cash): ₱{{ summary.expenses_procurement|floatformat:2|intcomma }}</small>
                         </div>
                     </div>
                 </div>

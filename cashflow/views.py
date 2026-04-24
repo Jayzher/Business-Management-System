@@ -147,12 +147,14 @@ def transaction_list(request):
             Q(category__name__icontains=search_query)
         )
     
-    # Expenses - Other Cash Out
+    # Expenses - Other Cash Out (EXCLUDE Procurement and Expenses categories)
     cash_out_txns_qs = CashFlowTransaction.objects.filter(
         status=CashFlowStatus.APPROVED,
         flow_type=CashFlowType.CASH_OUT,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
+    ).exclude(
+        category__in=[CashFlowCategory.PROCUREMENT, CashFlowCategory.EXPENSES]
     ).select_related('created_by', 'approved_by')
     
     # Apply search to cash out
