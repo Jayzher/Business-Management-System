@@ -238,6 +238,10 @@ class MonthlyCashflowSummary(TimeStampedModel):
         max_digits=15, decimal_places=2, default=0,
         help_text='Unpaid invoices at end of month',
     )
+    ar_collections = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Actual AR collections (invoice payments) this month',
+    )
     accounts_payable_opening = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
         help_text='Unpaid bills at start of month',
