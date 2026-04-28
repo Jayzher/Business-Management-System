@@ -167,15 +167,19 @@ class Command(BaseCommand):
 
         # ── Calculate Inventory Values ───────────────────────────────────────
         inventory_opening = self._calculate_inventory_value(start_date)
-        inventory_closing = self._calculate_inventory_value(end_date)
         inventory_purchased = self._calculate_procurement_costs(start_date, next_month_start)
         
         # ── Calculate COGS (actual expense) ──────────────────────────────────
         cogs_actual = self._calculate_actual_cogs(start_date, next_month_start)
+        
+        # Calculate closing inventory using formula (not snapshot)
+        # Closing = Opening + Purchased - COGS
+        inventory_closing = inventory_opening + inventory_purchased - cogs_actual
 
         # ── Calculate Accounts Receivable ────────────────────────────────────
         ar_opening = self._calculate_ar(start_date)
         ar_closing = self._calculate_ar(next_month_start)
+        ar_collections = self._calculate_ar_collections(start_date, next_month_start)
         
         # ── Calculate Cash Position ──────────────────────────────────────────
         # Get previous month's closing cash
@@ -220,8 +224,9 @@ class Command(BaseCommand):
         # Actual cash received from customers (payments)
         cash_from_customers = self._calculate_cash_from_customers(start_date, next_month_start)
         
-        # Cash closing = cash opening + cash received - cash paid
-        cash_closing = cash_opening + cash_from_customers - cash_expenses_total
+        # Cash closing = cash opening + all cash in - cash paid
+        # Include: customer payments + capital injections + other cash in
+        cash_closing = cash_opening + cash_from_customers + capital_other - cash_expenses_total
         
         # Net cash flow = change in cash position
         net_cash_flow = cash_closing - cash_opening
@@ -297,6 +302,7 @@ class Command(BaseCommand):
                     # Accounts Receivable
                     'accounts_receivable_opening': ar_opening,
                     'accounts_receivable_closing': ar_closing,
+                    'ar_collections': ar_collections,
                     
                     # Revenue (P&L)
                     'capital_sales': capital_sales_revenue,
@@ -588,6 +594,16 @@ class Command(BaseCommand):
         total += pos_sales.aggregate(Sum('grand_total'))['grand_total__sum'] or Decimal('0')
         
         return total
+
+    def _calculate_ar_collections(self, start_date, end_date):
+        """Calculate actual AR collections (invoice payments only, excluding POS)."""
+        from core.models import InvoicePayment
+        
+        payments = InvoicePayment.objects.filter(
+            date__gte=start_date,
+            date__lt=end_date,
+        )
+        return payments.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
 
     def _info(self, msg):
         """Print info message unless quiet mode."""
