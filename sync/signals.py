@@ -4,9 +4,11 @@ sync/signals.py — Post-save hooks for event-driven cross-DB sync.
 When any web-admin model save hits the default (SQLite) database:
   1. A background thread asynchronously writes the same row to Neon so
      mobile clients that read Neon directly can see the change.
-  2. A Pusher event is triggered on channel 'sync', event 'table-changed',
-     with payload {"tables": [<db_table_name>]}.  Mobile clients subscribed
-     to that channel know to re-pull only that specific table from Neon.
+  2. A WebSocket broadcast is sent via Django Channels to all connected
+     clients (web + mobile) on the 'sync' group with payload
+     {"type": "table_changed", "tables": [<db_table_name>]}.
+  3. (Legacy) A Pusher event is also triggered if credentials are configured,
+     for any mobile clients still using the Pusher SDK.
 
 The _NEON_WRITE_ACTIVE thread-local prevents re-entrancy if the async
 thread itself triggers a post_save (e.g. via bulk_create).
@@ -30,6 +32,7 @@ SYNCED_APP_LABELS = {
 }
 
 
+# ── Pusher (legacy, optional) ─────────────────────────────────────────
 _pusher_client = None
 
 
@@ -55,12 +58,8 @@ def _get_pusher():
     return _pusher_client
 
 
-def broadcast_table_changed(tables: list[str]) -> None:
-    """
-    Trigger a Pusher event on channel 'sync', event 'table-changed'.
-    Payload: {"tables": [<db_table_name>, ...]}.
-    Fails silently when Pusher credentials are missing or unavailable.
-    """
+def _broadcast_pusher(tables: list[str]) -> None:
+    """Legacy Pusher broadcast — fails silently when unavailable."""
     client = _get_pusher()
     if client is None:
         return
@@ -71,11 +70,46 @@ def broadcast_table_changed(tables: list[str]) -> None:
         logger.debug('Pusher trigger skipped (%s): %s', tables, exc)
 
 
+# ── Django Channels WebSocket broadcast ────────────────────────────────
+def _broadcast_ws(tables: list[str]) -> None:
+    """
+    Send a table_changed event to every connected WebSocket client via
+    the Django Channels layer.  Works from synchronous code (signal handlers)
+    by using async_to_sync.
+    """
+    try:
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        if channel_layer is None:
+            return
+        async_to_sync(channel_layer.group_send)(
+            'sync',
+            {
+                'type': 'table_changed',
+                'tables': tables,
+            },
+        )
+        logger.debug('WS broadcast table-changed: %s', tables)
+    except Exception as exc:
+        logger.debug('WS broadcast skipped (%s): %s', tables, exc)
+
+
+def broadcast_table_changed(tables: list[str]) -> None:
+    """
+    Broadcast a table-changed event to all real-time clients.
+    Sends via both Django Channels (primary) and Pusher (legacy fallback).
+    """
+    _broadcast_ws(tables)
+    _broadcast_pusher(tables)
+
+
+# ── Neon write-through ─────────────────────────────────────────────────
 def _write_to_neon_async(sender, pk: int, table: str) -> None:
     """
     Spawn a daemon thread that upserts the record identified by *pk* into the
-    'neon' database alias.  Broadcasts the Pusher event only after the write
-    succeeds so mobile never receives a stale-read notification.
+    'neon' database alias.  Broadcasts the event only after the write
+    succeeds so clients never receive a stale-read notification.
     """
     if getattr(_NEON_WRITE_ACTIVE, 'value', False):
         return
@@ -108,7 +142,7 @@ def _write_to_neon_async(sender, pk: int, table: str) -> None:
                 sender._default_manager.using('neon').bulk_create(
                     [obj], ignore_conflicts=True,
                 )
-            # Notify mobile only after Neon has the data
+            # Notify clients only after Neon has the data
             broadcast_table_changed([table])
         except Exception as exc:
             logger.debug(
@@ -145,6 +179,7 @@ def _delete_from_neon_async(sender, pk: int, table: str) -> None:
     threading.Thread(target=_worker, daemon=True, name=f'neon-del-{sender.__name__}').start()
 
 
+# ── Signal receivers ───────────────────────────────────────────────────
 @receiver(post_save)
 def on_model_save(sender, instance, using, **kwargs):
     if using != 'default':

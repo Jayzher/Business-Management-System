@@ -218,15 +218,23 @@ def transaction_list(request):
         for grn in grns_qs:
             try:
                 total_cost = Decimal('0')
-                if grn.purchase_order:
-                    for line in grn.lines.all():
-                        try:
+                for line in grn.lines.all():
+                    try:
+                        line_cost = Decimal('0')
+                        # Try PO price first
+                        if grn.purchase_order:
                             po_line = grn.purchase_order.lines.filter(item=line.item).first()
-                            if po_line:
-                                total_cost += line.qty * po_line.unit_price
-                        except Exception:
-                            # Skip lines with missing items
-                            continue
+                            if po_line and po_line.unit_price > 0:
+                                line_cost = line.qty * po_line.unit_price
+                        # Fall back to item cost_price
+                        if line_cost == 0 and line.item.cost_price:
+                            line_cost = line.qty * line.item.cost_price
+                        total_cost += line_cost
+                    except Exception:
+                        continue
+                # Include delivery charge
+                if grn.delivery_charge:
+                    total_cost += grn.delivery_charge
                 procurement_breakdown.append({
                     'number': grn.document_number,
                     'date': grn.receipt_date,

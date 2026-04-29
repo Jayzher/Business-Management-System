@@ -1,6 +1,7 @@
 {% extends "theme/base.html" %}
 {% load static %}
 {% load humanize %}
+{% load custom_filters %}
 
 {% block title %}Monthly Cashflow - {{ month_name }} {{ year }}{% endblock %}
 {% block page_title %}Monthly Cashflow - {{ month_name }} {{ year }}{% endblock %}
@@ -441,19 +442,13 @@
                     <div style="flex: 1; min-width: 200px;">
                         <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">💵 Cash Movement</div>
                         <div style="font-size: 18px; font-weight: 700;">
-                            {% if summary.cash_closing|default:0 >= summary.cash_opening|default:0 %}
-                                {% with cash_change=summary.cash_closing|default:0 %}
-                                {% with cash_open=summary.cash_opening|default:0 %}
-                                <span style="color: #4ade80;">+₱{{ cash_change|floatformat:2|add:"-"|add:cash_open|floatformat:2|floatformat:2|intcomma }}</span>
-                                {% endwith %}
-                                {% endwith %}
+                            {% with cash_change=summary.cash_closing|default:0|subtract:summary.cash_opening|default:0 %}
+                            {% if cash_change >= 0 %}
+                                <span style="color: #4ade80;">+₱{{ cash_change|floatformat:2|intcomma }}</span>
                             {% else %}
-                                {% with cash_change=summary.cash_opening|default:0 %}
-                                {% with cash_close=summary.cash_closing|default:0 %}
-                                <span style="color: #f87171;">-₱{{ cash_change|floatformat:2|add:"-"|add:cash_close|floatformat:2|floatformat:2|intcomma }}</span>
-                                {% endwith %}
-                                {% endwith %}
+                                <span style="color: #f87171;">-₱{{ cash_change|abs_value|floatformat:2|intcomma }}</span>
                             {% endif %}
+                            {% endwith %}
                         </div>
                     </div>
                     
@@ -461,19 +456,13 @@
                     <div style="flex: 1; min-width: 200px;">
                         <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">📦 Inventory Movement</div>
                         <div style="font-size: 18px; font-weight: 700;">
-                            {% if summary.inventory_value_closing|default:0 >= summary.inventory_value_opening|default:0 %}
-                                {% with inv_close=summary.inventory_value_closing|default:0 %}
-                                {% with inv_open=summary.inventory_value_opening|default:0 %}
-                                <span style="color: #fbbf24;">+₱{{ inv_close|floatformat:2|add:"-"|add:inv_open|floatformat:2|floatformat:2|intcomma }}</span>
-                                {% endwith %}
-                                {% endwith %}
+                            {% with inv_change=summary.inventory_value_closing|default:0|subtract:summary.inventory_value_opening|default:0 %}
+                            {% if inv_change >= 0 %}
+                                <span style="color: #fbbf24;">+₱{{ inv_change|floatformat:2|intcomma }}</span>
                             {% else %}
-                                {% with inv_open=summary.inventory_value_opening|default:0 %}
-                                {% with inv_close=summary.inventory_value_closing|default:0 %}
-                                <span style="color: #f87171;">-₱{{ inv_open|floatformat:2|add:"-"|add:inv_close|floatformat:2|floatformat:2|intcomma }}</span>
-                                {% endwith %}
-                                {% endwith %}
+                                <span style="color: #f87171;">-₱{{ inv_change|abs_value|floatformat:2|intcomma }}</span>
                             {% endif %}
+                            {% endwith %}
                         </div>
                     </div>
                     
@@ -481,19 +470,13 @@
                     <div style="flex: 1; min-width: 200px;">
                         <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">📋 AR Movement</div>
                         <div style="font-size: 18px; font-weight: 700;">
-                            {% if summary.accounts_receivable_closing|default:0 >= summary.accounts_receivable_opening|default:0 %}
-                                {% with ar_close=summary.accounts_receivable_closing|default:0 %}
-                                {% with ar_open=summary.accounts_receivable_opening|default:0 %}
-                                <span style="color: #60a5fa;">+₱{{ ar_close|floatformat:2|add:"-"|add:ar_open|floatformat:2|floatformat:2|intcomma }}</span>
-                                {% endwith %}
-                                {% endwith %}
+                            {% with ar_change=summary.accounts_receivable_closing|default:0|subtract:summary.accounts_receivable_opening|default:0 %}
+                            {% if ar_change >= 0 %}
+                                <span style="color: #60a5fa;">+₱{{ ar_change|floatformat:2|intcomma }}</span>
                             {% else %}
-                                {% with ar_open=summary.accounts_receivable_opening|default:0 %}
-                                {% with ar_close=summary.accounts_receivable_closing|default:0 %}
-                                <span style="color: #4ade80;">-₱{{ ar_open|floatformat:2|add:"-"|add:ar_close|floatformat:2|floatformat:2|intcomma }}</span>
-                                {% endwith %}
-                                {% endwith %}
+                                <span style="color: #4ade80;">-₱{{ ar_change|abs_value|floatformat:2|intcomma }}</span>
                             {% endif %}
+                            {% endwith %}
                         </div>
                     </div>
                     
@@ -501,19 +484,13 @@
                     <div style="flex: 1; min-width: 200px; border-left: 2px solid rgba(255,255,255,0.3); padding-left: 16px;">
                         <div style="font-size: 11px; opacity: 0.9; margin-bottom: 4px;">📊 Total Asset Change</div>
                         <div style="font-size: 20px; font-weight: 800;">
-                            {% if summary.closing_balance >= summary.opening_balance %}
-                                {% with close_bal=summary.closing_balance %}
-                                {% with open_bal=summary.opening_balance %}
-                                <span style="color: #4ade80;">+₱{{ close_bal|floatformat:2|add:"-"|add:open_bal|floatformat:2|floatformat:2|intcomma }}</span>
-                                {% endwith %}
-                                {% endwith %}
+                            {% with total_change=summary.closing_balance|default:0|subtract:summary.opening_balance|default:0 %}
+                            {% if total_change >= 0 %}
+                                <span style="color: #4ade80;">+₱{{ total_change|floatformat:2|intcomma }}</span>
                             {% else %}
-                                {% with open_bal=summary.opening_balance %}
-                                {% with close_bal=summary.closing_balance %}
-                                <span style="color: #f87171;">-₱{{ open_bal|floatformat:2|add:"-"|add:close_bal|floatformat:2|floatformat:2|intcomma }}</span>
-                                {% endwith %}
-                                {% endwith %}
+                                <span style="color: #f87171;">-₱{{ total_change|abs_value|floatformat:2|intcomma }}</span>
                             {% endif %}
+                            {% endwith %}
                         </div>
                     </div>
                 </div>
@@ -531,19 +508,19 @@
                     <span></span>
                 </div>
                 <div class="cashflow-row">
-                    <span class="cashflow-label">Sales Revenue (Gross Profit)</span>
-                    <span class="cashflow-value text-inflow">₱{{ summary.capital_sales|floatformat:2|intcomma }}</span>
+                    <span class="cashflow-label">Cash from Customers (POS + Invoice Payments)</span>
+                    <span class="cashflow-value text-inflow">₱{{ summary.cash_from_customers|default:0|floatformat:2|intcomma }}</span>
                 </div>
                 <div class="cashflow-row">
-                    <span class="cashflow-label">Investments (Dividends, Interest, Capital Gains)</span>
+                    <span class="cashflow-label">Capital Injections & Other Cash-In</span>
                     <span class="cashflow-value text-inflow">₱{{ summary.capital_other|floatformat:2|intcomma }}</span>
                 </div>
                 <div class="cashflow-row">
-                    <span class="cashflow-label">Accounts Receivable (Collection of Outstanding Payments)</span>
-                    <span class="cashflow-value text-inflow">₱0.00</span>
+                    <span class="cashflow-label">AR Collections (Invoice Payments)</span>
+                    <span class="cashflow-value text-inflow">₱{{ summary.ar_collections|default:0|floatformat:2|intcomma }}</span>
                 </div>
                 <div class="cashflow-row total">
-                    <span>Total Inflow</span>
+                    <span>Total Cash Inflow</span>
                     <span class="text-inflow">₱{{ summary.total_inflow|floatformat:2|intcomma }}</span>
                 </div>
             </div>
@@ -560,19 +537,15 @@
                     <span class="cashflow-value text-outflow">₱{{ summary.expenses_operational|floatformat:2|intcomma }}</span>
                 </div>
                 <div class="cashflow-row">
-                    <span class="cashflow-label">Inventory Purchases</span>
+                    <span class="cashflow-label">Cash to Suppliers (Procurement)</span>
                     <span class="cashflow-value text-outflow">₱{{ summary.expenses_procurement|floatformat:2|intcomma }}</span>
                 </div>
                 <div class="cashflow-row">
-                    <span class="cashflow-label">Salaries and Wages</span>
-                    <span class="cashflow-value text-outflow">₱0.00</span>
-                </div>
-                <div class="cashflow-row">
-                    <span class="cashflow-label">Capital Expenditures / Other</span>
+                    <span class="cashflow-label">Other Cash Out</span>
                     <span class="cashflow-value text-outflow">₱{{ summary.expenses_other|floatformat:2|intcomma }}</span>
                 </div>
                 <div class="cashflow-row total">
-                    <span>Total Outflow</span>
+                    <span>Total Cash Outflow</span>
                     <span class="text-outflow">₱{{ summary.total_outflow|floatformat:2|intcomma }}</span>
                 </div>
             </div>
@@ -621,11 +594,13 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                         <span style="font-size: 10px; color: #155724; font-weight: 600;">Cash Change</span>
                         <span style="font-size: 14px; font-weight: 700; color: {% if summary.cash_closing|default:0 >= summary.cash_opening|default:0 %}#28a745{% else %}#dc3545{% endif %};">
-                            {% if summary.cash_closing|default:0 >= summary.cash_opening|default:0 %}
-                                +₱{{ summary.cash_closing|default:0|add:summary.cash_opening|default:0|floatformat:"-2"|floatformat:2|intcomma }}
+                            {% with cash_change=summary.cash_closing|default:0|subtract:summary.cash_opening|default:0 %}
+                            {% if cash_change >= 0 %}
+                                +₱{{ cash_change|floatformat:2|intcomma }}
                             {% else %}
-                                -₱{{ summary.cash_opening|default:0|add:summary.cash_closing|default:0|floatformat:"-2"|floatformat:2|intcomma }}
+                                -₱{{ cash_change|abs_value|floatformat:2|intcomma }}
                             {% endif %}
+                            {% endwith %}
                         </span>
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -695,19 +670,17 @@
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                 <span style="font-size: 10px; color: #666;">New Credit Sales</span>
-                                {% if summary.accounts_receivable_closing|default:0 >= summary.accounts_receivable_opening|default:0 %}
-                                    {% with ar_close=summary.accounts_receivable_closing|default:0 %}
-                                    {% with ar_open=summary.accounts_receivable_opening|default:0 %}
-                                    <span style="font-size: 12px; font-weight: 600; color: #28a745;">+₱{{ ar_close|floatformat:2|add:"-"|add:ar_open|floatformat:2|floatformat:2|intcomma }}</span>
-                                    {% endwith %}
-                                    {% endwith %}
+                                {% with ar_change=summary.accounts_receivable_closing|default:0|subtract:summary.accounts_receivable_opening|default:0 %}
+                                {% if ar_change >= 0 %}
+                                    <span style="font-size: 12px; font-weight: 600; color: #28a745;">+₱{{ ar_change|floatformat:2|intcomma }}</span>
                                 {% else %}
-                                    <span style="font-size: 12px; font-weight: 600; color: #28a745;">+₱0.00</span>
+                                    <span style="font-size: 12px; font-weight: 600; color: #dc3545;">-₱{{ ar_change|abs_value|floatformat:2|intcomma }}</span>
                                 {% endif %}
+                                {% endwith %}
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                 <span style="font-size: 10px; color: #666;">Collections (AR Payments)</span>
-                                <span style="font-size: 12px; font-weight: 600; color: #17a2b8;">-₱{{ summary.ar_collections|default:0|floatformat:2|intcomma }}</span>
+                                <span style="font-size: 12px; font-weight: 600; color: #28a745;">+₱{{ summary.ar_collections|default:0|floatformat:2|intcomma }}</span>
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 2px solid #17a2b8;">
                                 <span style="font-size: 11px; color: #0c5460; font-weight: 700;">Closing</span>

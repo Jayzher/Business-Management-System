@@ -613,8 +613,8 @@ def profit_margin_view(request):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def financial_statement_view(request):
-    from core.models import Expense, Invoice
-    from services.models import CustomerService, ServicePaymentStatus
+    from core.models import Expense, Invoice, InvoicePayment
+    from services.models import CustomerService, ServicePaymentStatus, ServiceStatus
     from sales.models import SalesOrder
 
     today = date.today()
@@ -622,15 +622,48 @@ def financial_statement_view(request):
     date_from = request.GET.get('date_from', first_of_month.isoformat())
     date_to = request.GET.get('date_to', today.isoformat())
 
-    # ── PAID INVOICES (filtered by paid_date) ──────────────────────────
-    inv_qs = Invoice.objects.filter(is_paid=True, is_void=False, paid_date__isnull=False)
-    if date_from:
-        inv_qs = inv_qs.filter(paid_date__gte=date_from)
-    if date_to:
-        inv_qs = inv_qs.filter(paid_date__lte=date_to)
+    # ══════════════════════════════════════════════════════════════════════
+    # PAYMENT-BASED REVENUE RECOGNITION
+    # ──────────────────────────────────────────────────────────────────────
+    # Instead of counting full grand_total when an invoice is marked paid,
+    # we count the actual InvoicePayment records that fall within the date
+    # range. This prevents double-counting when partial payments are made
+    # in one period and the invoice is fully paid in another.
+    #
+    # Revenue for a period = sum of InvoicePayment.amount within date range
+    # COGS for a period   = full_cogs × (period_payments / grand_total)
+    # Discount             = discount_total × (period_payments / grand_total)
+    # ══════════════════════════════════════════════════════════════════════
 
+    # ── Get all payments in the date range ─────────────────────────────
+    payment_qs = InvoicePayment.objects.filter(
+        invoice__is_void=False,
+    )
+    if date_from:
+        payment_qs = payment_qs.filter(date__gte=date_from)
+    if date_to:
+        payment_qs = payment_qs.filter(date__lte=date_to)
+
+    # Get the distinct invoices that have payments in this period
+    invoice_ids_with_payments = set(
+        payment_qs.values_list('invoice_id', flat=True).distinct()
+    )
+
+    # Sum payments per invoice within the date range
+    from django.db.models import Sum as DjangoSum
+    payments_by_invoice = dict(
+        payment_qs.values_list('invoice_id').annotate(
+            period_paid=Coalesce(DjangoSum('amount'), Decimal('0'), output_field=DecimalField())
+        ).values_list('invoice_id', 'period_paid')
+    )
+
+    # Load the invoice objects for those with payments in this period
     invoice_rows = list(
-        inv_qs.select_related('sales_order__customer', 'pos_sale__customer')
+        Invoice.objects.filter(
+            pk__in=invoice_ids_with_payments,
+            is_void=False,
+        )
+        .select_related('sales_order__customer', 'pos_sale__customer')
         .prefetch_related(
             'payments',
             'pos_sale__lines__item',
@@ -647,153 +680,143 @@ def financial_statement_view(request):
             'customer_services__bundles__price_list__items__unit',
             'customer_services__other_materials',
         )
-        .order_by('paid_date')
+        .order_by('date')
     )
 
-    agg = inv_qs.aggregate(
-        revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
-        discount=Coalesce(Sum('discount_total'), Decimal('0'), output_field=DecimalField()),
-    )
-    invoice_revenue = agg['revenue']
-    discount = agg['discount']
-    invoice_cogs_map = {inv.pk: compute_invoice_cogs(inv) for inv in invoice_rows}
-    cogs_from_invoices = sum(invoice_cogs_map.values(), Decimal('0'))
+    # Build per-invoice data: COGS, period revenue (payments in range),
+    # and proportional discount/COGS based on payment ratio
+    invoice_cogs_map = {}
+    invoice_period_revenue = {}   # actual payments received in this period
+    invoice_period_ratio = {}     # period_payments / grand_total
+    invoice_period_cogs = {}      # proportional COGS for this period
+    invoice_period_discount = {}  # proportional discount for this period
 
-    so_invoice_revenue = sum(inv.grand_total for inv in invoice_rows if inv.sales_order_id)
-    pos_invoice_revenue = sum(inv.grand_total for inv in invoice_rows if inv.pos_sale_id)
-    svc_invoice_revenue = sum(
-        inv.grand_total for inv in invoice_rows
-        if not inv.sales_order_id and not inv.pos_sale_id
-    )
-    
+    for inv in invoice_rows:
+        full_cogs = compute_invoice_cogs(inv)
+        invoice_cogs_map[inv.pk] = full_cogs
+
+        period_paid = payments_by_invoice.get(inv.pk, Decimal('0'))
+        ratio = (period_paid / inv.grand_total) if inv.grand_total > 0 else Decimal('0')
+        if ratio > Decimal('1.0'):
+            ratio = Decimal('1.0')
+
+        invoice_period_revenue[inv.pk] = period_paid
+        invoice_period_ratio[inv.pk] = ratio
+        invoice_period_cogs[inv.pk] = (full_cogs * ratio).quantize(Decimal('0.01'))
+        invoice_period_discount[inv.pk] = (inv.discount_total * ratio).quantize(Decimal('0.01'))
+
+    # Aggregate totals
+    invoice_revenue = sum(invoice_period_revenue.values(), Decimal('0'))
+    discount = sum(invoice_period_discount.values(), Decimal('0'))
+    cogs_from_invoices = sum(invoice_period_cogs.values(), Decimal('0'))
+
     # ── Separate P&L: Materials Sales vs Services ──────────────────────
     # Materials Sales = POS + Sales Orders
-    materials_revenue = pos_invoice_revenue + so_invoice_revenue
+    materials_revenue = sum(
+        invoice_period_revenue[inv.pk] for inv in invoice_rows
+        if inv.sales_order_id or inv.pos_sale_id
+    )
     materials_discount = sum(
-        inv.discount_total for inv in invoice_rows 
+        invoice_period_discount[inv.pk] for inv in invoice_rows
         if inv.sales_order_id or inv.pos_sale_id
     )
     materials_cogs = sum(
-        invoice_cogs_map[inv.pk] for inv in invoice_rows 
+        invoice_period_cogs[inv.pk] for inv in invoice_rows
         if inv.sales_order_id or inv.pos_sale_id
     )
     materials_gross_profit = materials_revenue - materials_discount - materials_cogs
     materials_gross_margin = (
-        (materials_gross_profit / (materials_revenue - materials_discount) * 100) 
+        (materials_gross_profit / (materials_revenue - materials_discount) * 100)
         if (materials_revenue - materials_discount) > 0 else Decimal('0')
     )
-    
+
     # Services = Everything else (customer services)
-    services_revenue = svc_invoice_revenue
+    services_revenue = sum(
+        invoice_period_revenue[inv.pk] for inv in invoice_rows
+        if not inv.sales_order_id and not inv.pos_sale_id
+    )
     services_discount = sum(
-        inv.discount_total for inv in invoice_rows 
+        invoice_period_discount[inv.pk] for inv in invoice_rows
         if not inv.sales_order_id and not inv.pos_sale_id
     )
     services_cogs = sum(
-        invoice_cogs_map[inv.pk] for inv in invoice_rows 
+        invoice_period_cogs[inv.pk] for inv in invoice_rows
         if not inv.sales_order_id and not inv.pos_sale_id
     )
     services_gross_profit = services_revenue - services_discount - services_cogs
     services_gross_margin = (
-        (services_gross_profit / (services_revenue - services_discount) * 100) 
+        (services_gross_profit / (services_revenue - services_discount) * 100)
         if (services_revenue - services_discount) > 0 else Decimal('0')
     )
     
-    # ── Partial Payments from Services (All Statuses) ──────────────────
-    # Show invoices with partial payments (not fully paid yet)
-    # These are invoices where customers have made some payments but haven't paid the full amount
-    from services.models import ServiceStatus
-    from django.db.models import Q, Sum as DjangoSum
-    
-    # Get invoices with partial payments (not fully paid)
-    partial_invoice_qs = Invoice.objects.filter(
-        is_paid=False,  # Not fully paid
-        is_void=False,  # Not voided
-        payments__isnull=False,  # Has at least one payment
-    ).annotate(
-        total_paid_amount=Coalesce(DjangoSum('payments__amount'), Decimal('0'), output_field=DecimalField())
-    ).filter(
-        total_paid_amount__gt=0,  # Has received some payment
-        total_paid_amount__lt=F('grand_total'),  # But not the full amount
-    ).distinct()
-    
-    # Date filter: use payment date for filtering
-    if date_from or date_to:
-        # Filter by the date of the latest payment
-        partial_invoice_qs = partial_invoice_qs.filter(
-            payments__date__gte=date_from if date_from else date(1900, 1, 1),
-            payments__date__lte=date_to if date_to else date(2100, 12, 31),
-        ).distinct()
-    
-    partial_invoice_qs = partial_invoice_qs.select_related(
-        'sales_order__customer', 'pos_sale__customer'
-    ).prefetch_related(
-        'payments',
-        'customer_services',
-    )
-    
+    # ── Partial Payments (invoices not yet fully paid) ────────────────
+    # These are invoices where some payments exist but is_paid is still False.
+    # Since we already count their payments above (via InvoicePayment date
+    # filtering), we only need this section for the BREAKDOWN DISPLAY in the
+    # modal — not for P&L totals. The P&L numbers come from payment records.
+    from django.db.models import Q
+
     partial_services_revenue = Decimal('0')
     partial_services_cogs = Decimal('0')
     partial_services_breakdown = []
-    
+
     partial_so_revenue = Decimal('0')
     partial_so_cogs = Decimal('0')
     partial_so_breakdown = []
-    
-    # Debug: Count total for comparison
-    debug_total_partial_invoices = partial_invoice_qs.count()
+
+    debug_total_partial_invoices = 0
     debug_services_with_partial = 0
     debug_so_with_partial = 0
-    
-    for inv in partial_invoice_qs:
-        # Calculate how much has been paid
-        total_paid = inv.total_paid
-        payment_percentage = (total_paid / inv.grand_total) if inv.grand_total > 0 else Decimal('0')
-        
-        # Cap at 100%
-        if payment_percentage > Decimal('1.0'):
-            payment_percentage = Decimal('1.0')
-        
-        # Calculate COGS for this invoice
-        full_cogs = compute_invoice_cogs(inv)
-        proportional_cogs = (full_cogs * payment_percentage).quantize(Decimal('0.01'))
-        
-        # Determine if this is a service or sales order/POS
+
+    # Identify invoices that are NOT fully paid but had payments in this period
+    for inv in invoice_rows:
+        if inv.is_paid:
+            continue  # Fully paid — shown in the Invoices tab, not here
+
+        period_paid = invoice_period_revenue.get(inv.pk, Decimal('0'))
+        if period_paid <= 0:
+            continue
+
+        debug_total_partial_invoices += 1
+        ratio = invoice_period_ratio[inv.pk]
+        proportional_cogs = invoice_period_cogs[inv.pk]
+
         if hasattr(inv, 'customer_services') and inv.customer_services.exists():
-            # This is a service invoice
             debug_services_with_partial += 1
-            partial_services_revenue += total_paid
+            partial_services_revenue += period_paid
             partial_services_cogs += proportional_cogs
-            
+
             services = inv.customer_services.all()
             partial_services_breakdown.append({
                 'invoice': inv,
                 'service': services[0] if services else None,
-                'revenue': total_paid,
+                'revenue': period_paid,
                 'cogs': proportional_cogs,
-                'gross_profit': total_paid - proportional_cogs,
-                'payment_percentage': payment_percentage * 100,
+                'gross_profit': period_paid - proportional_cogs,
+                'payment_percentage': ratio * 100,
                 'balance_due': inv.balance_due,
             })
         elif inv.sales_order_id or inv.pos_sale_id:
-            # This is a sales order or POS invoice
             debug_so_with_partial += 1
-            partial_so_revenue += total_paid
+            partial_so_revenue += period_paid
             partial_so_cogs += proportional_cogs
-            
+
             partial_so_breakdown.append({
                 'invoice': inv,
                 'sales_order': inv.sales_order if inv.sales_order_id else None,
                 'pos_sale': inv.pos_sale if inv.pos_sale_id else None,
-                'revenue': total_paid,
+                'revenue': period_paid,
                 'cogs': proportional_cogs,
-                'gross_profit': total_paid - proportional_cogs,
-                'payment_percentage': payment_percentage * 100,
+                'gross_profit': period_paid - proportional_cogs,
+                'payment_percentage': ratio * 100,
                 'balance_due': inv.balance_due,
             })
-    
+
     # ── Non-Invoiced Services with Partial Payments ────────────────────
-    # Services that have partial_payment_amount set but haven't been invoiced yet
+    # Services that have partial_payment_amount set but haven't been
+    # invoiced yet. These are the ONLY partial payments that need to be
+    # added on top of invoice-based revenue, because they have no
+    # InvoicePayment records.
     non_invoiced_services_qs = CustomerService.objects.filter(
         invoice__isnull=True,  # Not yet invoiced
         partial_payment_amount__gt=0,  # Has received payment
@@ -801,13 +824,13 @@ def financial_statement_view(request):
     ).exclude(
         status=ServiceStatus.CANCELLED  # Exclude cancelled services
     )
-    
+
     # Date filter: use service_date for filtering (since there's no invoice/payment date yet)
     if date_from:
         non_invoiced_services_qs = non_invoiced_services_qs.filter(service_date__gte=date_from)
     if date_to:
         non_invoiced_services_qs = non_invoiced_services_qs.filter(service_date__lte=date_to)
-    
+
     non_invoiced_services_qs = non_invoiced_services_qs.prefetch_related(
         'lines__item',
         'lines__unit',
@@ -815,58 +838,39 @@ def financial_statement_view(request):
         'bundles__price_list__items__item',
         'bundles__price_list__items__unit',
     )
-    
-    # Process non-invoiced services with partial payments
+
+    # Revenue/COGS from non-invoiced partial payments (added to P&L totals)
+    non_invoiced_partial_services_revenue = Decimal('0')
+    non_invoiced_partial_services_cogs = Decimal('0')
+
     for svc in non_invoiced_services_qs:
-        # Calculate payment percentage
         grand_total = svc.grand_total
         if grand_total <= 0:
             continue
-            
+
         payment_amount = svc.partial_payment_amount or Decimal('0')
         payment_percentage = (payment_amount / grand_total) if grand_total > 0 else Decimal('0')
-        
-        # Cap at 100%
         if payment_percentage > Decimal('1.0'):
             payment_percentage = Decimal('1.0')
-        
-        # Calculate COGS for this service
-        # Product lines COGS
-        lines_cogs = sum(
-            (line.qty * (line.item.cost_price or Decimal('0')) for line in svc.lines.all() if not line.is_scrap),
-            Decimal('0'),
-        )
-        
-        # Other materials COGS
-        other_mat_cogs = sum(
-            (mat.line_cost for mat in svc.other_materials.all()),
-            Decimal('0'),
-        )
-        
-        # Bundle COGS
-        bundle_cogs = Decimal('0')
-        for bundle in svc.bundles.all():
-            for pli in bundle.price_list.items.all():
-                item_cost = pli.item.cost_price or Decimal('0')
-                bundle_cogs += item_cost * pli.min_qty * bundle.qty
-        
-        full_cogs = lines_cogs + other_mat_cogs + bundle_cogs
+
+        # Calculate COGS using the helper
+        full_cogs = _calculate_service_cogs(svc)
         proportional_cogs = (full_cogs * payment_percentage).quantize(Decimal('0.01'))
-        
-        # Add to breakdown
+
         debug_services_with_partial += 1
+        non_invoiced_partial_services_revenue += payment_amount
+        non_invoiced_partial_services_cogs += proportional_cogs
         partial_services_revenue += payment_amount
         partial_services_cogs += proportional_cogs
-        
-        # Create a pseudo-invoice object for template compatibility
+
         class PseudoInvoice:
             def __init__(self, svc):
-                self.invoice_number = f"(Not Invoiced)"
+                self.invoice_number = "(Not Invoiced)"
                 self.customer_name = svc.customer_name
                 self.date = svc.service_date
                 self.grand_total = svc.grand_total
                 self.balance_due = svc.grand_total - (svc.partial_payment_amount or Decimal('0'))
-        
+
         partial_services_breakdown.append({
             'invoice': PseudoInvoice(svc),
             'service': svc,
@@ -876,7 +880,7 @@ def financial_statement_view(request):
             'payment_percentage': payment_percentage * 100,
             'balance_due': svc.grand_total - payment_amount,
         })
-    
+
     # Debug info
     debug_total_services = CustomerService.objects.exclude(status=ServiceStatus.CANCELLED).count()
     debug_services_with_amount = debug_services_with_partial
@@ -884,37 +888,39 @@ def financial_statement_view(request):
     debug_services_with_status = debug_services_with_partial
     debug_query_count = debug_services_with_partial
     debug_invoiced_service_count = 0
-    
+
     debug_total_so = SalesOrder.objects.count()
     debug_so_with_amount = debug_so_with_partial
     debug_so_not_invoiced = 0
     debug_so_with_status = debug_so_with_partial
     debug_so_query_count = debug_so_with_partial
     
-    # Update services totals to include partial payments
-    services_revenue_with_partial = services_revenue + partial_services_revenue
-    services_cogs_with_partial = services_cogs + partial_services_cogs
+    # ── Update totals ─────────────────────────────────────────────────
+    # Services totals: invoice-based payments are already in services_revenue,
+    # only add non-invoiced partial payments on top
+    services_revenue_with_partial = services_revenue + non_invoiced_partial_services_revenue
+    services_cogs_with_partial = services_cogs + non_invoiced_partial_services_cogs
     services_gross_profit_with_partial = services_revenue_with_partial - services_discount - services_cogs_with_partial
     services_gross_margin_with_partial = (
-        (services_gross_profit_with_partial / (services_revenue_with_partial - services_discount) * 100) 
+        (services_gross_profit_with_partial / (services_revenue_with_partial - services_discount) * 100)
         if (services_revenue_with_partial - services_discount) > 0 else Decimal('0')
     )
-    
-    # Update materials totals to include partial payments from sales orders/POS
-    materials_revenue_with_partial = materials_revenue + partial_so_revenue
-    materials_cogs_with_partial = materials_cogs + partial_so_cogs
+
+    # Materials totals: no non-invoiced partial payments for materials
+    materials_revenue_with_partial = materials_revenue
+    materials_cogs_with_partial = materials_cogs
     materials_gross_profit_with_partial = materials_revenue_with_partial - materials_discount - materials_cogs_with_partial
     materials_gross_margin_with_partial = (
-        (materials_gross_profit_with_partial / (materials_revenue_with_partial - materials_discount) * 100) 
+        (materials_gross_profit_with_partial / (materials_revenue_with_partial - materials_discount) * 100)
         if (materials_revenue_with_partial - materials_discount) > 0 else Decimal('0')
     )
-    
+
     # Calculate net revenues (after discounts)
     materials_net_revenue = materials_revenue_with_partial - materials_discount
     services_net_revenue = services_revenue_with_partial - services_discount
 
-    # Update total revenue to include partial payments
-    invoice_revenue_with_partial = invoice_revenue + partial_services_revenue + partial_so_revenue
+    # Total revenue = invoice payments in period + non-invoiced partial payments
+    invoice_revenue_with_partial = invoice_revenue + non_invoiced_partial_services_revenue
     net_revenue = invoice_revenue_with_partial - discount
 
     # ── COGS from expense categories marked as COGS ────────────────────
@@ -929,10 +935,9 @@ def financial_statement_view(request):
     )['total']
 
     # ── Total COGS ──────────────────────────────────────────────────────
-    # Note: Other materials COGS is now included in cogs_from_invoices
-    # via the updated service_invoice_cogs() function
-    # Include partial payment COGS
-    total_cogs = cogs_from_invoices + cogs_expenses + partial_services_cogs + partial_so_cogs
+    # cogs_from_invoices already uses proportional COGS (payment-based).
+    # Only add non-invoiced partial service COGS and expense-based COGS.
+    total_cogs = cogs_from_invoices + cogs_expenses + non_invoiced_partial_services_cogs
     gross_profit = net_revenue - total_cogs
     gross_margin = (gross_profit / net_revenue * 100) if net_revenue > 0 else Decimal('0')
 
@@ -947,11 +952,11 @@ def financial_statement_view(request):
     net_profit = gross_profit - total_opex
     net_margin = (net_profit / net_revenue * 100) if net_revenue > 0 else Decimal('0')
 
-    # ── Monthly P&L trend (by paid_date month) ─────────────────────────
-    monthly_inv_raw = list(
-        inv_qs.annotate(yr=ExtractYear('paid_date'), mo=ExtractMonth('paid_date'))
+    # ── Monthly P&L trend (by payment date month) ────────────────────
+    monthly_pay_raw = list(
+        payment_qs.annotate(yr=ExtractYear('date'), mo=ExtractMonth('date'))
         .values('yr', 'mo').annotate(
-            total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
+            total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField())
         ).order_by('yr', 'mo')
     )
     monthly_exp_raw = list(
@@ -962,7 +967,7 @@ def financial_statement_view(request):
     )
 
     month_map = {}
-    for r in monthly_inv_raw:
+    for r in monthly_pay_raw:
         key = date(r['yr'], r['mo'], 1).strftime('%b %Y')
         month_map.setdefault(key, {'revenue': Decimal('0'), 'expenses': Decimal('0')})
         month_map[key]['revenue'] += r['total']
@@ -976,10 +981,17 @@ def financial_statement_view(request):
     trend_expenses = [float(month_map[k]['expenses']) for k in trend_labels]
     trend_profit = [float(month_map[k]['revenue'] - month_map[k]['expenses']) for k in trend_labels]
 
-    # ── Breakdown: one row per paid invoice ────────────────────────────
-    from core.models import InvoicePayment
+    # ── Breakdown: one row per invoice with payments in period ────────
     breakdown_rows = []
     for inv in invoice_rows:
+        period_paid = invoice_period_revenue.get(inv.pk, Decimal('0'))
+        if period_paid <= 0:
+            continue
+        # Only show fully-paid invoices in the Invoices tab
+        # (partial payments are shown in their own tabs)
+        if not inv.is_paid:
+            continue
+
         source_type = 'INV'
         ref = ''
         other_mat_cost = Decimal('0')
@@ -991,17 +1003,15 @@ def financial_statement_view(request):
             ref = inv.pos_sale.sale_no
         elif hasattr(inv, 'customer_services') and inv.customer_services.exists():
             source_type = 'SVC'
-            # Get all services linked to this invoice (could be multiple)
             services = inv.customer_services.all()
-            # Use first service number as reference
             ref = services[0].service_number if services else ''
-            # Calculate other materials COGS from ALL services (cost, not selling price)
             for svc_obj in services:
                 other_mat_cost += sum(
                     (mat.line_cost for mat in svc_obj.other_materials.all()),
                     Decimal('0'),
                 )
-        cogs_val = invoice_cogs_map[inv.pk]
+        cogs_val = invoice_period_cogs[inv.pk]
+        disc_val = invoice_period_discount[inv.pk]
         payment_methods = ', '.join(
             p.get_method_display() for p in inv.payments.all()
         ) or '—'
@@ -1011,11 +1021,11 @@ def financial_statement_view(request):
             'invoice_no': inv.invoice_number,
             'date': inv.paid_date,
             'customer': inv.customer_name or '—',
-            'revenue': inv.grand_total,
-            'discount': inv.discount_total,
+            'revenue': period_paid,
+            'discount': disc_val,
             'cogs': cogs_val,
-            'other_mat_cost': other_mat_cost,  # Now shows COGS, not revenue
-            'gross_profit': inv.grand_total - inv.discount_total - cogs_val,
+            'other_mat_cost': (other_mat_cost * invoice_period_ratio[inv.pk]).quantize(Decimal('0.01')),
+            'gross_profit': period_paid - disc_val - cogs_val,
             'payment_methods': payment_methods,
         })
 
@@ -1025,10 +1035,10 @@ def financial_statement_view(request):
     breakdown_total_other_mat = sum(r['other_mat_cost'] for r in breakdown_rows)
     breakdown_total_gp = sum(r['gross_profit'] for r in breakdown_rows)
 
-    # ── Payment method summary (from InvoicePayment records) ───────────
+    # ── Payment method summary (from InvoicePayment records in period) ─
     from django.db.models import Count
     payment_method_rows = list(
-        InvoicePayment.objects.filter(invoice__in=inv_qs)
+        payment_qs
         .values('method')
         .annotate(
             total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()),
@@ -1042,8 +1052,20 @@ def financial_statement_view(request):
         row['method_display'] = dict(PM.choices).get(row['method'], row['method'])
     payment_total_collected = sum(r['total'] for r in payment_method_rows)
 
-    # Invoice count
-    inv_count = inv_qs.count()
+    # Invoice count (invoices that had payments in this period)
+    inv_count = len(invoice_ids_with_payments)
+
+    # For template backward compatibility
+    so_invoice_revenue = sum(
+        invoice_period_revenue[inv.pk] for inv in invoice_rows if inv.sales_order_id
+    )
+    pos_invoice_revenue = sum(
+        invoice_period_revenue[inv.pk] for inv in invoice_rows if inv.pos_sale_id
+    )
+    svc_invoice_revenue = sum(
+        invoice_period_revenue[inv.pk] for inv in invoice_rows
+        if not inv.sales_order_id and not inv.pos_sale_id
+    )
 
     return render(request, 'reports/financial_statement.html', {
         'invoice_revenue': invoice_revenue_with_partial,  # Updated to include partial payments

@@ -293,6 +293,8 @@ def service_create(request):
         if form.is_valid():
             svc = form.save(commit=False)
             svc.created_by = request.user
+            if not svc.service_number:
+                svc.service_number = CustomerService.generate_next_service_number()
             svc.save()
             formset = ServiceLineFormSet(request.POST, instance=svc, prefix='lines')
             mat_formset = ServiceOtherMaterialFormSet(request.POST, instance=svc, prefix='mats')
@@ -304,7 +306,8 @@ def service_create(request):
                 messages.success(request, f'Service {svc.service_number} created.')
                 return redirect('service_detail', pk=svc.pk)
     else:
-        form = CustomerServiceForm()
+        next_number = CustomerService.generate_next_service_number()
+        form = CustomerServiceForm(initial={'service_number': next_number})
         formset = ServiceLineFormSet(prefix='lines')
         mat_formset = ServiceOtherMaterialFormSet(prefix='mats')
         bundle_formset = ServiceBundleFormSet(prefix='bundles')
