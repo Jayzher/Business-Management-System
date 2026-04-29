@@ -23,6 +23,7 @@ ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(',') if h.strip()]
 # Application definition
 # ---------------------------------------------------------------------------
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -31,6 +32,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.humanize',
     # Third-party
+    'channels',
     'rest_framework',
     'rest_framework_simplejwt',
     'django_filters',
@@ -93,6 +95,32 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'inventory_system.wsgi.application'
+ASGI_APPLICATION = 'inventory_system.asgi.application'
+
+# ---------------------------------------------------------------------------
+# Channel Layer (Django Channels)
+#
+# Production: set REDIS_URL env var (e.g. redis://localhost:6379/0).
+# Development fallback: in-memory channel layer (single-process only).
+# ---------------------------------------------------------------------------
+_REDIS_URL = os.environ.get('REDIS_URL', '')
+if _REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [_REDIS_URL],
+            },
+        },
+    }
+else:
+    # In-memory layer works for local dev with a single server process.
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        },
+    }
+
 
 # ---------------------------------------------------------------------------
 # Database

@@ -15,7 +15,7 @@ class StockTransferForm(forms.ModelForm):
         model = StockTransfer
         fields = ['document_number', 'from_warehouse', 'to_warehouse', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'from_warehouse': forms.Select(attrs={'class': 'form-control'}),
             'to_warehouse': forms.Select(attrs={'class': 'form-control'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
@@ -56,7 +56,7 @@ class StockAdjustmentForm(forms.ModelForm):
         model = StockAdjustment
         fields = ['document_number', 'warehouse', 'reason', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
             'reason': forms.TextInput(attrs={'class': 'form-control'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
@@ -138,7 +138,7 @@ class DamagedReportForm(forms.ModelForm):
         model = DamagedReport
         fields = ['document_number', 'warehouse', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
@@ -177,7 +177,7 @@ class InventoryToSupplyTransferForm(forms.ModelForm):
         model = InventoryToSupplyTransfer
         fields = ['document_number', 'warehouse', 'transfer_date', 'reason', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
             'transfer_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'reason': forms.TextInput(attrs={'class': 'form-control'}),

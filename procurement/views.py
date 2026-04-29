@@ -20,6 +20,7 @@ from procurement.forms import (
 )
 from django.utils import timezone
 from inventory.services import post_goods_receipt, cancel_document
+from inventory.services import generate_document_number
 from core.models import DocumentStatus
 from accounts.decorators import write_denied_for_viewer,  procurement_access
 from django.http import HttpResponseRedirect
@@ -255,6 +256,8 @@ def purchase_order_create_view(request):
         if form.is_valid():
             po = form.save(commit=False)
             po.created_by = request.user
+            if not po.document_number:
+                po.document_number = generate_document_number('PO', PurchaseOrder)
             po.save()
             formset = PurchaseOrderLineFormSet(request.POST, instance=po)
             if formset.is_valid():
@@ -262,7 +265,7 @@ def purchase_order_create_view(request):
                 messages.success(request, f'Purchase Order {po.document_number} created.')
                 return redirect('purchase_order_detail', pk=po.pk)
     else:
-        form = PurchaseOrderForm()
+        form = PurchaseOrderForm(initial={'document_number': generate_document_number('PO', PurchaseOrder)})
         formset = PurchaseOrderLineFormSet()
     return render(request, 'procurement/purchase_order_form.html', {
         'form': form, 'formset': formset, 'title': 'Create Purchase Order',
@@ -315,6 +318,8 @@ def goods_receipt_create_view(request):
         if form.is_valid():
             grn = form.save(commit=False)
             grn.created_by = request.user
+            if not grn.document_number:
+                grn.document_number = generate_document_number('GRN', GoodsReceipt)
             grn.save()
             formset = GoodsReceiptLineFormSet(request.POST, request.FILES, instance=grn)
             if formset.is_valid():
@@ -322,7 +327,7 @@ def goods_receipt_create_view(request):
                 messages.success(request, f'Goods Receipt {grn.document_number} created.')
                 return redirect('goods_receipt_detail', pk=grn.pk)
     else:
-        form = GoodsReceiptForm()
+        form = GoodsReceiptForm(initial={'document_number': generate_document_number('GRN', GoodsReceipt)})
         formset = GoodsReceiptLineFormSet()
     return render(request, 'procurement/goods_receipt_form.html', {
         'form': form, 'formset': formset, 'title': 'Create Goods Receipt',
@@ -396,6 +401,8 @@ def purchase_return_create_view(request):
         if form.is_valid():
             pr = form.save(commit=False)
             pr.created_by = request.user
+            if not pr.document_number:
+                pr.document_number = generate_document_number('PR', PurchaseReturn)
             pr.save()
             formset = PurchaseReturnLineFormSet(request.POST, instance=pr)
             if formset.is_valid():
@@ -408,7 +415,7 @@ def purchase_return_create_view(request):
         else:
             formset = PurchaseReturnLineFormSet(request.POST)
     else:
-        form = PurchaseReturnForm()
+        form = PurchaseReturnForm(initial={'document_number': generate_document_number('PR', PurchaseReturn)})
         formset = PurchaseReturnLineFormSet()
     return render(request, 'procurement/purchase_return_form.html', {
         'form': form, 'formset': formset, 'title': 'Create Purchase Return',

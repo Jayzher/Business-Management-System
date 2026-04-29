@@ -1,3 +1,7 @@
+"""
+sync/routing.py — WebSocket URL routing for Django Channels.
+"""
+
 from django.urls import re_path
 from .consumers import SyncConsumer
 

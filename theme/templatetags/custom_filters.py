@@ -41,3 +41,12 @@ def subtract(value, arg):
         return Decimal(str(value)) - Decimal(str(arg))
     except Exception:
         return value
+
+
+@register.filter(name='abs_value')
+def abs_value(value):
+    """Return absolute value: {{ value|abs_value }}."""
+    try:
+        return abs(Decimal(str(value)))
+    except Exception:
+        return value

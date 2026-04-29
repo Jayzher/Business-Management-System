@@ -774,7 +774,22 @@ def cancel_inventory_to_supply(ist, user):
 
 
 def generate_document_number(prefix, model_class):
-    """Generate sequential document numbers like PO-000001, GRN-000001, etc."""
-    last = model_class.all_objects.order_by('-id').first()
-    next_num = (last.id + 1) if last else 1
-    return f"{prefix}-{next_num:06d}"
+    """
+    Generate sequential document numbers like PO-000001, GRN-000001, etc.
+
+    Scans existing document_number values to find the highest numeric suffix
+    matching the given prefix, then increments by 1. This is more reliable
+    than using MAX(id) because IDs can have gaps from deletions.
+    """
+    import re
+    pattern = re.compile(rf'^{re.escape(prefix)}-(\d+)$')
+    max_num = 0
+    # Use all_objects to include soft-deleted records
+    for doc_num in model_class.all_objects.values_list('document_number', flat=True):
+        if doc_num:
+            m = pattern.match(doc_num)
+            if m:
+                num = int(m.group(1))
+                if num > max_num:
+                    max_num = num
+    return f"{prefix}-{max_num + 1:06d}"

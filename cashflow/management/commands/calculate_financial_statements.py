@@ -13,7 +13,7 @@ Usage:
     python manage.py calculate_financial_statements --dry-run
 """
 from decimal import Decimal
-from datetime import date
+from datetime import date, datetime, time
 from calendar import monthrange
 
 from django.core.management.base import BaseCommand
@@ -25,7 +25,7 @@ from cashflow.models import MonthlyCashflowSummary
 from core.models import Invoice, InvoicePayment, Expense, DocumentStatus
 from pos.models import POSSale, SaleStatus
 from procurement.models import GoodsReceipt
-from inventory.models import StockBalance
+from inventory.models import StockBalance, StockMove, MoveStatus, MoveType
 
 
 class Command(BaseCommand):
@@ -151,9 +151,26 @@ class Command(BaseCommand):
         cash_from_customers = self._calculate_cash_from_customers(start_date, next_month_start)
         cash_to_suppliers = self._calculate_cash_to_suppliers(start_date, next_month_start)
         cash_for_operations = operational_expenses  # Assume paid immediately
+        cash_for_supplies = self._calculate_supplies_expenses(start_date, next_month_start)
         cash_other_out = other_expenses
         
-        operating_cash_flow = cash_from_customers - cash_to_suppliers - cash_for_operations - cash_other_out
+        # Capital injections (owner investments, loans, etc.)
+        capital_injections = self._calculate_capital_injections(start_date, next_month_start)
+        
+        # Other cash in (excluding customer payments and capital)
+        other_cash_in = self._calculate_other_cash_in(start_date, next_month_start)
+        
+        # Total cash in = customer payments + capital injections + other cash in
+        total_cash_in = cash_from_customers + capital_injections + other_cash_in
+        
+        # Total cash out = suppliers + operations + supplies + other
+        total_cash_out = cash_to_suppliers + cash_for_operations + cash_for_supplies + cash_other_out
+        
+        # Operating cash flow (excluding capital injections for operational analysis)
+        operating_cash_flow = cash_from_customers - cash_to_suppliers - cash_for_operations - cash_for_supplies - cash_other_out
+        
+        # Net cash flow (including capital injections)
+        net_cash_flow = total_cash_in - total_cash_out
         
         # Get previous month's closing cash
         if month == 1:
@@ -162,7 +179,7 @@ class Command(BaseCommand):
             prev_summary = MonthlyCashflowSummary.objects.filter(year=year, month=month - 1).first()
         
         cash_opening = prev_summary.cash_closing if prev_summary else Decimal('0')
-        cash_closing = cash_opening + operating_cash_flow
+        cash_closing = cash_opening + net_cash_flow
 
         # ══════════════════════════════════════════════════════════════════════
         # 5. PERFORMANCE METRICS
@@ -185,7 +202,9 @@ class Command(BaseCommand):
         # ══════════════════════════════════════════════════════════════════════
         self._display_summary(
             cash_opening, cash_closing, cash_from_customers, cash_to_suppliers,
-            operating_cash_flow, revenue_accrual, cogs_actual, gross_profit,
+            operating_cash_flow, net_cash_flow, capital_injections, other_cash_in,
+            cash_for_operations, cash_for_supplies, cash_other_out,
+            revenue_accrual, cogs_actual, gross_profit,
             gross_margin_pct, operational_expenses, other_expenses, net_profit,
             inventory_opening, inventory_closing, inventory_purchased, inventory_turnover,
             ar_opening, ar_closing, ap_opening, ap_closing,
@@ -236,14 +255,15 @@ class Command(BaseCommand):
                     
                     # Legacy fields
                     'capital_sales': revenue_accrual,
-                    'capital_total': revenue_accrual,
+                    'capital_other': capital_injections + other_cash_in,
+                    'capital_total': revenue_accrual + capital_injections + other_cash_in,
                     'expenses_procurement': inventory_purchased,
-                    'expenses_operational': operational_expenses,
+                    'expenses_operational': operational_expenses + cash_for_supplies,
                     'expenses_other': other_expenses,
                     'expenses_total': total_expenses,
-                    'total_inflow': revenue_accrual,
-                    'total_outflow': total_expenses,
-                    'net_cash_flow': operating_cash_flow,
+                    'total_inflow': cash_from_customers + capital_injections + other_cash_in,
+                    'total_outflow': cash_to_suppliers + cash_for_operations + cash_for_supplies + cash_other_out,
+                    'net_cash_flow': net_cash_flow,
                     
                     'calculated_at': timezone.now(),
                 }
@@ -252,7 +272,9 @@ class Command(BaseCommand):
             self._info(f'\n  ✓ {action} financial summary')
 
     def _display_summary(self, cash_opening, cash_closing, cash_from_customers, cash_to_suppliers,
-                        operating_cash_flow, revenue_accrual, cogs_actual, gross_profit,
+                        operating_cash_flow, net_cash_flow, capital_injections, other_cash_in,
+                        cash_for_operations, cash_for_supplies, cash_other_out,
+                        revenue_accrual, cogs_actual, gross_profit,
                         gross_margin_pct, operational_expenses, other_expenses, net_profit,
                         inventory_opening, inventory_closing, inventory_purchased, inventory_turnover,
                         ar_opening, ar_closing, ap_opening, ap_closing,
@@ -271,13 +293,29 @@ class Command(BaseCommand):
         self._info(f'│   • Accounts Receivable:           {self._fmt(ar_closing):>20} │')
         self._info('└─────────────────────────────────────────────────────────────────────┘\n')
         
+        total_cash_in_calc = cash_from_customers + capital_injections + other_cash_in
+        total_cash_out_calc = cash_to_suppliers + cash_for_operations + cash_for_supplies + cash_other_out
+        
         self._info('┌─ CASH FLOW STATEMENT (Actual Cash Movement) ────────────────────────┐')
-        self._info(f'│ Cash from Customers:               {self._fmt(cash_from_customers):>20} │')
-        self._info(f'│ Cash to Suppliers:                 {self._fmt(-cash_to_suppliers):>20} │')
-        self._info(f'│ Operating Expenses:                {self._fmt(-operational_expenses):>20} │')
-        self._info(f'│ Other Cash Out:                    {self._fmt(-other_expenses):>20} │')
+        self._info(f'│ Opening Cash:                      {self._fmt(cash_opening):>20} │')
         self._info('├─────────────────────────────────────────────────────────────────────┤')
-        self._info(f'│ Net Operating Cash Flow:           {self._fmt(operating_cash_flow):>20} │')
+        self._info(f'│ Cash In:                                                            │')
+        self._info(f'│   • From Customers:                {self._fmt(cash_from_customers):>20} │')
+        self._info(f'│   • Capital Injections:            {self._fmt(capital_injections):>20} │')
+        self._info(f'│   • Other Cash In:                 {self._fmt(other_cash_in):>20} │')
+        self._info(f'│   Total Cash In:                   {self._fmt(total_cash_in_calc):>20} │')
+        self._info('├─────────────────────────────────────────────────────────────────────┤')
+        self._info(f'│ Cash Out:                                                           │')
+        self._info(f'│   • To Suppliers (Procurement):    {self._fmt(-cash_to_suppliers):>20} │')
+        self._info(f'│   • Operating Expenses:            {self._fmt(-cash_for_operations):>20} │')
+        self._info(f'│   • Supplies:                      {self._fmt(-cash_for_supplies):>20} │')
+        self._info(f'│   • Other Cash Out:                {self._fmt(-cash_other_out):>20} │')
+        self._info(f'│   Total Cash Out:                  {self._fmt(-total_cash_out_calc):>20} │')
+        self._info('├─────────────────────────────────────────────────────────────────────┤')
+        self._info(f'│ Net Cash Flow:                     {self._fmt(net_cash_flow):>20} │')
+        self._info(f'│ Closing Cash:                      {self._fmt(cash_closing):>20} │')
+        self._info('├─────────────────────────────────────────────────────────────────────┤')
+        self._info(f'│ Operating Cash Flow (excl. capital): {self._fmt(operating_cash_flow):>18} │')
         self._info('└─────────────────────────────────────────────────────────────────────┘\n')
         
         self._info('┌─ PROFIT & LOSS STATEMENT (Accrual Basis) ───────────────────────────┐')
@@ -309,11 +347,105 @@ class Command(BaseCommand):
     # ══════════════════════════════════════════════════════════════════════════
 
     def _calculate_inventory_value(self, as_of_date):
-        """Calculate inventory value as of date."""
+        """
+        Calculate inventory value as of a specific date using GRN purchase prices.
+        
+        This method uses the actual purchase prices from GRNs instead of current cost_price,
+        which ensures accurate historical inventory valuation.
+        """
+        from datetime import datetime, time
+        from django.db.models import Sum, Q, F, DecimalField, Case, When, Value
+        from django.db.models.functions import Coalesce
+        from procurement.models import GoodsReceipt, GoodsReceiptLine
+        from core.models import DocumentStatus
+        
+        # Convert date to datetime at end of day
+        if isinstance(as_of_date, date):
+            as_of_datetime = datetime.combine(as_of_date, time.max)
+        else:
+            as_of_datetime = as_of_date
+        
         total = Decimal('0')
-        for balance in StockBalance.objects.filter(qty_on_hand__gt=0).select_related('item'):
-            cost = balance.item.cost_price or Decimal('0')
-            total += balance.qty_on_hand * cost
+        
+        # Get all items that have had stock movements
+        from catalog.models import Item
+        items_with_moves = StockMove.objects.filter(
+            status=MoveStatus.POSTED,
+            posted_at__lte=as_of_datetime
+        ).values_list('item_id', flat=True).distinct()
+        
+        for item_id in items_with_moves:
+            try:
+                item = Item.objects.get(id=item_id)
+                
+                # Calculate net quantity as of date
+                # Receives add to inventory
+                receives = StockMove.objects.filter(
+                    item_id=item_id,
+                    status=MoveStatus.POSTED,
+                    posted_at__lte=as_of_datetime,
+                    move_type__in=[MoveType.RECEIVE, MoveType.RETURN_IN]
+                ).aggregate(total=Coalesce(Sum('qty'), Decimal('0')))['total']
+                
+                # Delivers subtract from inventory
+                delivers = StockMove.objects.filter(
+                    item_id=item_id,
+                    status=MoveStatus.POSTED,
+                    posted_at__lte=as_of_datetime,
+                    move_type__in=[MoveType.DELIVER, MoveType.POS_SALE, MoveType.SUPPLY_OUT, 
+                                   MoveType.SERVICE_OUT, MoveType.DAMAGE, MoveType.RETURN_OUT]
+                ).aggregate(total=Coalesce(Sum('qty'), Decimal('0')))['total']
+                
+                # Handle adjustments (can be positive or negative)
+                adjustments = StockMove.objects.filter(
+                    item_id=item_id,
+                    status=MoveStatus.POSTED,
+                    posted_at__lte=as_of_datetime,
+                    move_type=MoveType.ADJUST
+                ).aggregate(total=Coalesce(Sum('qty'), Decimal('0')))['total']
+                
+                net_qty = receives - delivers + adjustments
+                
+                if net_qty > 0:
+                    # Calculate weighted average cost using GRN prices
+                    grn_lines = GoodsReceiptLine.objects.filter(
+                        item_id=item_id,
+                        goods_receipt__status=DocumentStatus.POSTED,
+                        goods_receipt__receipt_date__lte=as_of_date
+                    ).select_related('goods_receipt', 'goods_receipt__purchase_order')
+                    
+                    total_received_qty = Decimal('0')
+                    total_received_cost = Decimal('0')
+                    
+                    for grn_line in grn_lines:
+                        # Get unit price from PO if available
+                        unit_price = Decimal('0')
+                        if grn_line.goods_receipt.purchase_order_id:
+                            po_line = grn_line.goods_receipt.purchase_order.lines.filter(
+                                item_id=item_id
+                            ).first()
+                            if po_line:
+                                unit_price = po_line.unit_price or Decimal('0')
+                        
+                        # Fall back to item cost price if no PO price
+                        if unit_price == 0:
+                            unit_price = item.cost_price or Decimal('0')
+                        
+                        total_received_qty += grn_line.qty
+                        total_received_cost += grn_line.qty * unit_price
+                    
+                    # Calculate weighted average cost
+                    if total_received_qty > 0:
+                        avg_cost = total_received_cost / total_received_qty
+                    else:
+                        avg_cost = item.cost_price or Decimal('0')
+                    
+                    item_value = net_qty * avg_cost
+                    total += item_value
+                    
+            except Item.DoesNotExist:
+                continue
+        
         return total
 
     def _calculate_ar(self, as_of_date):
@@ -400,15 +532,47 @@ class Command(BaseCommand):
         return total
 
     def _calculate_procurement_costs(self, start_date, end_date):
-        """Calculate procurement costs."""
+        """
+        Calculate procurement costs from posted GRNs.
+        Handles zero-value GRNs and missing PO references.
+        """
         total = Decimal('0')
-        for grn in GoodsReceipt.objects.filter(status=DocumentStatus.POSTED, receipt_date__gte=start_date, receipt_date__lt=end_date).prefetch_related('lines', 'purchase_order__lines'):
+        
+        grns = GoodsReceipt.objects.filter(
+            status=DocumentStatus.POSTED,
+            receipt_date__gte=start_date,
+            receipt_date__lt=end_date
+        ).prefetch_related('lines__item', 'purchase_order__lines')
+        
+        for grn in grns:
+            grn_total = Decimal('0')
+            
+            # Calculate line items cost
             for line in grn.lines.all():
+                line_cost = Decimal('0')
+                
+                # Try to get price from PO
                 if grn.purchase_order:
                     po_line = grn.purchase_order.lines.filter(item=line.item).first()
-                    if po_line:
-                        total += line.qty * po_line.unit_price
-            total += grn.delivery_charge or Decimal('0')
+                    if po_line and po_line.unit_price > 0:
+                        line_cost = line.qty * po_line.unit_price
+                
+                # Fallback to item cost price if PO price not available
+                if line_cost == 0 and line.item.cost_price:
+                    line_cost = line.qty * line.item.cost_price
+                    
+                # Log warning for zero-value lines
+                if line_cost == 0 and line.qty > 0:
+                    self._info(f'  ⚠️  Warning: GRN {grn.document_number} line {line.item.code} has zero value')
+                
+                grn_total += line_cost
+            
+            # Add delivery charge
+            if grn.delivery_charge:
+                grn_total += grn.delivery_charge
+            
+            total += grn_total
+        
         return total
 
     def _calculate_cash_to_suppliers(self, start_date, end_date):
@@ -416,24 +580,90 @@ class Command(BaseCommand):
         return self._calculate_procurement_costs(start_date, end_date)
 
     def _calculate_operational_expenses(self, start_date, end_date):
-        """Calculate operational expenses."""
+        """
+        Calculate operational expenses from both Expense model and CashFlowTransaction.
+        Combines approved expenses with EXPENSES category cash flow transactions.
+        """
+        from cashflow.models import CashFlowTransaction, CashFlowType, CashFlowStatus, CashFlowCategory
+        
+        # From Expense model
         expenses = Expense.objects.filter(
             status='APPROVED',
             date__gte=start_date,
             date__lt=end_date,
             category__is_cogs=False,
         )
-        return expenses.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
+        expense_total = expenses.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
+        
+        # From CashFlowTransaction with EXPENSES category
+        expense_txns = CashFlowTransaction.objects.filter(
+            status=CashFlowStatus.APPROVED,
+            flow_type=CashFlowType.CASH_OUT,
+            category=CashFlowCategory.EXPENSES,
+            transaction_date__gte=start_date,
+            transaction_date__lt=end_date,
+        )
+        expense_txn_total = expense_txns.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
+        
+        return expense_total + expense_txn_total
 
     def _calculate_other_cash_out(self, start_date, end_date):
-        """Calculate other cash out."""
+        """
+        Calculate other cash out (excluding procurement, expenses, and supplies).
+        Includes: OTHER category and any other miscellaneous cash out.
+        """
         from cashflow.models import CashFlowTransaction, CashFlowType, CashFlowStatus, CashFlowCategory
         txns = CashFlowTransaction.objects.filter(
             status=CashFlowStatus.APPROVED,
             flow_type=CashFlowType.CASH_OUT,
             transaction_date__gte=start_date,
             transaction_date__lt=end_date,
-        ).exclude(category__in=[CashFlowCategory.PROCUREMENT, CashFlowCategory.EXPENSES])
+        ).exclude(category__in=[
+            CashFlowCategory.PROCUREMENT,  # Tracked via GRNs
+            CashFlowCategory.EXPENSES,     # Tracked via Expense model + included in operational_expenses
+            CashFlowCategory.SUPPLIES,     # Tracked separately
+        ])
+        return txns.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
+
+    def _calculate_capital_injections(self, start_date, end_date):
+        """Calculate capital injections (owner investments, loans, etc.)."""
+        from cashflow.models import CashFlowTransaction, CashFlowType, CashFlowStatus, CashFlowCategory
+        txns = CashFlowTransaction.objects.filter(
+            status=CashFlowStatus.APPROVED,
+            flow_type=CashFlowType.CASH_IN,
+            category=CashFlowCategory.CAPITAL,
+            transaction_date__gte=start_date,
+            transaction_date__lt=end_date,
+        )
+        return txns.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
+
+    def _calculate_other_cash_in(self, start_date, end_date):
+        """
+        Calculate other cash in (excluding customer payments and capital).
+        Includes: OTHER category and any miscellaneous income.
+        """
+        from cashflow.models import CashFlowTransaction, CashFlowType, CashFlowStatus, CashFlowCategory
+        txns = CashFlowTransaction.objects.filter(
+            status=CashFlowStatus.APPROVED,
+            flow_type=CashFlowType.CASH_IN,
+            transaction_date__gte=start_date,
+            transaction_date__lt=end_date,
+        ).exclude(category__in=[
+            CashFlowCategory.SALES,    # Tracked via invoices/POS
+            CashFlowCategory.CAPITAL,  # Tracked separately as capital_injections
+        ])
+        return txns.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
+    
+    def _calculate_supplies_expenses(self, start_date, end_date):
+        """Calculate supplies expenses from CashFlowTransaction."""
+        from cashflow.models import CashFlowTransaction, CashFlowType, CashFlowStatus, CashFlowCategory
+        txns = CashFlowTransaction.objects.filter(
+            status=CashFlowStatus.APPROVED,
+            flow_type=CashFlowType.CASH_OUT,
+            category=CashFlowCategory.SUPPLIES,
+            transaction_date__gte=start_date,
+            transaction_date__lt=end_date,
+        )
         return txns.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
 
     def _info(self, msg):

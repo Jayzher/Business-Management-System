@@ -66,23 +66,67 @@ def dashboard_view(request):
         status='POSTED'
     ).select_related('item', 'created_by')[:10]
 
-    # ── Revenue & COGS from PAID INVOICES (filtered by paid_date) ────────
-    period_invoices = Invoice.objects.filter(
-        is_paid=True, is_void=False, paid_date__isnull=False,
-        paid_date__gte=period_start.date(),
-        paid_date__lt=period_end.date(),
+    # ── Revenue & COGS from PAYMENTS in period ──────────────────────────
+    # Payment-based revenue recognition: count actual InvoicePayment
+    # records that fall within the period, not full grand_total when
+    # is_paid=True. This matches the Financial Statement (P&L) approach
+    # and prevents double-counting of partial payments.
+    from core.models import InvoicePayment
+
+    period_payments = InvoicePayment.objects.filter(
+        invoice__is_void=False,
+        date__gte=period_start.date(),
+        date__lt=period_end.date(),
     )
+
+    # Sum payments per invoice within the period
+    payments_by_invoice = dict(
+        period_payments.values_list('invoice_id').annotate(
+            period_paid=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField())
+        ).values_list('invoice_id', 'period_paid')
+    )
+
+    # Total payment-based revenue and discount
+    total_payments_in_period = period_payments.aggregate(
+        total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField())
+    )['total']
+
+    # Load invoice objects for COGS calculation
+    invoice_ids_in_period = set(payments_by_invoice.keys())
     period_invoice_rows = list(
-        period_invoices.select_related('pos_sale', 'sales_order')
-        .prefetch_related('customer_services__lines__item')
+        Invoice.objects.filter(pk__in=invoice_ids_in_period, is_void=False)
+        .select_related('pos_sale', 'sales_order')
+        .prefetch_related(
+            'customer_services__lines__item',
+            'customer_services__lines__unit',
+            'customer_services__bundles__price_list__items__item',
+            'customer_services__bundles__price_list__items__unit',
+            'customer_services__other_materials',
+            'pos_sale__lines__item',
+            'pos_sale__lines__unit',
+            'pos_sale__bundle_lines__price_list__items__item',
+            'pos_sale__bundle_lines__price_list__items__unit',
+            'sales_order__lines__item',
+            'sales_order__lines__unit',
+            'sales_order__price_list_lines__price_list__items__item',
+            'sales_order__price_list_lines__price_list__items__unit',
+        )
     )
-    inv_agg = period_invoices.aggregate(
-        revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
-        discount=Coalesce(Sum('discount_total'), Decimal('0'), output_field=DecimalField()),
-    )
-    invoice_cogs_total = sum((compute_invoice_cogs(inv) for inv in period_invoice_rows), Decimal('0'))
-    combined_revenue = inv_agg['revenue'] - inv_agg['discount']
-    combined_count = period_invoices.count()
+
+    # Calculate proportional COGS and discount based on payment ratio
+    invoice_cogs_total = Decimal('0')
+    total_discount = Decimal('0')
+    for inv in period_invoice_rows:
+        period_paid = payments_by_invoice.get(inv.pk, Decimal('0'))
+        ratio = (period_paid / inv.grand_total) if inv.grand_total > 0 else Decimal('0')
+        if ratio > Decimal('1.0'):
+            ratio = Decimal('1.0')
+        full_cogs = compute_invoice_cogs(inv)
+        invoice_cogs_total += (full_cogs * ratio).quantize(Decimal('0.01'))
+        total_discount += (inv.discount_total * ratio).quantize(Decimal('0.01'))
+
+    combined_revenue = total_payments_in_period - total_discount
+    combined_count = len(invoice_ids_in_period)
     combined_profit = combined_revenue - invoice_cogs_total
     pos_margin = (combined_profit / combined_revenue * 100) if combined_revenue > 0 else Decimal('0')
 
@@ -101,8 +145,8 @@ def dashboard_view(request):
     so_cogs = Decimal('0')
     so_profit = Decimal('0')
 
-    # Paid invoices count (for unpaid invoices widget — keep as-is)
-    invoice_paid_count = period_invoices.count()
+    # Invoice count for widgets
+    invoice_paid_count = combined_count
 
     # ── Expenses for selected period ───────────────────────────────────
     period_expenses = Expense.objects.filter(
@@ -149,14 +193,14 @@ def dashboard_view(request):
         )['total'] or Decimal('0')
         inventory_valuation += total_on_hand * (item.cost_price or Decimal('0'))
 
-    # ── 7-day revenue trend (paid invoices by paid_date) ─────────────────
+    # ── 7-day revenue trend (payments by date) ─────────────────────────
     revenue_trend = []
     for i in range(6, -1, -1):
         day = (now - timedelta(days=i)).date()
-        day_rev = Invoice.objects.filter(
-            is_paid=True, is_void=False, paid_date=day,
+        day_rev = InvoicePayment.objects.filter(
+            invoice__is_void=False, date=day,
         ).aggregate(
-            total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField())
+            total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField())
         )['total']
         revenue_trend.append({'date': day.strftime('%b %d'), 'revenue': float(day_rev)})
 
@@ -206,8 +250,8 @@ def dashboard_view(request):
 
     # ── Formula breakdown for modal ──────────────────────────────────
     dash_formulas = {
-        'inv_revenue': inv_agg['revenue'],
-        'inv_discount': inv_agg['discount'],
+        'payments_in_period': total_payments_in_period,
+        'discount': total_discount,
         'inv_cogs': invoice_cogs_total,
         'inv_count': combined_count,
         'combined_revenue': combined_revenue,

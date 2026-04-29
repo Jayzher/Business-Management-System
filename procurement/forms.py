@@ -16,7 +16,7 @@ class PurchaseOrderForm(forms.ModelForm):
         model = PurchaseOrder
         fields = ['document_number', 'supplier', 'warehouse', 'order_date', 'expected_date', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'supplier': forms.Select(attrs={'class': 'form-control'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
             'order_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
@@ -72,7 +72,7 @@ class GoodsReceiptForm(forms.ModelForm):
         model = GoodsReceipt
         fields = ['document_number', 'purchase_order', 'supplier', 'warehouse', 'receipt_date', 'delivery_charge', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'purchase_order': forms.Select(attrs={'class': 'form-control'}),
             'supplier': forms.Select(attrs={'class': 'form-control'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
@@ -146,7 +146,7 @@ class PurchaseReturnForm(forms.ModelForm):
         model = PurchaseReturn
         fields = ['document_number', 'goods_receipt', 'supplier', 'warehouse', 'return_date', 'reason', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'goods_receipt': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'supplier': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'warehouse': forms.Select(attrs={'class': 'form-control form-control-sm'}),

@@ -143,33 +143,30 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <p class="text-muted small mb-3">Standard accounting formulas applied to the <strong>{{ period|title }}</strong> period. Click any KPI's <i class="fas fa-calculator"></i> icon to view this breakdown.</p>
+        <p class="text-muted small mb-3">Payment-based revenue recognition applied to the <strong>{{ period|title }}</strong> period. Revenue is counted when payment is received, not when the invoice is marked paid. Click any KPI's <i class="fas fa-calculator"></i> icon to view this breakdown.</p>
 
         <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-coins text-success mr-1"></i> Revenue</h6>
         <table class="table table-sm table-bordered mb-3">
           <tbody>
-            <tr><td class="fw-bold" style="width:55%;">POS Revenue <small class="text-muted">(&#931; grand_total of POSTED/PAID POS sales)</small></td><td class="text-end font-monospace">{{ dash_formulas.pos_revenue|floatformat:2|intcomma }}</td></tr>
-            <tr><td class="fw-bold">POS Transaction Count</td><td class="text-end font-monospace">{{ dash_formulas.pos_count }}</td></tr>
-            <tr><td class="fw-bold">Paid Invoice Revenue <small class="text-muted">(&#931; grand_total of paid invoices)</small></td><td class="text-end font-monospace">{{ dash_formulas.invoice_paid_total|floatformat:2|intcomma }}</td></tr>
-            <tr><td class="fw-bold">Paid Invoice Count</td><td class="text-end font-monospace">{{ dash_formulas.invoice_paid_count }}</td></tr>
-            <tr class="table-success"><td class="fw-bold">Combined Revenue = POS Revenue + Invoice Revenue</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.combined_revenue|floatformat:2|intcomma }}</td></tr>
-            <tr class="table-success"><td class="fw-bold">Combined Sales Count = POS Count + Invoice Count</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.combined_count }}</td></tr>
+            <tr><td class="fw-bold" style="width:55%;">Payments Received <small class="text-muted">(&#931; InvoicePayment.amount in period)</small></td><td class="text-end font-monospace">{{ dash_formulas.payments_in_period|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold">Less: Proportional Discounts</td><td class="text-end font-monospace">{{ dash_formulas.discount|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold">Invoices with Payments in Period</td><td class="text-end font-monospace">{{ dash_formulas.combined_count }}</td></tr>
+            <tr class="table-success"><td class="fw-bold">Net Revenue = Payments &minus; Discounts</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.combined_revenue|floatformat:2|intcomma }}</td></tr>
           </tbody>
         </table>
 
         <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-boxes text-danger mr-1"></i> Cost of Goods Sold (COGS)</h6>
         <table class="table table-sm table-bordered mb-3">
           <tbody>
-            <tr><td class="fw-bold" style="width:55%;">POS COGS <small class="text-muted">(&#931; item.cost_price &times; qty for POS lines)</small></td><td class="text-end font-monospace">{{ dash_formulas.pos_cogs|floatformat:2|intcomma }}</td></tr>
+            <tr><td class="fw-bold" style="width:55%;">Proportional COGS <small class="text-muted">(full COGS &times; payment ratio per invoice)</small></td><td class="text-end font-monospace">{{ dash_formulas.inv_cogs|floatformat:2|intcomma }}</td></tr>
           </tbody>
         </table>
 
         <h6 class="border-bottom pb-1 mb-2"><i class="fas fa-chart-line text-primary mr-1"></i> Profitability</h6>
         <table class="table table-sm table-bordered mb-3">
           <tbody>
-            <tr><td class="fw-bold" style="width:55%;">POS Gross Profit = POS Revenue &minus; POS COGS</td><td class="text-end font-monospace">{{ dash_formulas.pos_profit|floatformat:2|intcomma }}</td></tr>
-            <tr><td class="fw-bold">Combined Profit = POS Profit + Invoice Revenue <small class="text-muted">(invoice COGS not tracked separately)</small></td><td class="text-end font-monospace">{{ dash_formulas.combined_profit|floatformat:2|intcomma }}</td></tr>
-            <tr class="table-info"><td class="fw-bold">Gross Margin % = (Combined Profit &divide; Combined Revenue) &times; 100</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.pos_margin|floatformat:2 }}%</td></tr>
+            <tr><td class="fw-bold" style="width:55%;">Gross Profit = Net Revenue &minus; COGS</td><td class="text-end font-monospace">{{ dash_formulas.combined_profit|floatformat:2|intcomma }}</td></tr>
+            <tr class="table-info"><td class="fw-bold">Gross Margin % = (Gross Profit &divide; Net Revenue) &times; 100</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.pos_margin|floatformat:2 }}%</td></tr>
           </tbody>
         </table>
 
@@ -177,7 +174,7 @@
         <table class="table table-sm table-bordered mb-3">
           <tbody>
             <tr><td class="fw-bold" style="width:55%;">Total Expenses <small class="text-muted">(&#931; amount from Expense records)</small></td><td class="text-end font-monospace">{{ dash_formulas.total_expenses|floatformat:2|intcomma }}</td></tr>
-            <tr class="{% if dash_formulas.net_profit >= 0 %}table-success{% else %}table-danger{% endif %}"><td class="fw-bold">Net Profit = Combined Profit &minus; Total Expenses</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.net_profit|floatformat:2|intcomma }}</td></tr>
+            <tr class="{% if dash_formulas.net_profit >= 0 %}table-success{% else %}table-danger{% endif %}"><td class="fw-bold">Net Profit = Gross Profit &minus; Total Expenses</td><td class="text-end font-monospace fw-bold">{{ dash_formulas.net_profit|floatformat:2|intcomma }}</td></tr>
           </tbody>
         </table>
 

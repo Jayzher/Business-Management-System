@@ -1,5 +1,6 @@
 {% extends "theme/base.html" %}
 {% load humanize %}
+{% load custom_filters %}
 {% block title %}Financial Statement{% endblock %}
 {% block page_title %}Financial Statement (P&L){% endblock %}
 {% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'reports_dashboard' %}">Reports</a></li><li class="breadcrumb-item active">Financial Statement</li>{% endblock %}
@@ -16,24 +17,7 @@
   .bdg-so  { background:#007bff; color:#fff; font-size:.72rem; padding:.2rem .45rem; border-radius:.25rem; }
   .bdg-svc { background:#6f42c1; color:#fff; font-size:.72rem; padding:.2rem .45rem; border-radius:.25rem; }
   .bg-purple { background-color: #6f42c1 !important; color: white !important; }
-  .info-tooltip { 
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    line-height: 14px;
-    text-align: center;
-    border-radius: 50%;
-    background: #17a2b8;
-    color: white;
-    font-size: 11px;
-    font-weight: bold;
-    margin-left: 6px;
-    cursor: help;
-    border: 1px solid #138496;
-  }
-  .info-tooltip:hover {
-    background: #138496;
-  }
+  .pnl-table [data-toggle="tooltip"] { cursor: help; border-bottom: 1px dotted #999; }
 </style>
 {% endblock %}
 
@@ -67,8 +51,10 @@
       <div class="card-body p-0">
         <div class="px-3 pt-2 pb-0">
           <small class="text-muted"><i class="fas fa-info-circle mr-1"></i>
-            Based on <strong>{{ inv_count }}</strong> paid invoice{{ inv_count|pluralize }} with payment date between
-            <strong>{{ filters.date_from }}</strong> and <strong>{{ filters.date_to }}</strong>.
+            Based on payments received between
+            <strong>{{ filters.date_from }}</strong> and <strong>{{ filters.date_to }}</strong>
+            across <strong>{{ inv_count }}</strong> invoice{{ inv_count|pluralize }}.
+            Revenue is recognized when payment is received (payment-date basis).
           </small>
         </div>
         <table class="table pnl-table mb-0">
@@ -78,24 +64,21 @@
             <!-- ═══════════════════════════════════════════════════════════ -->
             <tr class="pnl-section" style="background: #e3f2fd;">
               <td colspan="2">
-                <i class="fas fa-box mr-2"></i>MATERIALS SALES (POS + Sales Orders)
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Revenue from selling physical products through Point of Sale (POS) and Sales Orders">?</span>
+                <span data-toggle="tooltip" title="Revenue from selling physical products through Point of Sale (POS) and Sales Orders"><i class="fas fa-box mr-2"></i>MATERIALS SALES (POS + Sales Orders)</span>
               </td>
             </tr>
-            
+
             <!-- Materials Revenue -->
             <tr>
               <td class="ps-4">
-                Materials Revenue (gross)
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total revenue from materials sales before any discounts are applied">?</span>
+                <span data-toggle="tooltip" title="Total revenue from materials sales before any discounts are applied">Materials Revenue (gross)</span>
               </td>
               <td class="text-right">&#8369; {{ materials_revenue_with_partial|floatformat:2|intcomma }}</td>
             </tr>
             {% if partial_so_revenue %}
             <tr>
               <td class="ps-5 text-info small">
-                <i class="fas fa-clock mr-1"></i>Includes &#8369;{{ partial_so_revenue|floatformat:2|intcomma }} from {{ partial_so_count }} partial payment{{ partial_so_count|pluralize }} (Sales Orders)
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Partial payments from Sales Orders NOT YET INVOICED. Revenue and COGS are recognized proportionally. Once invoiced, these move to regular invoice revenue to prevent double-counting">?</span>
+                <span data-toggle="tooltip" title="Partial payments from Sales Order invoices not yet fully paid. Revenue is recognized based on actual payment dates to prevent double-counting."><i class="fas fa-clock mr-1"></i>Includes &#8369;{{ partial_so_revenue|floatformat:2|intcomma }} from {{ partial_so_count }} partial payment{{ partial_so_count|pluralize }} (Sales Orders)</span>
               </td>
               <td></td>
             </tr>
@@ -103,35 +86,31 @@
             {% if materials_discount %}
             <tr>
               <td class="ps-4">
-                Less: Discounts
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total discounts given on materials sales (reduces revenue)">?</span>
+                <span data-toggle="tooltip" title="Total discounts given on materials sales (reduces revenue)">Less: Discounts</span>
               </td>
               <td class="text-right negative">(&#8369; {{ materials_discount|floatformat:2|intcomma }})</td>
             </tr>
             {% endif %}
             <tr>
               <td class="ps-4 font-weight-bold">
-                Net Materials Revenue
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Materials revenue after discounts (Gross Revenue - Discounts)">?</span>
+                <span data-toggle="tooltip" title="Materials revenue after discounts (Gross Revenue - Discounts)">Net Materials Revenue</span>
               </td>
               <td class="text-right font-weight-bold">&#8369; {{ materials_net_revenue|floatformat:2|intcomma }}</td>
             </tr>
-            
+
             <!-- Materials COGS -->
             <tr>
               <td class="ps-4">
-                Materials COGS
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Cost of Goods Sold - the inventory cost of materials sold (what you paid to acquire/produce the products)">?</span>
+                <span data-toggle="tooltip" title="Cost of Goods Sold — the inventory cost of materials sold (what you paid to acquire/produce the products)">Materials COGS</span>
               </td>
               <td class="text-right">&#8369; {{ materials_cogs_with_partial|floatformat:2|intcomma }}</td>
             </tr>
-            
+
             <!-- Materials Gross Profit -->
             <tr class="pnl-total" style="background: #bbdefb;">
               <td>
-                <i class="fas fa-chart-line mr-2"></i>Materials Gross Profit 
+                <span data-toggle="tooltip" title="Profit from materials sales after deducting cost of goods (Net Revenue - COGS). Margin shows profit as % of net revenue."><i class="fas fa-chart-line mr-2"></i>Materials Gross Profit</span>
                 <span class="badge {% if materials_gross_margin_with_partial >= 20 %}bg-success{% elif materials_gross_margin_with_partial >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ materials_gross_margin_with_partial|floatformat:1 }}%</span>
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Profit from materials sales after deducting cost of goods (Net Revenue - COGS). Margin shows profit as % of net revenue">?</span>
               </td>
               <td class="text-right {% if materials_gross_profit_with_partial >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ materials_gross_profit_with_partial|floatformat:2|intcomma }}</td>
             </tr>
@@ -141,24 +120,21 @@
             <!-- ═══════════════════════════════════════════════════════════ -->
             <tr class="pnl-section" style="background: #f3e5f5;">
               <td colspan="2">
-                <i class="fas fa-tools mr-2"></i>SERVICES REVENUE
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Revenue from providing services to customers (labor, repairs, installations, etc.)">?</span>
+                <span data-toggle="tooltip" title="Revenue from providing services to customers (labor, repairs, installations, etc.)"><i class="fas fa-tools mr-2"></i>SERVICES REVENUE</span>
               </td>
             </tr>
-            
+
             <!-- Services Revenue -->
             <tr>
               <td class="ps-4">
-                Services Revenue (gross)
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total revenue from services before discounts. Includes both fully paid services and partial payments received">?</span>
+                <span data-toggle="tooltip" title="Total revenue from services before discounts. Includes both fully paid services and partial payments received.">Services Revenue (gross)</span>
               </td>
               <td class="text-right">&#8369; {{ services_revenue_with_partial|floatformat:2|intcomma }}</td>
             </tr>
             {% if partial_services_revenue %}
             <tr>
               <td class="ps-5 text-info small">
-                <i class="fas fa-clock mr-1"></i>Includes &#8369;{{ partial_services_revenue|floatformat:2|intcomma }} from {{ partial_services_count }} partial payment{{ partial_services_count|pluralize }}
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Partial payments from services NOT YET INVOICED. Revenue and COGS are recognized proportionally. Once invoiced, these services move to regular invoice revenue to prevent double-counting">?</span>
+                <span data-toggle="tooltip" title="Partial payments from service invoices not yet fully paid, plus non-invoiced services. Revenue is recognized based on actual payment dates to prevent double-counting."><i class="fas fa-clock mr-1"></i>Includes &#8369;{{ partial_services_revenue|floatformat:2|intcomma }} from {{ partial_services_count }} partial payment{{ partial_services_count|pluralize }}</span>
               </td>
               <td></td>
             </tr>
@@ -166,35 +142,31 @@
             {% if services_discount %}
             <tr>
               <td class="ps-4">
-                Less: Discounts
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total discounts given on services (reduces revenue)">?</span>
+                <span data-toggle="tooltip" title="Total discounts given on services (reduces revenue)">Less: Discounts</span>
               </td>
               <td class="text-right negative">(&#8369; {{ services_discount|floatformat:2|intcomma }})</td>
             </tr>
             {% endif %}
             <tr>
               <td class="ps-4 font-weight-bold">
-                Net Services Revenue
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Services revenue after discounts (Gross Revenue - Discounts)">?</span>
+                <span data-toggle="tooltip" title="Services revenue after discounts (Gross Revenue - Discounts)">Net Services Revenue</span>
               </td>
               <td class="text-right font-weight-bold">&#8369; {{ services_net_revenue|floatformat:2|intcomma }}</td>
             </tr>
-            
+
             <!-- Services COGS -->
             <tr>
               <td class="ps-4">
-                Services COGS (materials + labor)
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Direct costs of providing services: parts/materials used, labor costs, and other direct expenses. For partial payments, COGS is calculated proportionally">?</span>
+                <span data-toggle="tooltip" title="Direct costs of providing services: parts/materials used, labor costs, and other direct expenses. For partial payments, COGS is calculated proportionally.">Services COGS</span>
               </td>
               <td class="text-right">&#8369; {{ services_cogs_with_partial|floatformat:2|intcomma }}</td>
             </tr>
-            
+
             <!-- Services Gross Profit -->
             <tr class="pnl-total" style="background: #e1bee7;">
               <td>
-                <i class="fas fa-chart-line mr-2"></i>Services Gross Profit 
+                <span data-toggle="tooltip" title="Profit from services after deducting direct costs (Net Revenue - COGS). Margin shows profit as % of net revenue."><i class="fas fa-chart-line mr-2"></i>Services Gross Profit</span>
                 <span class="badge {% if services_gross_margin_with_partial >= 20 %}bg-success{% elif services_gross_margin_with_partial >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ services_gross_margin_with_partial|floatformat:1 }}%</span>
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Profit from services after deducting direct costs (Net Revenue - COGS). Margin shows profit as % of net revenue">?</span>
               </td>
               <td class="text-right {% if services_gross_profit_with_partial >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ services_gross_profit_with_partial|floatformat:2|intcomma }}</td>
             </tr>
@@ -204,38 +176,33 @@
             <!-- ═══════════════════════════════════════════════════════════ -->
             <tr class="pnl-section">
               <td colspan="2">
-                COMBINED REVENUE & COGS
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Combined totals from both Materials Sales and Services Revenue">?</span>
+                <span data-toggle="tooltip" title="Combined totals from both Materials Sales and Services Revenue">COMBINED REVENUE &amp; COGS</span>
               </td>
             </tr>
             <tr>
               <td class="ps-4">
-                Total Revenue (gross)
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Sum of all revenue from materials and services before discounts">?</span>
+                <span data-toggle="tooltip" title="Sum of all revenue from materials and services before discounts">Total Revenue (gross)</span>
               </td>
               <td class="text-right">&#8369; {{ invoice_revenue|floatformat:2|intcomma }}</td>
             </tr>
             {% if discount %}
             <tr>
               <td class="ps-4">
-                Less: Total Discounts
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Sum of all discounts given across materials and services">?</span>
+                <span data-toggle="tooltip" title="Sum of all discounts given across materials and services">Less: Total Discounts</span>
               </td>
               <td class="text-right negative">(&#8369; {{ discount|floatformat:2|intcomma }})</td>
             </tr>
             {% endif %}
             <tr class="pnl-total">
               <td>
-                Net Revenue
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total revenue after all discounts (Total Gross Revenue - Total Discounts)">?</span>
+                <span data-toggle="tooltip" title="Total revenue after all discounts (Total Gross Revenue - Total Discounts)">Net Revenue</span>
               </td>
               <td class="text-right">&#8369; {{ net_revenue|floatformat:2|intcomma }}</td>
             </tr>
-            
+
             <tr>
               <td class="ps-4">
-                Total COGS (Inventory + Direct Costs)
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Sum of all Cost of Goods Sold from materials inventory and direct service costs">?</span>
+                <span data-toggle="tooltip" title="Sum of all Cost of Goods Sold from materials inventory and direct service costs">Total COGS (Inventory + Direct Costs)</span>
               </td>
               <td class="text-right">&#8369; {{ total_cogs|floatformat:2|intcomma }}</td>
             </tr>
@@ -243,9 +210,8 @@
             <!-- COMBINED GROSS PROFIT -->
             <tr class="pnl-grand">
               <td>
-                TOTAL GROSS PROFIT 
+                <span data-toggle="tooltip" title="Total profit after deducting all COGS from net revenue (Net Revenue - Total COGS). This is profit before operating expenses.">TOTAL GROSS PROFIT</span>
                 <span class="badge {% if gross_margin >= 20 %}bg-success{% elif gross_margin >= 10 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ gross_margin|floatformat:1 }}%</span>
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Total profit after deducting all COGS from net revenue (Net Revenue - Total COGS). This is profit before operating expenses">?</span>
               </td>
               <td class="text-right {% if gross_profit >= 0 %}positive{% else %}negative{% endif %}">&#8369; {{ gross_profit|floatformat:2|intcomma }}</td>
             </tr>
@@ -253,15 +219,13 @@
             <!-- OPERATING EXPENSES -->
             <tr class="pnl-section">
               <td colspan="2">
-                OPERATING EXPENSES
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Indirect costs of running the business (not directly tied to producing goods/services). Includes salaries, rent, utilities, marketing, etc.">?</span>
+                <span data-toggle="tooltip" title="Indirect costs of running the business (not directly tied to producing goods/services). Includes salaries, rent, utilities, marketing, etc.">OPERATING EXPENSES</span>
               </td>
             </tr>
             {% for row in opex_rows %}
             <tr>
               <td class="ps-4">
-                {{ row.category__name }}
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Expense category: {{ row.category__name }}">?</span>
+                <span data-toggle="tooltip" title="Expense category: {{ row.category__name }}">{{ row.category__name }}</span>
               </td>
               <td class="text-right">&#8369; {{ row.total|floatformat:2|intcomma }}</td>
             </tr>
@@ -270,8 +234,7 @@
             {% endfor %}
             <tr class="pnl-total">
               <td>
-                Total Operating Expenses
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Sum of all operating expenses for the period">?</span>
+                <span data-toggle="tooltip" title="Sum of all operating expenses for the period">Total Operating Expenses</span>
               </td>
               <td class="text-right">&#8369; {{ total_opex|floatformat:2|intcomma }}</td>
             </tr>
@@ -279,9 +242,8 @@
             <!-- NET PROFIT -->
             <tr class="pnl-grand" style="background:#f0f7ff;">
               <td>
-                NET PROFIT 
+                <span data-toggle="tooltip" title="Final profit after all costs (Gross Profit - Operating Expenses). This is your bottom line — the actual profit available to the business.">NET PROFIT</span>
                 <span class="badge {% if net_margin >= 10 %}bg-success{% elif net_margin >= 0 %}bg-warning{% else %}bg-danger{% endif %} ms-2">{{ net_margin|floatformat:1 }}%</span>
-                <span class="info-tooltip" data-toggle="tooltip" data-placement="right" title="Final profit after all costs (Gross Profit - Operating Expenses). This is your bottom line - the actual profit available to the business">?</span>
               </td>
               <td class="text-right {% if net_profit >= 0 %}positive{% else %}negative{% endif %}" style="font-size:1.2rem;">&#8369; {{ net_profit|floatformat:2|intcomma }}</td>
             </tr>
@@ -448,37 +410,37 @@
           <!-- ── Partial Payments tab ── -->
           <div class="tab-pane fade" id="pane-partial" role="tabpanel">
             <div class="p-3">
-              <!-- Warning about date filtering -->
-              <div class="alert alert-warning mb-3">
-                <strong><i class="fas fa-exclamation-triangle mr-1"></i> Date Filtering Limitation:</strong>
+              <div class="alert alert-info mb-3">
+                <strong><i class="fas fa-info-circle mr-1"></i> Payment-Based Revenue Recognition:</strong>
                 <p class="mb-0 mt-2">
-                  Partial payments are currently filtered by <strong>service_date</strong> (when the service was scheduled), not when the payment was received. 
-                  This may cause inaccuracies in period-based reports.
-                  <br><small class="text-muted">
-                    <strong>Recommendation:</strong> Consider adding a 'partial_payment_date' field to the CustomerService model to track when partial payments are received for more accurate reporting.
-                  </small>
+                  Revenue is recognized based on <strong>actual payment dates</strong>. Partial payments are counted only once —
+                  in the period when the payment was received. When the invoice is fully paid, only the <em>remaining</em> payment
+                  amount is counted in that period. This prevents double-counting across periods.
                 </p>
               </div>
-              
+
               <p class="text-muted small mb-3">
                 <i class="fas fa-info-circle mr-1"></i>
-                Service invoices with <strong>partial payments received</strong> (not yet fully paid). Revenue and COGS are recognized proportionally based on payment percentage. Once fully paid, the full revenue appears in the "Invoices" tab.
+                Invoices with <strong>partial payments received</strong> in this period (not yet fully paid).
+                Revenue and COGS are recognized proportionally based on the payment amount received in this date range.
+                Non-invoiced services with partial payments are also included here.
               </p>
-              
-              <!-- Debug Information -->
+
               <div class="alert alert-info mb-3">
                 <strong><i class="fas fa-bug mr-1"></i> Debug Information:</strong>
                 <ul class="mb-0 mt-2">
-                  <li>Total invoices with partial payments: <strong>{{ debug_total_partial_invoices }}</strong></li>
-                  <li>Service invoices with partial payments: <strong>{{ debug_services_with_partial }}</strong></li>
-                  <li>Sales Order/POS invoices with partial payments: <strong>{{ debug_so_with_partial }}</strong></li>
+                  <li>Invoices with partial payments in period: <strong>{{ debug_total_partial_invoices }}</strong></li>
+                  <li>Service invoices (partial): <strong>{{ debug_services_with_partial }}</strong></li>
+                  <li>Sales Order/POS invoices (partial): <strong>{{ debug_so_with_partial }}</strong></li>
                 </ul>
                 <small class="text-muted mt-2 d-block">
-                  <strong>Query Logic:</strong> Shows invoices where total_paid > 0 AND total_paid < grand_total (partially paid)
-                  <br><strong>Why:</strong> Recognizes revenue proportionally as payments are received, before the invoice is fully paid.
+                  <strong>Query Logic:</strong> Shows invoices where payments were received in this period but the invoice is not yet fully paid,
+                  plus non-invoiced services with partial_payment_amount set.
+                  <br><strong>Revenue Recognition:</strong> Only the payment amount received in this period is counted as revenue.
+                  When the invoice is eventually fully paid, only the final payment is counted — no double-counting.
                 </small>
               </div>
-              
+
               <table class="table table-sm table-hover table-bordered mb-0" id="partialTable">
                 <thead class="thead-dark">
                   <tr>
@@ -526,7 +488,7 @@
                     <td class="text-right">—</td>
                     <td class="text-right text-danger">&#8369; {{ partial_services_cogs|floatformat:2|intcomma }}</td>
                     <td class="text-right text-success">
-                      &#8369; {{ partial_services_revenue|add:"-"|add:partial_services_cogs|floatformat:2|intcomma }}
+                      &#8369; {{ partial_services_revenue|subtract:partial_services_cogs|floatformat:2|intcomma }}
                     </td>
                   </tr>
                 </tfoot>
@@ -542,7 +504,7 @@
                 <i class="fas fa-info-circle mr-1"></i>
                 Sales Order and POS invoices with <strong>partial payments received</strong> (not yet fully paid). Revenue and COGS are recognized proportionally based on payment percentage. Once fully paid, the full revenue appears in the "Invoices" tab.
               </p>
-              
+
               <table class="table table-sm table-hover table-bordered mb-0" id="partialSOTable">
                 <thead class="thead-dark">
                   <tr>
@@ -597,7 +559,7 @@
                     <td class="text-right">—</td>
                     <td class="text-right text-danger">&#8369; {{ partial_so_cogs|floatformat:2|intcomma }}</td>
                     <td class="text-right text-success">
-                      &#8369; {{ partial_so_revenue|add:"-"|add:partial_so_cogs|floatformat:2|intcomma }}
+                      &#8369; {{ partial_so_revenue|subtract:partial_so_cogs|floatformat:2|intcomma }}
                     </td>
                   </tr>
                 </tfoot>
@@ -667,7 +629,7 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-// Initialize Bootstrap tooltips
+// Initialize Bootstrap tooltips on all elements with data-toggle="tooltip"
 $(function () {
   $('[data-toggle="tooltip"]').tooltip({
     html: true,

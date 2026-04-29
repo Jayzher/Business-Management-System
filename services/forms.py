@@ -16,7 +16,7 @@ class CustomerServiceForm(forms.ModelForm):
             'warehouse', 'notes',
         ]
         widgets = {
-            'service_number': forms.TextInput(attrs={'class': _SM, 'placeholder': 'e.g., SVC-000001'}),
+            'service_number': forms.TextInput(attrs={'class': _SM, 'readonly': 'readonly'}),
             'service_name': forms.TextInput(attrs={'class': _SM, 'placeholder': 'e.g., AC Unit Repair'}),
             'customer_name': forms.TextInput(attrs={'class': _SM, 'placeholder': 'Customer full name'}),
             'service_date': forms.DateInput(attrs={'class': _SM, 'type': 'date'}),
@@ -30,7 +30,7 @@ class CustomerServiceForm(forms.ModelForm):
             'notes': forms.Textarea(attrs={'class': _SM, 'rows': 2, 'placeholder': 'Internal notes'}),
         }
         help_texts = {
-            'service_number': 'Unique service job order number.',
+            'service_number': 'Auto-generated service job order number.',
             'service_name': 'Name / type of service being performed.',
             'customer_name': 'Customer name (plain text).',
             'service_date': 'Date the service is scheduled or performed.',

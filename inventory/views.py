@@ -29,6 +29,7 @@ from django.utils import timezone
 from inventory.services import (
     post_transfer, post_adjustment, post_damaged_report, cancel_document,
     post_inventory_to_supply, cancel_inventory_to_supply,
+    generate_document_number,
 )
 from core.models import DocumentStatus
 from accounts.decorators import write_denied_for_viewer,  warehouse_access
@@ -396,6 +397,8 @@ def transfer_create_view(request):
         if form.is_valid():
             obj = form.save(commit=False)
             obj.created_by = request.user
+            if not obj.document_number:
+                obj.document_number = generate_document_number('TR', StockTransfer)
             obj.save()
             formset = StockTransferLineFormSet(request.POST, instance=obj)
             if formset.is_valid():
@@ -403,7 +406,7 @@ def transfer_create_view(request):
                 messages.success(request, f'Transfer {obj.document_number} created.')
                 return redirect('transfer_list')
     else:
-        form = StockTransferForm()
+        form = StockTransferForm(initial={'document_number': generate_document_number('TR', StockTransfer)})
         formset = StockTransferLineFormSet()
     return render(request, 'inventory/transfer_form.html', {
         'form': form, 'formset': formset, 'title': 'Create Stock Transfer',
@@ -458,6 +461,8 @@ def adjustment_create_view(request):
         if form.is_valid():
             obj = form.save(commit=False)
             obj.created_by = request.user
+            if not obj.document_number:
+                obj.document_number = generate_document_number('ADJ', StockAdjustment)
             obj.save()
             formset = StockAdjustmentLineFormSet(request.POST, instance=obj)
             if formset.is_valid():
@@ -465,7 +470,7 @@ def adjustment_create_view(request):
                 messages.success(request, f'Adjustment {obj.document_number} created.')
                 return redirect('adjustment_list')
     else:
-        form = StockAdjustmentForm()
+        form = StockAdjustmentForm(initial={'document_number': generate_document_number('ADJ', StockAdjustment)})
         formset = StockAdjustmentLineFormSet()
     return render(request, 'inventory/adjustment_form.html', {
         'form': form, 'formset': formset, 'title': 'Create Stock Adjustment',
@@ -520,6 +525,8 @@ def damaged_create_view(request):
         if form.is_valid():
             obj = form.save(commit=False)
             obj.created_by = request.user
+            if not obj.document_number:
+                obj.document_number = generate_document_number('DAM', DamagedReport)
             obj.save()
             formset = DamagedReportLineFormSet(request.POST, request.FILES, instance=obj)
             if formset.is_valid():
@@ -527,7 +534,7 @@ def damaged_create_view(request):
                 messages.success(request, f'Damaged Report {obj.document_number} created.')
                 return redirect('damaged_list')
     else:
-        form = DamagedReportForm()
+        form = DamagedReportForm(initial={'document_number': generate_document_number('DAM', DamagedReport)})
         formset = DamagedReportLineFormSet()
     return render(request, 'inventory/damaged_form.html', {
         'form': form, 'formset': formset, 'title': 'Create Damaged Report',
@@ -597,7 +604,6 @@ def ist_detail_view(request, pk):
 @warehouse_access
 @write_denied_for_viewer
 def ist_create_view(request):
-    from inventory.services import generate_document_number
     if request.method == 'POST':
         form = InventoryToSupplyTransferForm(request.POST)
         formset = InventoryToSupplyTransferLineFormSet(request.POST)
@@ -613,7 +619,10 @@ def ist_create_view(request):
                 messages.success(request, f'Transfer {obj.document_number} created.')
                 return redirect('ist_detail', pk=obj.pk)
     else:
-        form = InventoryToSupplyTransferForm(initial={'transfer_date': timezone.now().date()})
+        form = InventoryToSupplyTransferForm(initial={
+            'transfer_date': timezone.now().date(),
+            'document_number': generate_document_number('IST', InventoryToSupplyTransfer),
+        })
         formset = InventoryToSupplyTransferLineFormSet()
     return render(request, 'inventory/ist_form.html', {
         'form': form, 'formset': formset, 'title': 'New Inventory → Supply Transfer',

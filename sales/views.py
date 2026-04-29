@@ -15,6 +15,7 @@ from sales.forms import (
 )
 from django.utils import timezone
 from inventory.services import post_delivery, reserve_stock, cancel_document, post_sales_pickup
+from inventory.services import generate_document_number
 from core.models import DocumentStatus
 from accounts.decorators import write_denied_for_viewer,  sales_access
 
@@ -387,6 +388,8 @@ def sales_order_create_view(request):
         if form.is_valid():
             so = form.save(commit=False)
             so.created_by = request.user
+            if not so.document_number:
+                so.document_number = generate_document_number('SO', SalesOrder)
             so.save()
             formset = SalesOrderLineFormSet(request.POST, instance=so, prefix='lines')
             bundle_formset = SalesOrderPriceListLineFormSet(request.POST, instance=so, prefix='bundles')
@@ -396,7 +399,7 @@ def sales_order_create_view(request):
                 messages.success(request, f'Sales Order {so.document_number} created.')
                 return redirect('sales_order_detail', pk=so.pk)
     else:
-        form = SalesOrderForm()
+        form = SalesOrderForm(initial={'document_number': generate_document_number('SO', SalesOrder)})
         formset = SalesOrderLineFormSet(prefix='lines')
         bundle_formset = SalesOrderPriceListLineFormSet(prefix='bundles')
     return render(request, 'sales/sales_order_form.html', {
@@ -465,6 +468,8 @@ def delivery_create_view(request):
                 })
             dn = form.save(commit=False)
             dn.created_by = request.user
+            if not dn.document_number:
+                dn.document_number = generate_document_number('DN', DeliveryNote)
             dn.save()
             formset = DeliveryLineFormSet(request.POST, instance=dn)
             if formset.is_valid():
@@ -472,7 +477,7 @@ def delivery_create_view(request):
                 messages.success(request, f'Delivery Note {dn.document_number} created.')
                 return redirect('delivery_detail', pk=dn.pk)
     else:
-        form = DeliveryNoteForm()
+        form = DeliveryNoteForm(initial={'document_number': generate_document_number('DN', DeliveryNote)})
         formset = DeliveryLineFormSet()
     return render(request, 'sales/delivery_form.html', {
         'form': form, 'formset': formset, 'title': 'Create Delivery Note',
@@ -592,6 +597,8 @@ def pickup_create_view(request):
                 })
             pickup = form.save(commit=False)
             pickup.created_by = request.user
+            if not pickup.document_number:
+                pickup.document_number = generate_document_number('PU', SalesPickup)
             pickup.save()
             formset = SalesPickupLineFormSet(request.POST, instance=pickup)
             if formset.is_valid():
@@ -599,7 +606,7 @@ def pickup_create_view(request):
                 messages.success(request, f'Pickup {pickup.document_number} created.')
                 return redirect('pickup_detail', pk=pickup.pk)
     else:
-        form = SalesPickupForm()
+        form = SalesPickupForm(initial={'document_number': generate_document_number('PU', SalesPickup)})
         formset = SalesPickupLineFormSet()
     return render(request, 'sales/pickup_form.html', {
         'form': form, 'formset': formset, 'title': 'Create Pickup',
@@ -752,6 +759,8 @@ def sales_return_create_view(request):
         if form.is_valid():
             sr = form.save(commit=False)
             sr.created_by = request.user
+            if not sr.document_number:
+                sr.document_number = generate_document_number('SR', SalesReturn)
             sr.save()
             formset = SalesReturnLineFormSet(request.POST, instance=sr)
             if formset.is_valid():
@@ -759,7 +768,7 @@ def sales_return_create_view(request):
                 messages.success(request, f'Sales Return {sr.document_number} created.')
                 return redirect('sales_return_detail', pk=sr.pk)
     else:
-        form = SalesReturnForm()
+        form = SalesReturnForm(initial={'document_number': generate_document_number('SR', SalesReturn)})
         formset = SalesReturnLineFormSet()
     return render(request, 'sales/sales_return_form.html', {
         'form': form, 'formset': formset, 'title': 'Create Sales Return',

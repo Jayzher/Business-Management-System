@@ -398,3 +398,46 @@ def sync_push(request):
         'synced_ids': synced_ids,
         'id_mappings': id_mappings,
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def ws_info(request):
+    """
+    Return WebSocket connection details for mobile clients.
+
+    Mobile clients call this endpoint with their JWT token to get the
+    WebSocket URL they should connect to.  The JWT access token is passed
+    as a query parameter on the WS URL for authentication.
+
+    Response:
+      {
+        "ws_url": "wss://example.com/ws/sync/?token=<access_token>",
+        "protocol": "json",
+        "events": ["table_changed"],
+        "actions": ["subscribe", "ping"]
+      }
+    """
+    # Extract the access token from the Authorization header
+    auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+    token = ''
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+
+    # Build the WebSocket URL
+    scheme = 'wss' if request.is_secure() else 'ws'
+    host = request.get_host()
+    ws_url = f'{scheme}://{host}/ws/sync/'
+    if token:
+        ws_url += f'?token={token}'
+
+    return Response({
+        'ws_url': ws_url,
+        'protocol': 'json',
+        'events': ['table_changed', 'connected', 'subscribed', 'pong'],
+        'actions': ['subscribe', 'ping'],
+        'subscribe_example': {
+            'action': 'subscribe',
+            'tables': ['catalog_item', 'inventory_stockbalance'],
+        },
+    })

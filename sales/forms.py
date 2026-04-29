@@ -29,7 +29,7 @@ class SalesOrderForm(forms.ModelForm):
                   'fulfillment_type', 'shipping_address', 'currency', 'exchange_rate',
                   'payment_status', 'sales_channel', 'receipt_no', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'e.g., SO-000123'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'customer': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select customer'}),
             'warehouse': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select warehouse'}),
             'order_date': forms.DateInput(attrs={'class': 'form-control form-control-sm', 'type': 'date'}),
@@ -176,7 +176,7 @@ class DeliveryNoteForm(forms.ModelForm):
         fields = ['document_number', 'sales_order', 'customer', 'warehouse', 'delivery_date',
                   'shipping_address', 'driver_name', 'vehicle_number', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'e.g., DN-000123'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'sales_order': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Optional: link to SO'}),
             'customer': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select customer'}),
             'warehouse': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select warehouse'}),
@@ -248,7 +248,7 @@ class SalesPickupForm(forms.ModelForm):
             'pickup_date', 'pickup_by', 'notes',
         ]
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'e.g., PU-000123'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'sales_order': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Optional: link to SO'}),
             'customer': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select customer'}),
             'warehouse': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select warehouse'}),
@@ -313,7 +313,7 @@ class SalesReturnForm(forms.ModelForm):
         model = SalesReturn
         fields = ['document_number', 'sales_order', 'delivery_note', 'customer', 'warehouse', 'return_date', 'reason', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'sales_order': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'delivery_note': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'customer': forms.Select(attrs={'class': 'form-control form-control-sm'}),

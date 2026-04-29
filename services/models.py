@@ -23,6 +23,21 @@ class DiscountType(models.TextChoices):
 
 class CustomerService(models.Model):
     """Customer service / job order record."""
+
+    @staticmethod
+    def generate_next_service_number():
+        """Generate sequential service numbers like SVC-000001."""
+        import re
+        pattern = re.compile(r'^SVC-(\d+)$')
+        max_num = 0
+        for sn in CustomerService.objects.values_list('service_number', flat=True):
+            if sn:
+                m = pattern.match(sn)
+                if m:
+                    num = int(m.group(1))
+                    if num > max_num:
+                        max_num = num
+        return f"SVC-{max_num + 1:06d}"
     service_number = models.CharField(max_length=50, unique=True)
     service_name = models.CharField(max_length=200)
     customer_name = models.CharField(max_length=200, help_text='Customer name (free text)')
