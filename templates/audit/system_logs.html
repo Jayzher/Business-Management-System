@@ -1,0 +1,337 @@
+{% extends "theme/base.html" %}
+{% block title %}System Logs{% endblock %}
+{% block page_title %}System Logs{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="/core/settings/">Settings</a></li>
+<li class="breadcrumb-item active">System Logs</li>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .log-card{border-left:3px solid #e2e8f0;border-bottom:1px solid #f1f5f9;padding:10px 14px;transition:background .1s}
+  .log-card:hover{background:#f8fafc}
+  .log-card[data-action="POST"]{border-left-color:#3b82f6}
+  .log-card[data-action="CREATE"]{border-left-color:#22c55e}
+  .log-card[data-action="CANCEL"],.log-card[data-action="DELETE"]{border-left-color:#ef4444}
+  .log-card[data-action="APPROVE"]{border-left-color:#06b6d4}
+  .log-card[data-action="UPDATE"],.log-card[data-action="SYNC"]{border-left-color:#f59e0b}
+  .log-card[data-action="RESERVE"]{border-left-color:#8b5cf6}
+  .log-header{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:.84rem}
+  .log-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+  .lt{background:#f1f5f9;border-radius:3px;padding:0 5px;font-size:.7rem;color:#475569;line-height:1.7;white-space:nowrap}
+  .lt i{opacity:.5;margin-right:2px;font-size:.6rem}
+  .log-ts{font-size:.72rem;color:#94a3b8;white-space:nowrap;text-align:right;min-width:50px}
+  .badge-action{font-size:.68rem;padding:2px 6px;font-weight:600;letter-spacing:.3px}
+  .log-model{font-weight:700;color:#1e293b}
+  .log-docnum{font-family:monospace;font-size:.8rem;color:#2563eb}
+  .log-id{font-size:.72rem;color:#94a3b8}
+  .log-user{font-size:.7rem;color:#64748b}
+  .log-user i{opacity:.5}
+  .ch-panel{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:.78rem}
+  .ch-row{display:flex;align-items:baseline;padding:2px 0;border-bottom:1px solid #f1f5f9}
+  .ch-row:last-child{border-bottom:none}
+  .ch-label{color:#64748b;font-size:.72rem;min-width:130px;flex-shrink:0}
+  .ch-label i{width:14px;text-align:center;margin-right:4px;font-size:.65rem;opacity:.6}
+  .ch-value{color:#1e293b;font-weight:500;word-break:break-word}
+  .ch-items{margin-top:6px;border-top:1px solid #e2e8f0;padding-top:6px}
+  .ch-items table{font-size:.74rem}
+  .ch-items td,.ch-items th{padding:1px 8px}
+  .ch-items th{color:#94a3b8;font-weight:500;font-size:.68rem;text-transform:uppercase}
+  .ch-items code{font-size:.72rem}
+  .ch-toggle{display:inline-block}
+  details summary{font-size:.72rem;color:#64748b;cursor:pointer;user-select:none}
+  #logContainer .spinner{text-align:center;padding:40px;color:#94a3b8}
+  .page-btn{cursor:pointer}
+  .page-btn.active{font-weight:700;color:#2563eb}
+  .page-info{font-size:.78rem;color:#64748b}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card card-outline card-dark mb-3">
+  <div class="card-header py-2">
+    <h3 class="card-title" style="font-size:.85rem;"><i class="fas fa-filter me-1"></i> Filters</h3>
+  </div>
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="small">Action</label>
+        <select id="fAction" class="form-select form-select-sm"><option value="">All</option></select>
+      </div>
+      <div class="col-md-2">
+        <label class="small">Model</label>
+        <select id="fModel" class="form-select form-select-sm"><option value="">All</option></select>
+      </div>
+      <div class="col-md-2">
+        <label class="small">User</label>
+        <select id="fUser" class="form-select form-select-sm"><option value="">All</option></select>
+      </div>
+      <div class="col-md-2">
+        <label class="small">Search</label>
+        <input type="text" id="fSearch" class="form-control form-control-sm" placeholder="Search...">
+      </div>
+      <div class="col-md-2">
+        <label class="small">Per page</label>
+        <select id="fPageSize" class="form-select form-select-sm">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button onclick="loadLogs(1)" class="btn btn-dark btn-sm"><i class="fas fa-search me-1"></i> Filter</button>
+        <button onclick="clearFilters()" class="btn btn-outline-secondary btn-sm">Clear</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Log Timeline -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <h3 class="card-title mb-0" style="font-size:.85rem;">
+      <i class="fas fa-history me-1"></i> Activity Timeline
+      <span class="badge bg-secondary ms-1" id="totalCount">0</span>
+    </h3>
+    <a href="{% url 'audit:manual_logs' %}" class="btn btn-sm btn-outline-primary ml-auto">
+      <i class="fas fa-pen-square me-1"></i> Manual Logs
+    </a>
+  </div>
+  <div class="card-body p-0" id="logContainer">
+    <div class="spinner"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Loading logs...</p></div>
+  </div>
+  <div class="card-footer py-2 d-flex justify-content-between align-items-center" id="pagination" style="display:none!important;">
+    <span class="page-info" id="pageInfo"></span>
+    <div id="pageButtons"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const API = '/audit/api/system-logs/';
+const FILTER_API = '/audit/api/system-logs/filter_options/';
+let currentPage = 1;
+
+const actionColors = {
+  CREATE:'bg-success', DELETE:'bg-danger', CANCEL:'bg-danger',
+  POST:'bg-primary', APPROVE:'bg-info', SYNC:'bg-info',
+  UPDATE:'bg-warning text-dark', RESERVE:'bg-secondary', SCAN:'bg-secondary',
+};
+
+function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  const mon = d.toLocaleString('en',{month:'short'});
+  return `${mon} ${d.getDate()}<br>${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+function tag(icon, text) {
+  return `<span class="lt"><i class="fas fa-${icon}"></i>${esc(text)}</span>`;
+}
+
+// Format changes into a human-readable detail panel
+function renderChanges(c, logId) {
+  if (!c || Object.keys(c).length === 0) return '';
+
+  // Known field labels and icons
+  const fieldMeta = {
+    lines:           {icon:'list-ol',     label:'Lines'},
+    line_count:      {icon:'list-ol',     label:'Lines'},
+    grand_total:     {icon:'coins',       label:'Grand Total',     fmt: v=>'₱'+Number(v).toLocaleString('en',{minimumFractionDigits:2})},
+    subtotal:        {icon:'calculator',  label:'Subtotal',        fmt: v=>'₱'+Number(v).toLocaleString('en',{minimumFractionDigits:2})},
+    total:           {icon:'calculator',  label:'Total',           fmt: v=>'₱'+Number(v).toLocaleString('en',{minimumFractionDigits:2})},
+    total_value:     {icon:'money-bill',  label:'Total Value',     fmt: v=>'₱'+Number(v).toLocaleString('en',{minimumFractionDigits:2})},
+    total_qty:       {icon:'cubes',       label:'Total Qty'},
+    delivery_charge: {icon:'truck',       label:'Delivery Charge', fmt: v=>'₱'+Number(v).toLocaleString('en',{minimumFractionDigits:2})},
+    amount:          {icon:'coins',       label:'Amount',          fmt: v=>'₱'+Number(v).toLocaleString('en',{minimumFractionDigits:2})},
+    document_number: {icon:'hashtag',     label:'Document'},
+    status:          {icon:'flag',        label:'Status'},
+    action:          {icon:'bolt',        label:'Action'},
+    customer:        {icon:'user',        label:'Customer'},
+    supplier:        {icon:'truck-loading',label:'Supplier'},
+    warehouse:       {icon:'warehouse',   label:'Warehouse'},
+    sales_order:     {icon:'file-invoice',label:'Sales Order'},
+    purchase_order:  {icon:'clipboard-list',label:'Purchase Order'},
+    opening_cash:    {icon:'wallet',      label:'Opening Cash',    fmt: v=>'₱'+Number(v).toLocaleString('en',{minimumFractionDigits:2})},
+    expected_cash:   {icon:'wallet',      label:'Expected Cash',   fmt: v=>'₱'+Number(v).toLocaleString('en',{minimumFractionDigits:2})},
+    closing_cash:    {icon:'wallet',      label:'Closing Cash',    fmt: v=>'₱'+Number(v).toLocaleString('en',{minimumFractionDigits:2})},
+    difference:      {icon:'balance-scale',label:'Difference',     fmt: v=>'₱'+Number(v).toLocaleString('en',{minimumFractionDigits:2})},
+    reversal_moves:  {icon:'undo',        label:'Has Reversals'},
+    item:            {icon:'box',         label:'Item'},
+    qty:             {icon:'sort-numeric-up',label:'Qty'},
+    location:        {icon:'map-marker-alt',label:'Location'},
+    source:          {icon:'sign-in-alt', label:'Source'},
+    catalog_item:    {icon:'box',         label:'Catalog Item'},
+  };
+
+  let rows = '';
+
+  // Render scalar fields as labeled rows
+  for (const [key, val] of Object.entries(c)) {
+    if (key === 'items') continue; // handled separately below
+    const meta = fieldMeta[key] || {icon:'info-circle', label: key.replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase())};
+    const display = meta.fmt ? meta.fmt(val) : esc(String(val));
+    rows += `<div class="ch-row">
+      <span class="ch-label"><i class="fas fa-${meta.icon}"></i> ${esc(meta.label)}</span>
+      <span class="ch-value">${display}</span>
+    </div>`;
+  }
+
+  // Render items array as a compact table
+  let itemsHtml = '';
+  if (c.items && c.items.length) {
+    const hasValue = c.items.some(it => it.value);
+    let trows = c.items.map(it =>
+      `<tr><td><code>${esc(it.item)}</code></td><td class="text-end">${esc(it.qty)}</td><td>${esc(it.unit||'')}</td>${hasValue?`<td class="text-end">${it.value?'₱'+Number(it.value).toLocaleString('en',{minimumFractionDigits:2}):''}</td>`:''}</tr>`
+    ).join('');
+    itemsHtml = `<div class="ch-items">
+      <table class="table table-sm table-borderless mb-0">
+        <thead><tr><th>Item</th><th class="text-end">Qty</th><th>Unit</th>${hasValue?'<th class="text-end">Value</th>':''}</tr></thead>
+        <tbody>${trows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  const id = 'ch-' + logId;
+  return `<div class="ch-toggle mt-1">
+    <button class="btn btn-xs btn-outline-secondary" style="font-size:.68rem;padding:1px 6px;" onclick="document.getElementById('${id}').classList.toggle('d-none')">
+      <i class="fas fa-stream me-1"></i>Details
+    </button>
+  </div>
+  <div id="${id}" class="ch-panel d-none mt-1">
+    ${rows}
+    ${itemsHtml}
+  </div>`;
+}
+
+function renderLog(log) {
+  const c = log.changes || {};
+  const cls = actionColors[log.action] || 'bg-secondary';
+
+  // Build summary tags (the compact one-line overview)
+  let tags = '';
+  if (c.status) tags += tag('flag', c.status);
+  if (c.grand_total) tags += tag('coins', '₱'+c.grand_total);
+  if (c.line_count) tags += tag('list', c.line_count+' item'+(c.line_count!=1?'s':''));
+  else if (c.lines) tags += tag('list', c.lines+' line'+(c.lines!=1?'s':''));
+  if (c.total_qty) tags += tag('cubes', 'qty '+c.total_qty);
+  if (c.customer) tags += tag('user', c.customer);
+  if (c.supplier) tags += tag('truck', c.supplier);
+  if (c.warehouse) tags += tag('warehouse', c.warehouse);
+  if (c.sales_order) tags += tag('file-invoice', c.sales_order);
+  if (c.purchase_order) tags += tag('clipboard-list', c.purchase_order);
+  if (c.action && !c.document_number) tags += tag('bolt', c.action);
+
+  // Render the expandable changes panel
+  const changesPanel = renderChanges(c, log.id);
+
+  return `<div class="log-card" data-action="${log.action}">
+    <div class="d-flex justify-content-between align-items-start">
+      <div style="flex:1;min-width:0">
+        <div class="log-header">
+          <span class="badge badge-action ${cls}">${esc(log.action)}</span>
+          <span class="log-model">${esc(log.model_name)}</span>
+          ${c.document_number?`<span class="log-docnum">${esc(c.document_number)}</span>`:''}
+          <span class="log-id">#${log.object_id||''}</span>
+          <span class="log-user"><i class="fas fa-user"></i> ${esc(log.username)}</span>
+        </div>
+        ${tags?`<div class="log-tags">${tags}</div>`:''}
+        ${changesPanel}
+      </div>
+      <div class="log-ts ms-2">${fmtDate(log.timestamp)}</div>
+    </div>
+  </div>`;
+}
+
+async function loadLogs(page) {
+  currentPage = page || 1;
+  const params = new URLSearchParams();
+  params.set('page', currentPage);
+  params.set('page_size', document.getElementById('fPageSize').value);
+  const action = document.getElementById('fAction').value;
+  const model = document.getElementById('fModel').value;
+  const user = document.getElementById('fUser').value;
+  const q = document.getElementById('fSearch').value.trim();
+  if (action) params.set('action', action);
+  if (model) params.set('model_name', model);
+  if (user) params.set('user', user);
+  if (q) params.set('q', q);
+
+  const container = document.getElementById('logContainer');
+  container.innerHTML = '<div class="spinner"><i class="fas fa-spinner fa-spin fa-2x"></i></div>';
+
+  try {
+    const resp = await fetch(`${API}?${params}`);
+    const data = await resp.json();
+
+    document.getElementById('totalCount').textContent = data.count;
+
+    if (!data.results.length) {
+      container.innerHTML = '<div class="text-center py-5 text-muted"><i class="fas fa-inbox" style="font-size:2.5rem;opacity:.3"></i><p class="mt-2 mb-0">No logs found.</p></div>';
+    } else {
+      container.innerHTML = data.results.map(renderLog).join('');
+    }
+
+    // Pagination
+    const pageSize = parseInt(document.getElementById('fPageSize').value);
+    const totalPages = Math.ceil(data.count / pageSize);
+    const pag = document.getElementById('pagination');
+    const info = document.getElementById('pageInfo');
+    const btns = document.getElementById('pageButtons');
+
+    if (totalPages > 1) {
+      pag.style.display = 'flex';
+      pag.style.setProperty('display','flex','important');
+      const from = (currentPage-1)*pageSize+1;
+      const to = Math.min(currentPage*pageSize, data.count);
+      info.textContent = `Showing ${from}–${to} of ${data.count}`;
+
+      let html = '';
+      if (data.previous) html += `<button class="btn btn-sm btn-outline-secondary page-btn" onclick="loadLogs(${currentPage-1})">&laquo;</button> `;
+      const start = Math.max(1, currentPage-2);
+      const end = Math.min(totalPages, currentPage+2);
+      for (let i=start; i<=end; i++) {
+        html += `<button class="btn btn-sm ${i===currentPage?'btn-primary':'btn-outline-secondary'} page-btn" onclick="loadLogs(${i})">${i}</button> `;
+      }
+      if (data.next) html += `<button class="btn btn-sm btn-outline-secondary page-btn" onclick="loadLogs(${currentPage+1})">&raquo;</button>`;
+      btns.innerHTML = html;
+    } else {
+      pag.style.setProperty('display','none','important');
+    }
+  } catch(e) {
+    container.innerHTML = `<div class="text-center py-4 text-danger"><i class="fas fa-exclamation-triangle"></i> Error loading logs: ${e.message}</div>`;
+  }
+}
+
+async function loadFilterOptions() {
+  try {
+    const resp = await fetch(FILTER_API);
+    const data = await resp.json();
+    const fAction = document.getElementById('fAction');
+    data.actions.forEach(a => { const o=document.createElement('option'); o.value=a; o.textContent=a; fAction.appendChild(o); });
+    const fModel = document.getElementById('fModel');
+    data.models.forEach(m => { const o=document.createElement('option'); o.value=m; o.textContent=m; fModel.appendChild(o); });
+    const fUser = document.getElementById('fUser');
+    data.users.forEach(([id,name]) => { const o=document.createElement('option'); o.value=id; o.textContent=name; fUser.appendChild(o); });
+  } catch(e) { console.warn('Failed to load filter options:', e); }
+}
+
+function clearFilters() {
+  document.getElementById('fAction').value = '';
+  document.getElementById('fModel').value = '';
+  document.getElementById('fUser').value = '';
+  document.getElementById('fSearch').value = '';
+  loadLogs(1);
+}
+
+// Enter key triggers filter
+document.getElementById('fSearch').addEventListener('keydown', e => { if(e.key==='Enter') loadLogs(1); });
+
+// Init
+loadFilterOptions();
+loadLogs(1);
+</script>
+{% endblock %}

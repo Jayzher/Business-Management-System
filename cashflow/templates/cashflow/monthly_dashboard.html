@@ -175,6 +175,146 @@
         <canvas id="monthlyChart" height="80"></canvas>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- CAPITAL ROI ANALYSIS                                          -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    {% if roi_capital > 0 %}
+    <div class="row g-3 mt-3">
+      <!-- Left: P&L from Capital -->
+      <div class="col-lg-7">
+        <div class="stat-card" style="border-left: 4px solid #7c3aed;">
+          <div class="d-flex align-items-center mb-3">
+            <i class="bi bi-graph-up-arrow text-purple me-2" style="font-size:1.4rem; color:#7c3aed;"></i>
+            <h5 class="mb-0">Capital Return Analysis</h5>
+          </div>
+          <p class="text-muted small mb-3">
+            How much profit did the ₱{{ roi_capital|floatformat:0 }} capital actually generate?
+            This strips out re-ordering — only counting what was sold vs what it cost.
+          </p>
+
+          <table class="table table-sm mb-0" style="font-size:.88rem;">
+            <tbody>
+              <!-- Revenue -->
+              <tr style="background:#f0fdf4;">
+                <td class="fw-bold"><i class="bi bi-arrow-down-circle text-success me-1"></i> Revenue Collected</td>
+                <td class="text-end fw-bold text-success">₱{{ roi_revenue|floatformat:2 }}</td>
+              </tr>
+              <tr>
+                <td class="ps-4 text-muted">Less: Cost of Goods Sold</td>
+                <td class="text-end text-danger">(₱{{ roi_cogs|floatformat:2 }})</td>
+              </tr>
+              <tr style="border-top:2px solid #333;">
+                <td class="fw-bold">
+                  Gross Profit
+                  <span class="profit-badge {% if roi_gross_margin >= 20 %}positive{% else %}negative{% endif %} ms-1">{{ roi_gross_margin|floatformat:1 }}%</span>
+                </td>
+                <td class="text-end fw-bold {% if roi_gross_profit >= 0 %}text-success{% else %}text-danger{% endif %}">₱{{ roi_gross_profit|floatformat:2 }}</td>
+              </tr>
+              <tr>
+                <td class="ps-4 text-muted">Less: Operating Expenses</td>
+                <td class="text-end text-danger">(₱{{ roi_opex|floatformat:2 }})</td>
+              </tr>
+              <tr style="border-top:3px double #333; background:#f8f9fa;">
+                <td class="fw-bold" style="font-size:1rem;">
+                  <i class="bi bi-trophy me-1" style="color:#7c3aed;"></i> Net Profit
+                  <span class="profit-badge {% if roi_net_margin >= 10 %}positive{% else %}negative{% endif %} ms-1">{{ roi_net_margin|floatformat:1 }}%</span>
+                </td>
+                <td class="text-end fw-bold {% if roi_net_profit >= 0 %}text-success{% else %}text-danger{% endif %}" style="font-size:1.1rem;">₱{{ roi_net_profit|floatformat:2 }}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Hold Scenario -->
+          <div class="mt-3 p-3 rounded" style="background:#faf5ff; border:1px solid #e9d5ff;">
+            <div class="d-flex align-items-center mb-2">
+              <i class="bi bi-lightbulb me-2" style="color:#7c3aed;"></i>
+              <strong style="font-size:.85rem; color:#7c3aed;">If You Held Cash (No Re-ordering)</strong>
+            </div>
+            <div class="row text-center" style="font-size:.82rem;">
+              <div class="col-4">
+                <div class="text-muted">Capital In</div>
+                <div class="fw-bold">₱{{ roi_capital|floatformat:0 }}</div>
+              </div>
+              <div class="col-4">
+                <div class="text-muted">+ Net Profit</div>
+                <div class="fw-bold text-success">₱{{ roi_net_profit|floatformat:0 }}</div>
+              </div>
+              <div class="col-4">
+                <div class="text-muted">= Cash You'd Have</div>
+                <div class="fw-bold" style="color:#7c3aed; font-size:1.05rem;">₱{{ roi_hold_cash|floatformat:0 }}</div>
+              </div>
+            </div>
+            <div class="text-center mt-2">
+              <span class="profit-badge {% if roi_on_capital >= 10 %}positive{% else %}negative{% endif %}">
+                {{ roi_on_capital|floatformat:1 }}% Return on Capital
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Where the Capital Went -->
+      <div class="col-lg-5">
+        <div class="stat-card" style="border-left: 4px solid #3b82f6;">
+          <div class="d-flex align-items-center mb-3">
+            <i class="bi bi-pie-chart me-2" style="font-size:1.4rem; color:#3b82f6;"></i>
+            <h5 class="mb-0">Where Capital Went</h5>
+          </div>
+          <p class="text-muted small mb-3">
+            Current position of the ₱{{ roi_capital|floatformat:0 }} invested.
+          </p>
+
+          <!-- Stacked bar visual -->
+          <div class="mb-3" style="height:32px; border-radius:8px; overflow:hidden; display:flex; background:#e5e7eb;">
+            <div style="width:{{ roi_cash_pct|floatformat:0 }}%; background:#10b981; min-width:2px;" title="Cash: {{ roi_cash_pct|floatformat:1 }}%"></div>
+            <div style="width:{{ roi_inv_pct|floatformat:0 }}%; background:#3b82f6; min-width:2px;" title="Inventory: {{ roi_inv_pct|floatformat:1 }}%"></div>
+            <div style="width:{{ roi_ar_pct|floatformat:0 }}%; background:#f59e0b; min-width:2px;" title="AR: {{ roi_ar_pct|floatformat:1 }}%"></div>
+          </div>
+
+          <!-- Asset breakdown -->
+          <div class="list-group list-group-flush" style="font-size:.85rem;">
+            <div class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+              <span><span class="badge me-2" style="background:#10b981;">&nbsp;</span> Cash on Hand</span>
+              <span>
+                <strong>₱{{ roi_actual_cash|floatformat:0 }}</strong>
+                <small class="text-muted ms-1">({{ roi_cash_pct|floatformat:1 }}%)</small>
+              </span>
+            </div>
+            <div class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+              <span><span class="badge me-2" style="background:#3b82f6;">&nbsp;</span> Inventory (Unsold Stock)</span>
+              <span>
+                <strong>₱{{ roi_inventory|floatformat:0 }}</strong>
+                <small class="text-muted ms-1">({{ roi_inv_pct|floatformat:1 }}%)</small>
+              </span>
+            </div>
+            <div class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+              <span><span class="badge me-2" style="background:#f59e0b;">&nbsp;</span> Owed by Customers (AR)</span>
+              <span>
+                <strong>₱{{ roi_ar|floatformat:0 }}</strong>
+                <small class="text-muted ms-1">({{ roi_ar_pct|floatformat:1 }}%)</small>
+              </span>
+            </div>
+            <div class="list-group-item d-flex justify-content-between align-items-center px-0 py-2" style="border-top:2px solid #333;">
+              <span class="fw-bold">Total Assets</span>
+              <strong>₱{{ roi_total_assets|floatformat:0 }}</strong>
+            </div>
+          </div>
+
+          <!-- Equity gain -->
+          <div class="mt-3 p-3 rounded text-center" style="background:{% if roi_equity_gain >= 0 %}#f0fdf4{% else %}#fef2f2{% endif %}; border:1px solid {% if roi_equity_gain >= 0 %}#bbf7d0{% else %}#fecaca{% endif %};">
+            <div class="text-muted small">Equity Gain (Assets − Capital)</div>
+            <div class="fw-bold {% if roi_equity_gain >= 0 %}text-success{% else %}text-danger{% endif %}" style="font-size:1.3rem;">
+              ₱{{ roi_equity_gain|floatformat:0 }}
+            </div>
+            <span class="profit-badge {% if roi_equity_roi >= 0 %}positive{% else %}negative{% endif %}">
+              {{ roi_equity_roi|floatformat:1 }}% Equity ROI
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <!-- Monthly Breakdown Table -->
     <div class="month-table">
         <div class="p-3 border-bottom bg-light">

@@ -107,10 +107,11 @@ def update_monthly_summary(year, month, user=None):
     other_cash_in = _calculate_other_cash_in(start_date, next_month_start)
     total_cash_in = cash_from_customers + capital_injections + other_cash_in
 
-    cash_to_suppliers = inventory_purchased
+    cash_to_suppliers = _calculate_cash_to_suppliers(start_date, next_month_start)
     expenses_operational = _calculate_operational_expenses(start_date, next_month_start)
     expenses_other = _calculate_other_cash_out(start_date, next_month_start)
-    total_cash_out = cash_to_suppliers + expenses_operational + expenses_other
+    expenses_supplies = _calculate_supplies_expenses(start_date, next_month_start)
+    total_cash_out = cash_to_suppliers + expenses_operational + expenses_other + expenses_supplies
 
     cash_opening = prev_summary.cash_closing if prev_summary else Decimal('0')
     net_cash_flow = total_cash_in - total_cash_out
@@ -404,18 +405,20 @@ def _calculate_procurement_costs(start_date, end_date):
 
 
 def _calculate_operational_expenses(start_date, end_date):
-    """Calculate operational expenses from Expense model + CashFlowTransaction."""
+    """Calculate operational expenses from Expense model + CashFlowTransaction.
+    Includes PENDING CashFlowTransactions since they represent real money spent."""
     expense_total = Expense.objects.filter(
         status='APPROVED', date__gte=start_date, date__lt=end_date,
         category__is_cogs=False,
     ).aggregate(total=Coalesce(Sum('amount'), Decimal('0')))['total']
 
     cf_total = CashFlowTransaction.objects.filter(
-        status=CashFlowStatus.APPROVED,
         flow_type=CashFlowType.CASH_OUT,
         category=CashFlowCategory.EXPENSES,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
+    ).filter(
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
     ).aggregate(total=Coalesce(Sum('amount'), Decimal('0')))['total']
 
     return expense_total + cf_total
@@ -424,22 +427,25 @@ def _calculate_operational_expenses(start_date, end_date):
 def _calculate_other_cash_in(start_date, end_date):
     """Calculate other cash-in (excluding sales and capital)."""
     return CashFlowTransaction.objects.filter(
-        status=CashFlowStatus.APPROVED,
         flow_type=CashFlowType.CASH_IN,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
+    ).filter(
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
     ).exclude(
         category__in=[CashFlowCategory.SALES, CashFlowCategory.CAPITAL]
     ).aggregate(total=Coalesce(Sum('amount'), Decimal('0')))['total']
 
 
 def _calculate_other_cash_out(start_date, end_date):
-    """Calculate other cash-out (excluding procurement, expenses, supplies)."""
+    """Calculate other cash-out (excluding procurement, expenses, supplies).
+    Includes PENDING transactions."""
     return CashFlowTransaction.objects.filter(
-        status=CashFlowStatus.APPROVED,
         flow_type=CashFlowType.CASH_OUT,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
+    ).filter(
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
     ).exclude(
         category__in=[
             CashFlowCategory.PROCUREMENT,
@@ -450,13 +456,39 @@ def _calculate_other_cash_out(start_date, end_date):
 
 
 def _calculate_capital_injections(start_date, end_date):
-    """Calculate capital injections."""
+    """Calculate capital injections. Includes PENDING."""
     return CashFlowTransaction.objects.filter(
-        status=CashFlowStatus.APPROVED,
         flow_type=CashFlowType.CASH_IN,
         category=CashFlowCategory.CAPITAL,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
+    ).filter(
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
+    ).aggregate(total=Coalesce(Sum('amount'), Decimal('0')))['total']
+
+
+def _calculate_cash_to_suppliers(start_date, end_date):
+    """Calculate cash paid to suppliers from CashFlowTransaction PROCUREMENT
+    entries — the actual cash ledger. Includes PENDING transactions."""
+    return CashFlowTransaction.objects.filter(
+        flow_type=CashFlowType.CASH_OUT,
+        category=CashFlowCategory.PROCUREMENT,
+        transaction_date__gte=start_date,
+        transaction_date__lt=end_date,
+    ).filter(
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
+    ).aggregate(total=Coalesce(Sum('amount'), Decimal('0')))['total']
+
+
+def _calculate_supplies_expenses(start_date, end_date):
+    """Calculate supplies expenses. Includes PENDING."""
+    return CashFlowTransaction.objects.filter(
+        flow_type=CashFlowType.CASH_OUT,
+        category=CashFlowCategory.SUPPLIES,
+        transaction_date__gte=start_date,
+        transaction_date__lt=end_date,
+    ).filter(
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
     ).aggregate(total=Coalesce(Sum('amount'), Decimal('0')))['total']
 
 
@@ -535,10 +567,10 @@ def update_summary_on_expense(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=CashFlowTransaction)
 def update_summary_on_cashflow(sender, instance, created, **kwargs):
-    if instance.status == CashFlowStatus.APPROVED and instance.transaction_date:
+    if instance.status in (CashFlowStatus.APPROVED, 'PENDING') and instance.transaction_date:
         update_monthly_summary(
             instance.transaction_date.year, instance.transaction_date.month,
-            user=getattr(instance, 'approved_by', None),
+            user=getattr(instance, 'approved_by', None) or getattr(instance, 'created_by', None),
         )
 
 

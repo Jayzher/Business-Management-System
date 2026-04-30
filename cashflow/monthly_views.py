@@ -104,7 +104,141 @@ def monthly_dashboard(request):
         'current_year': current_year,
     }
     
+    # ── Capital ROI Analysis ─────────────────────────────────────────────
+    context.update(_build_capital_roi_context(year))
+    
     return render(request, 'cashflow/monthly_dashboard.html', context)
+
+
+def _build_capital_roi_context(year):
+    """
+    Build the Capital ROI analysis context for the dashboard.
+    Answers: "How much profit did the capital actually generate?"
+    """
+    from datetime import date
+    from core.models import Invoice, InvoicePayment
+    from inventory.models import StockBalance
+    from decimal import Decimal
+    from django.db.models import Sum
+    from django.db.models.functions import Coalesce
+
+    start = date(year, 1, 1)
+    end = date(year + 1, 1, 1)
+    today = date.today()
+    if today < end:
+        end = date(today.year, today.month + 1, 1) if today.month < 12 else date(today.year + 1, 1, 1)
+
+    # Capital injected
+    capital = CashFlowTransaction.objects.filter(
+        flow_type=CashFlowType.CASH_IN,
+        category=CashFlowCategory.CAPITAL,
+        transaction_date__gte=start, transaction_date__lt=end,
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
+    ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+
+    # Revenue collected (actual cash from customers)
+    inv_payments = InvoicePayment.objects.filter(
+        date__gte=start, date__lt=end,
+    ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+
+    from django.utils import timezone
+    start_dt = timezone.make_aware(datetime.combine(start, datetime.min.time()))
+    end_dt = timezone.make_aware(datetime.combine(end, datetime.min.time()))
+
+    pos_cash = POSSale.objects.filter(
+        status=SaleStatus.POSTED,
+        posted_at__gte=start_dt, posted_at__lt=end_dt,
+    ).aggregate(t=Sum('grand_total'))['t'] or Decimal('0')
+
+    revenue_collected = inv_payments + pos_cash
+
+    # COGS from invoices (what was actually sold)
+    invoice_cogs = Invoice.objects.filter(
+        is_void=False, date__gte=start, date__lt=end,
+    ).aggregate(t=Coalesce(Sum('grand_total_cogs'), Decimal('0')))['t']
+
+    # Operating expenses
+    opex = CashFlowTransaction.objects.filter(
+        flow_type=CashFlowType.CASH_OUT,
+        category=CashFlowCategory.EXPENSES,
+        transaction_date__gte=start, transaction_date__lt=end,
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
+    ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+
+    other_out = CashFlowTransaction.objects.filter(
+        flow_type=CashFlowType.CASH_OUT,
+        transaction_date__gte=start, transaction_date__lt=end,
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
+    ).exclude(category__in=[
+        CashFlowCategory.PROCUREMENT, CashFlowCategory.EXPENSES, CashFlowCategory.SUPPLIES,
+    ]).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+
+    total_opex = opex + other_out
+
+    # Procurement spent
+    procurement_spent = CashFlowTransaction.objects.filter(
+        flow_type=CashFlowType.CASH_OUT,
+        category=CashFlowCategory.PROCUREMENT,
+        transaction_date__gte=start, transaction_date__lt=end,
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
+    ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+
+    # Current inventory value
+    inventory_value = Decimal('0')
+    for bal in StockBalance.objects.filter(qty_on_hand__gt=Decimal('0.001')).select_related('item'):
+        inventory_value += bal.qty_on_hand * (bal.item.cost_price or Decimal('0'))
+
+    # Accounts receivable
+    ar = Decimal('0')
+    for inv in Invoice.objects.filter(is_void=False, date__lt=end).prefetch_related('payments'):
+        paid = sum(p.amount for p in inv.payments.filter(date__lt=end))
+        balance = inv.grand_total - paid
+        if balance > 0:
+            ar += balance
+
+    # Calculations
+    gross_profit = revenue_collected - invoice_cogs
+    gross_margin = (gross_profit / revenue_collected * 100) if revenue_collected > 0 else Decimal('0')
+    net_profit = revenue_collected - invoice_cogs - total_opex
+    net_margin = (net_profit / revenue_collected * 100) if revenue_collected > 0 else Decimal('0')
+
+    # Hold scenario
+    hold_cash = capital + revenue_collected - invoice_cogs - total_opex
+    roi_on_capital = (net_profit / capital * 100) if capital > 0 else Decimal('0')
+
+    # Actual position
+    actual_cash = Decimal('62275')  # TODO: pull from actual cash tracking
+    total_assets = actual_cash + inventory_value + ar
+    equity_gain = total_assets - capital
+    equity_roi = (equity_gain / capital * 100) if capital > 0 else Decimal('0')
+
+    # Capital allocation percentages
+    cash_pct = (actual_cash / capital * 100) if capital > 0 else Decimal('0')
+    inv_pct = (inventory_value / capital * 100) if capital > 0 else Decimal('0')
+    ar_pct = (ar / capital * 100) if capital > 0 else Decimal('0')
+
+    return {
+        'roi_capital': capital,
+        'roi_revenue': revenue_collected,
+        'roi_cogs': invoice_cogs,
+        'roi_gross_profit': gross_profit,
+        'roi_gross_margin': gross_margin,
+        'roi_opex': total_opex,
+        'roi_net_profit': net_profit,
+        'roi_net_margin': net_margin,
+        'roi_hold_cash': hold_cash,
+        'roi_on_capital': roi_on_capital,
+        'roi_procurement': procurement_spent,
+        'roi_inventory': inventory_value,
+        'roi_ar': ar,
+        'roi_actual_cash': actual_cash,
+        'roi_total_assets': total_assets,
+        'roi_equity_gain': equity_gain,
+        'roi_equity_roi': equity_roi,
+        'roi_cash_pct': cash_pct,
+        'roi_inv_pct': inv_pct,
+        'roi_ar_pct': ar_pct,
+    }
 
 
 @login_required
@@ -129,7 +263,7 @@ def monthly_detail(request, year, month):
     
     # Get detailed transactions
     cash_in_transactions = CashFlowTransaction.objects.filter(
-        status=CashFlowStatus.APPROVED,
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
         flow_type=CashFlowType.CASH_IN,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
@@ -138,7 +272,7 @@ def monthly_detail(request, year, month):
     ).order_by('-transaction_date')
     
     cash_out_transactions = CashFlowTransaction.objects.filter(
-        status=CashFlowStatus.APPROVED,
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
         flow_type=CashFlowType.CASH_OUT,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
