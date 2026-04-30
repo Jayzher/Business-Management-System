@@ -92,7 +92,6 @@ proto-plus==1.26.1
 protobuf==6.33.1
 psycopg==3.3.1
 psycopg-binary==3.3.1
-psycopg2-binary==2.9.10
 pusher==3.3.4
 py-ubjson==0.16.1
 pyasn1==0.6.2
