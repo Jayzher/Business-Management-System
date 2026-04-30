@@ -434,7 +434,13 @@ def ws_info(request):
     return Response({
         'ws_url': ws_url,
         'protocol': 'json',
-        'events': ['table_changed', 'connected', 'subscribed', 'pong'],
+        'events': [
+            'table_changed',   # lightweight: {"tables": [...]}
+            'data_changed',    # rich: {"table": "...", "action": "upsert|delete", "rows": [...]}
+            'connected',
+            'subscribed',
+            'pong',
+        ],
         'actions': ['subscribe', 'ping'],
         'subscribe_example': {
             'action': 'subscribe',

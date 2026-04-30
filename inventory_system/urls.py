@@ -122,6 +122,7 @@ urlpatterns = [
     path('core/', include('core.urls')),
     path('services/', include('services.urls')),
     path('cashflow/', include('cashflow.urls')),
+    path('audit/', include('audit.urls')),
 ]
 
 if settings.DEBUG:

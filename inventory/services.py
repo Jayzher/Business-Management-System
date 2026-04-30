@@ -40,14 +40,86 @@ def _update_balance(item, location, qty_delta, reserved_delta=Decimal('0')):
 
 
 def _create_audit(user, action, obj, changes=None):
-    """Create an audit log entry."""
+    """Create a rich audit log entry with automatic detail extraction."""
+    details = changes or {}
+
+    # ── Auto-extract document details ────────────────────────────────
+    doc_number = (
+        getattr(obj, 'document_number', None)
+        or getattr(obj, 'sale_no', None)
+        or getattr(obj, 'refund_no', None)
+        or getattr(obj, 'service_number', None)
+        or ''
+    )
+    if doc_number:
+        details['document_number'] = doc_number
+
+    status = getattr(obj, 'status', None)
+    if status:
+        details['status'] = str(status)
+
+    # Extract line items summary for documents that have lines
+    if hasattr(obj, 'lines') and action in ('POST', 'CANCEL', 'APPROVE', 'CREATE'):
+        try:
+            lines_data = []
+            total_qty = Decimal('0')
+            total_value = Decimal('0')
+            for line in obj.lines.select_related('item', 'unit').all()[:20]:
+                item_code = getattr(line.item, 'code', '?')
+                qty = getattr(line, 'qty', None) or getattr(line, 'qty_ordered', None) or Decimal('0')
+                unit_abbr = getattr(line.unit, 'abbreviation', '') if hasattr(line, 'unit') and line.unit else ''
+                line_total = getattr(line, 'line_total', None)
+
+                entry = {'item': item_code, 'qty': str(qty)}
+                if unit_abbr:
+                    entry['unit'] = unit_abbr
+                if line_total is not None:
+                    entry['value'] = str(line_total)
+                    total_value += Decimal(str(line_total))
+                lines_data.append(entry)
+                total_qty += Decimal(str(qty))
+
+            details['line_count'] = len(lines_data)
+            details['total_qty'] = str(total_qty)
+            if total_value:
+                details['total_value'] = str(total_value)
+            if lines_data:
+                details['items'] = lines_data
+        except Exception:
+            pass
+
+    # Extract financial totals
+    for field in ('grand_total', 'subtotal', 'total', 'amount', 'delivery_charge'):
+        val = getattr(obj, field, None)
+        if val is not None and field not in details:
+            details[field] = str(val)
+
+    # Extract related entities
+    supplier = getattr(obj, 'supplier', None)
+    if supplier:
+        details['supplier'] = str(supplier.name) if hasattr(supplier, 'name') else str(supplier)
+    customer = getattr(obj, 'customer', None)
+    if customer:
+        details['customer'] = str(customer.name) if hasattr(customer, 'name') else str(customer)
+    warehouse = getattr(obj, 'warehouse', None)
+    if warehouse:
+        details['warehouse'] = str(warehouse.name) if hasattr(warehouse, 'name') else str(warehouse)
+
+    # Extract linked documents
+    so = getattr(obj, 'sales_order', None)
+    if so:
+        details['sales_order'] = getattr(so, 'document_number', str(so))
+    po = getattr(obj, 'purchase_order', None)
+    if po:
+        details['purchase_order'] = getattr(po, 'document_number', str(po))
+
     AuditLog.objects.create(
         user=user,
         action=action,
         model_name=obj.__class__.__name__,
         object_id=obj.pk,
         object_repr=str(obj)[:255],
-        changes=changes or {},
+        changes=details,
     )
 
 
@@ -148,16 +220,130 @@ def post_goods_receipt(grn, user):
     return grn
 
 
+def _ensure_so_bundle_lines_on_delivery(delivery):
+    """
+    If the Delivery Note is linked to a Sales Order that has bundle lines
+    (SalesOrderPriceListLine), ensure every bundle component item appears
+    in the DN lines.  Missing items are added automatically so that posting
+    deducts stock for the full order including bundles.
+
+    Idempotent: items already present in DN lines are skipped.
+    """
+    from sales.models import DeliveryLine
+    from warehouses.models import Location
+
+    so = delivery.sales_order
+    if so is None:
+        return
+
+    bundles = so.price_list_lines.select_related('price_list').prefetch_related(
+        'price_list__items__item', 'price_list__items__unit'
+    ).all()
+    if not bundles:
+        return
+
+    # Items already in DN lines
+    existing_items = set(
+        delivery.lines.values_list('item_id', flat=True)
+    )
+
+    # Default location for new lines
+    default_location = Location.objects.filter(
+        warehouse=delivery.warehouse, is_pickable=True, is_active=True
+    ).order_by('code').first()
+    if not default_location:
+        default_location = Location.objects.filter(
+            warehouse=delivery.warehouse, is_active=True
+        ).first()
+    if not default_location:
+        return  # cannot add lines without a location
+
+    for bundle in bundles:
+        for pli in bundle.price_list.items.select_related('item', 'unit').all():
+            qty = pli.min_qty * bundle.qty_multiplier
+            if qty <= 0:
+                continue
+            if pli.item_id in existing_items:
+                continue  # already in DN lines
+            DeliveryLine.objects.create(
+                delivery=delivery,
+                item=pli.item,
+                location=default_location,
+                qty=qty,
+                unit=pli.unit,
+                notes=f'Auto-added from bundle: {bundle.price_list.name}',
+            )
+            existing_items.add(pli.item_id)
+
+
+def _ensure_so_bundle_lines_on_pickup(pickup):
+    """
+    If the Sales Pickup is linked to a Sales Order that has bundle lines
+    (SalesOrderPriceListLine), ensure every bundle component item appears
+    in the Pickup lines.  Missing items are added automatically so that
+    posting deducts stock for the full order including bundles.
+
+    Idempotent: items already present in Pickup lines are skipped.
+    """
+    from sales.models import SalesPickupLine
+    from warehouses.models import Location
+
+    so = pickup.sales_order
+    if so is None:
+        return
+
+    bundles = so.price_list_lines.select_related('price_list').prefetch_related(
+        'price_list__items__item', 'price_list__items__unit'
+    ).all()
+    if not bundles:
+        return
+
+    existing_items = set(
+        pickup.lines.values_list('item_id', flat=True)
+    )
+
+    default_location = Location.objects.filter(
+        warehouse=pickup.warehouse, is_pickable=True, is_active=True
+    ).order_by('code').first()
+    if not default_location:
+        default_location = Location.objects.filter(
+            warehouse=pickup.warehouse, is_active=True
+        ).first()
+    if not default_location:
+        return
+
+    for bundle in bundles:
+        for pli in bundle.price_list.items.select_related('item', 'unit').all():
+            qty = pli.min_qty * bundle.qty_multiplier
+            if qty <= 0:
+                continue
+            if pli.item_id in existing_items:
+                continue
+            SalesPickupLine.objects.create(
+                pickup=pickup,
+                item=pli.item,
+                location=default_location,
+                qty=qty,
+                unit=pli.unit,
+                notes=f'Auto-added from bundle: {bundle.price_list.name}',
+            )
+            existing_items.add(pli.item_id)
+
+
 @transaction.atomic
 def post_delivery(delivery, user):
     """
     Post a Delivery Note: creates DELIVER StockMoves and updates balances.
+    Before processing, ensures any SO bundle components are present as DN lines.
     """
-    from sales.models import DeliveryNote
+    from sales.models import DeliveryNote, DeliveryLine
     from core.models import DocumentStatus
 
     if delivery.status != DocumentStatus.DRAFT:
         raise ValueError(f"Delivery {delivery.document_number} is not in DRAFT status.")
+
+    # ── Expand missing SO bundle components into DN lines ──────────────
+    _ensure_so_bundle_lines_on_delivery(delivery)
 
     now = timezone.now()
     moves = []
@@ -207,12 +393,16 @@ def post_sales_pickup(pickup, user):
     """
     Post a Sales Pickup: behaves like a Delivery Note but for PICKUP fulfillment.
     Creates DELIVER StockMoves and updates balances.
+    Before processing, ensures any SO bundle components are present as Pickup lines.
     """
-    from sales.models import SalesPickup
+    from sales.models import SalesPickup, SalesPickupLine
     from core.models import DocumentStatus
 
     if pickup.status != DocumentStatus.DRAFT:
         raise ValueError(f"Pickup {pickup.document_number} is not in DRAFT status.")
+
+    # ── Expand missing SO bundle components into Pickup lines ─────────
+    _ensure_so_bundle_lines_on_pickup(pickup)
 
     now = timezone.now()
     moves = []

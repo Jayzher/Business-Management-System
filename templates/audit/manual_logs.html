@@ -1,0 +1,199 @@
+{% extends "theme/base.html" %}
+{% block title %}Manual Change Logs{% endblock %}
+{% block page_title %}Manual Change Logs{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="/core/settings/">Settings</a></li>
+<li class="breadcrumb-item active">Manual Logs</li>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .ml-row{border-bottom:1px solid #f1f5f9;padding:10px 14px;transition:background .1s}
+  .ml-row:hover{background:#f8fafc}
+  .ml-reason{font-size:.84rem;color:#334155}
+  .ml-meta{font-size:.72rem;color:#94a3b8;margin-top:2px}
+  .ml-meta code{font-size:.72rem;color:#2563eb}
+  .badge-action{font-size:.68rem;padding:2px 6px;font-weight:600}
+  .page-info{font-size:.78rem;color:#64748b}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Filters -->
+<div class="card card-outline card-dark mb-3">
+  <div class="card-header py-2">
+    <h3 class="card-title" style="font-size:.85rem;"><i class="fas fa-filter me-1"></i> Filters</h3>
+  </div>
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="small">Action</label>
+        <select id="fAction" class="form-select form-select-sm"><option value="">All</option></select>
+      </div>
+      <div class="col-md-2">
+        <label class="small">Table</label>
+        <select id="fTable" class="form-select form-select-sm"><option value="">All</option></select>
+      </div>
+      <div class="col-md-3">
+        <label class="small">Search</label>
+        <input type="text" id="fSearch" class="form-control form-control-sm" placeholder="Search reason, fields, notes...">
+      </div>
+      <div class="col-md-2">
+        <label class="small">Per page</label>
+        <select id="fPageSize" class="form-select form-select-sm">
+          <option value="25">25</option><option value="50" selected>50</option><option value="100">100</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <button onclick="loadLogs(1)" class="btn btn-dark btn-sm"><i class="fas fa-search me-1"></i> Filter</button>
+        <button onclick="clearFilters()" class="btn btn-outline-secondary btn-sm">Clear</button>
+        <a href="{% url 'audit:manual_log_create' %}" class="btn btn-success btn-sm ms-2"><i class="fas fa-plus me-1"></i> New Entry</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Log List -->
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <h3 class="card-title mb-0" style="font-size:.85rem;">
+      <i class="fas fa-pen-square me-1"></i> Manual Change Log
+      <span class="badge bg-secondary ms-1" id="totalCount">0</span>
+    </h3>
+    <a href="{% url 'audit:system_logs' %}" class="btn btn-sm btn-outline-dark ml-auto">
+      <i class="fas fa-history me-1"></i> System Logs
+    </a>
+  </div>
+  <div class="card-body p-0" id="logContainer">
+    <div style="text-align:center;padding:40px;color:#94a3b8"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Loading...</p></div>
+  </div>
+  <div class="card-footer py-2 d-flex justify-content-between align-items-center" id="pagination" style="display:none!important;">
+    <span class="page-info" id="pageInfo"></span>
+    <div id="pageButtons"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const API = '/audit/api/manual-logs/';
+const FILTER_API = '/audit/api/manual-logs/filter_options/';
+let currentPage = 1;
+
+const actionColors = {
+  CREATE:'bg-success', UPDATE:'bg-warning text-dark', DELETE:'bg-danger',
+  FIX:'bg-warning text-dark', MIGRATE:'bg-info', ADMIN:'bg-info',
+  SHELL:'bg-secondary', OTHER:'bg-secondary',
+};
+
+function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en',{month:'short',day:'numeric',year:'numeric'}) + ' ' +
+         d.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'});
+}
+
+function renderLog(log) {
+  const cls = actionColors[log.action] || 'bg-secondary';
+  return `<div class="ml-row">
+    <div class="d-flex justify-content-between align-items-start">
+      <div style="flex:1;min-width:0">
+        <div class="d-flex align-items-center gap-2 flex-wrap" style="font-size:.84rem">
+          <span class="badge badge-action ${cls}">${esc(log.action_display)}</span>
+          <code style="font-size:.8rem;color:#2563eb">${esc(log.table_name)}</code>
+          ${log.record_id ? `<span style="font-size:.72rem;color:#94a3b8">#${esc(log.record_id)}</span>` : ''}
+          <span style="font-size:.7rem;color:#64748b"><i class="fas fa-user" style="opacity:.5"></i> ${esc(log.username)}</span>
+        </div>
+        <div class="ml-reason mt-1">${esc(log.reason)}</div>
+        <div class="ml-meta">
+          ${log.fields_changed ? `<span>Fields: <code>${esc(log.fields_changed)}</code></span>` : ''}
+          ${log.old_value ? ` · Old: <code>${esc(log.old_value.substring(0,80))}</code>` : ''}
+          ${log.new_value ? ` · New: <code>${esc(log.new_value.substring(0,80))}</code>` : ''}
+        </div>
+      </div>
+      <div style="font-size:.72rem;color:#94a3b8;white-space:nowrap;text-align:right;min-width:100px" class="ms-2">
+        ${fmtDate(log.created_at)}
+        <br><a href="/audit/manual/${log.id}/" class="btn btn-xs btn-outline-primary mt-1" style="font-size:.65rem;padding:1px 5px">View</a>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function loadLogs(page) {
+  currentPage = page || 1;
+  const params = new URLSearchParams();
+  params.set('page', currentPage);
+  params.set('page_size', document.getElementById('fPageSize').value);
+  const action = document.getElementById('fAction').value;
+  const table = document.getElementById('fTable').value;
+  const q = document.getElementById('fSearch').value.trim();
+  if (action) params.set('action', action);
+  if (table) params.set('table_name', table);
+  if (q) params.set('q', q);
+
+  const container = document.getElementById('logContainer');
+  container.innerHTML = '<div style="text-align:center;padding:30px;color:#94a3b8"><i class="fas fa-spinner fa-spin"></i></div>';
+
+  try {
+    const resp = await fetch(`${API}?${params}`);
+    const data = await resp.json();
+    document.getElementById('totalCount').textContent = data.count;
+
+    if (!data.results.length) {
+      container.innerHTML = `<div class="text-center py-5 text-muted">
+        <i class="fas fa-clipboard" style="font-size:2.5rem;opacity:.3"></i>
+        <p class="mt-2 mb-2">No manual logs yet.</p>
+        <a href="{% url 'audit:manual_log_create' %}" class="btn btn-success btn-sm"><i class="fas fa-plus me-1"></i> Create First Entry</a>
+      </div>`;
+    } else {
+      container.innerHTML = data.results.map(renderLog).join('');
+    }
+
+    // Pagination
+    const pageSize = parseInt(document.getElementById('fPageSize').value);
+    const totalPages = Math.ceil(data.count / pageSize);
+    const pag = document.getElementById('pagination');
+    if (totalPages > 1) {
+      pag.style.setProperty('display','flex','important');
+      const from = (currentPage-1)*pageSize+1;
+      const to = Math.min(currentPage*pageSize, data.count);
+      document.getElementById('pageInfo').textContent = `Showing ${from}–${to} of ${data.count}`;
+      let html = '';
+      if (data.previous) html += `<button class="btn btn-sm btn-outline-secondary" onclick="loadLogs(${currentPage-1})">&laquo;</button> `;
+      for (let i=Math.max(1,currentPage-2); i<=Math.min(totalPages,currentPage+2); i++) {
+        html += `<button class="btn btn-sm ${i===currentPage?'btn-primary':'btn-outline-secondary'}" onclick="loadLogs(${i})">${i}</button> `;
+      }
+      if (data.next) html += `<button class="btn btn-sm btn-outline-secondary" onclick="loadLogs(${currentPage+1})">&raquo;</button>`;
+      document.getElementById('pageButtons').innerHTML = html;
+    } else {
+      pag.style.setProperty('display','none','important');
+    }
+  } catch(e) {
+    container.innerHTML = `<div class="text-center py-4 text-danger"><i class="fas fa-exclamation-triangle"></i> ${e.message}</div>`;
+  }
+}
+
+async function loadFilterOptions() {
+  try {
+    const resp = await fetch(FILTER_API);
+    const data = await resp.json();
+    const fAction = document.getElementById('fAction');
+    data.actions.forEach(([val,label]) => { const o=document.createElement('option'); o.value=val; o.textContent=label; fAction.appendChild(o); });
+    const fTable = document.getElementById('fTable');
+    data.tables.forEach(t => { const o=document.createElement('option'); o.value=t; o.textContent=t; fTable.appendChild(o); });
+  } catch(e) { console.warn('Filter options error:', e); }
+}
+
+function clearFilters() {
+  document.getElementById('fAction').value='';
+  document.getElementById('fTable').value='';
+  document.getElementById('fSearch').value='';
+  loadLogs(1);
+}
+
+document.getElementById('fSearch').addEventListener('keydown', e => { if(e.key==='Enter') loadLogs(1); });
+loadFilterOptions();
+loadLogs(1);
+</script>
+{% endblock %}

@@ -1,37 +1,48 @@
 """
 Management command: resync_inventory
 ======================================
-Re-synchronises StockBalance and StockMove records to reflect correct unit
-conversion using each item's current default_unit / selling_unit setup.
+Complete data integrity recovery tool.  Designed to be run after ANY
+force-change made via Django Admin, direct DB edits, or shell commands.
 
-Before this command was available, some posting services stored RAW line.qty
-in StockMoves without converting to the item's current inventory unit
-(selling_unit when set, otherwise default_unit).  As a result:
-  - StockBalance was wrong whenever a document line used a different unit
-    (e.g. selling 3 boxes when inventory unit=pcs and 1 box=20 pcs stored -3
-    instead of -60).
+Handles:
+  - Deleted documents → orphaned StockMoves cleaned up
+  - Deleted document lines → excess StockMoves removed
+  - Changed quantities on lines → StockMoves corrected
+  - Changed document status (un-posted, re-posted) → balances rebuilt
+  - Duplicate StockMoves → deduplicated
+  - Missing StockMoves → backfilled from document lines
+  - Missing unit conversions → hard error (no silent fallback)
+  - SO bundle components missing from DN/PU → backfilled
+  - Financial statements → recalculated after inventory changes
 
-The command does two independent phases:
+Phases:
+  Phase 0 — Clean StockMoves
+    0a: Delete orphaned moves (source document deleted in admin)
+    0b: Deduplicate moves (same doc+item+location appears multiple times)
+    0c: Delete excess moves (document line deleted but move remains)
 
-  Phase 1 — Fix StockMove.qty
-    For every POSTED StockMove linked to a source document line, recompute
-    qty into the item's current inventory unit derived from selling_unit /
-    default_unit, then update the row.  Reversal moves (created by
-    cancel_document) are updated to mirror their corrected originals.
+  Phase 1 — Fix StockMove quantities
+    Recalculate qty from source document lines with correct unit conversion.
+    Backfill missing moves for document lines that have no StockMove.
 
-  Phase 2 — Recalculate StockBalance from scratch
-    Zeros all StockBalance records, then walks every POSTED document in order
-    (GRN → DN → Pickup → Transfer → Adjustment → Damaged → POS → Refund →
-     IST → PurchaseReturn → SalesReturn) and accumulates the correct base-unit
-    delta per (item, location) bucket.  CANCELLED documents are skipped
-    (their reversal moves cancel out).  At the end, bulk-updates StockBalance.
+  Phase 2 — Rebuild StockBalance from scratch
+    Ignores existing balances.  Walks every POSTED document chronologically,
+    converts each line to inventory unit, accumulates (item, location) → qty.
 
-Usage:  
-    python manage.py resync_inventory                  # applies changes by default
+  Phase 3 — Data integrity audit
+    Reports negative balances, remaining duplicates, missing conversions.
+
+  Phase 4 — Recalculate financial statements
+    Rebuilds MonthlyCashflowSummary for all months with data.
+
+  Phase 5 — Create audit log
+    Records what the resync changed in the ManualLog table.
+
+Usage:
+    python manage.py resync_inventory                  # full run (all phases)
     python manage.py resync_inventory --dry-run        # preview without saving
-    python manage.py resync_inventory --phase 1        # moves only (applies)
-    python manage.py resync_inventory --phase 2 --dry-run
-    python manage.py resync_inventory --quiet          # no per-row output
+    python manage.py resync_inventory --phase 2        # just rebuild balances
+    python manage.py resync_inventory --quiet          # suppress per-row output
 """
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
@@ -57,14 +68,59 @@ def _inventory_unit(item):
     return item.default_unit
 
 
+class ConversionError:
+    """Record of a failed unit conversion — collected during a resync run."""
+    __slots__ = ('item_code', 'from_unit', 'to_unit', 'label', 'message')
+
+    def __init__(self, item_code, from_unit, to_unit, label, message):
+        self.item_code = item_code
+        self.from_unit = from_unit
+        self.to_unit = to_unit
+        self.label = label
+        self.message = message
+
+    def __str__(self):
+        return (
+            f'{self.item_code}: {self.from_unit} → {self.to_unit}  '
+            f'({self.label})  —  {self.message}'
+        )
+
+    @property
+    def key(self):
+        """De-duplication key: one entry per (item, from_unit, to_unit)."""
+        return (self.item_code, self.from_unit, self.to_unit)
+
+
+# Module-level list — populated by _safe_convert, checked before commit.
+_conversion_errors: list[ConversionError] = []
+
+
 def _safe_convert(qty, from_unit, to_unit, label, warn_fn, item=None):
-    """convert_to_base_unit with graceful fallback: log warning and return raw qty."""
+    """Convert qty between units.  Raises on failure instead of falling back.
+
+    When from_unit == to_unit the conversion is trivially correct.
+    Otherwise, delegates to convert_to_base_unit() which looks up a
+    UnitConversion record.  If none exists the error is recorded in
+    _conversion_errors and re-raised so the caller can decide whether
+    to abort immediately or collect all errors first.
+    """
     try:
         return convert_to_base_unit(qty, from_unit, to_unit, item=item)
     except (ValueError, Exception) as exc:
-        target_label = getattr(to_unit, 'abbreviation', str(to_unit)) if to_unit is not None else 'N/A'
-        warn_fn(f"    [WARN] {label}: {exc}  -> using raw qty={qty} in target_unit={target_label}")
-        return qty
+        from_label = getattr(from_unit, 'abbreviation', str(from_unit))
+        to_label = getattr(to_unit, 'abbreviation', str(to_unit)) if to_unit is not None else 'N/A'
+        item_code = getattr(item, 'code', '?') if item else '?'
+
+        err = ConversionError(
+            item_code=item_code,
+            from_unit=from_label,
+            to_unit=to_label,
+            label=label,
+            message=str(exc),
+        )
+        _conversion_errors.append(err)
+        warn_fn(f"    [ERROR] {label}: {exc}")
+        raise
 
 
 # ── Phase 0 helpers ─────────────────────────────────────────────────────────
@@ -226,6 +282,7 @@ def _fix_moves_for_doc(moves_qs, line_lookup_fn, warn_fn, dry_run, stats):
     """
     For each StockMove in moves_qs, call line_lookup_fn(move) to retrieve the
     source line.  Recalculate correct base-unit qty and update if changed.
+    Conversion failures are recorded in _conversion_errors and the move is skipped.
     """
     for move in moves_qs.select_related('item__default_unit', 'item__selling_unit', 'unit'):
         line = line_lookup_fn(move)
@@ -242,19 +299,23 @@ def _fix_moves_for_doc(moves_qs, line_lookup_fn, warn_fn, dry_run, stats):
             continue
 
         # For adjustments the stored qty is abs(diff); we need to handle sign
-        if move.move_type == 'ADJUST':
-            raw_diff = line.qty_counted - line.qty_system
-            if raw_diff == 0:
-                continue
-            correct_qty = _safe_convert(
-                abs(raw_diff), line_unit, target_unit,
-                f"Move#{move.pk} ADJUST", warn_fn, item=move.item,
-            )
-        else:
-            correct_qty = _safe_convert(
-                line_qty, line_unit, target_unit,
-                f"Move#{move.pk}", warn_fn, item=move.item,
-            )
+        try:
+            if move.move_type == 'ADJUST':
+                raw_diff = line.qty_counted - line.qty_system
+                if raw_diff == 0:
+                    continue
+                correct_qty = _safe_convert(
+                    abs(raw_diff), line_unit, target_unit,
+                    f"Move#{move.pk} ADJUST", warn_fn, item=move.item,
+                )
+            else:
+                correct_qty = _safe_convert(
+                    line_qty, line_unit, target_unit,
+                    f"Move#{move.pk}", warn_fn, item=move.item,
+                )
+        except (ValueError, Exception):
+            stats['conversion_error'] = stats.get('conversion_error', 0) + 1
+            continue
 
         if correct_qty == move.qty and move.unit_id == target_unit.pk:
             stats['already_correct'] += 1
@@ -339,6 +400,11 @@ def _line_locations(ref_type, doc, line, qty):
 
 
 def _line_qty(ref_type, line, warn_fn):
+    """Convert a document line's qty to the item's inventory unit.
+
+    Returns None when the line should be skipped (zero diff for adjustments).
+    Raises ValueError when no unit conversion exists — the caller must handle it.
+    """
     item = line.item
     target_unit = _inventory_unit(item)
     if ref_type == 'StockAdjustment':
@@ -421,7 +487,10 @@ def _iter_expected_moves(warn_fn):
                 # Skip scrap service lines — they are NOT deducted from inventory
                 if ref_type == 'CustomerService' and getattr(line, 'is_scrap', False):
                     continue
-                qty = _line_qty(ref_type, line, warn_fn)
+                try:
+                    qty = _line_qty(ref_type, line, warn_fn)
+                except (ValueError, Exception):
+                    continue  # error already recorded in _conversion_errors
                 if qty in (None, Decimal('0')):
                     continue
                 from_location_id, to_location_id = _line_locations(ref_type, doc, line, qty)
@@ -472,11 +541,14 @@ def _iter_expected_moves(warn_fn):
                 if qty <= Decimal('0'):
                     continue
                 target_unit = _inventory_unit(item)
-                base_qty = _safe_convert(
-                    qty, pli.unit, target_unit,
-                    f"CustomerService#{svc.pk} bundle={bundle.price_list.name} item={item.code}",
-                    warn_fn, item=item,
-                )
+                try:
+                    base_qty = _safe_convert(
+                        qty, pli.unit, target_unit,
+                        f"CustomerService#{svc.pk} bundle={bundle.price_list.name} item={item.code}",
+                        warn_fn, item=item,
+                    )
+                except (ValueError, Exception):
+                    continue  # error already recorded in _conversion_errors
                 if base_qty <= Decimal('0'):
                     continue
                 yield {
@@ -512,11 +584,14 @@ def _iter_expected_moves(warn_fn):
                 if qty <= Decimal('0'):
                     continue
                 target_unit = _inventory_unit(item)
-                base_qty = _safe_convert(
-                    qty, pli.unit, target_unit,
-                    f"POSSale#{sale.pk} bundle={bundle_line.price_list.name} item={item.code}",
-                    warn_fn, item=item,
-                )
+                try:
+                    base_qty = _safe_convert(
+                        qty, pli.unit, target_unit,
+                        f"POSSale#{sale.pk} bundle={bundle_line.price_list.name} item={item.code}",
+                        warn_fn, item=item,
+                    )
+                except (ValueError, Exception):
+                    continue  # error already recorded in _conversion_errors
                 if base_qty <= Decimal('0'):
                     continue
                 yield {
@@ -949,29 +1024,41 @@ def _build_balance_from_documents(warn_fn):
         if doc_type == 'GoodsReceipt':
             for line in doc.lines.all():
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"GRN#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"GRN#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.location_id, q)
         
         elif doc_type == 'DeliveryNote':
             for line in doc.lines.all():
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"DN#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"DN#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.location_id, -q)
         
         elif doc_type == 'SalesPickup':
             for line in doc.lines.all():
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"Pickup#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"Pickup#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.location_id, -q)
         
         elif doc_type == 'StockTransfer':
             for line in doc.lines.all():
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"Transfer#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"Transfer#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.from_location_id, -q)
                 _accumulate(bal, line.item_id, line.to_location_id, q)
         
@@ -981,24 +1068,33 @@ def _build_balance_from_documents(warn_fn):
                 if raw_diff == 0:
                     continue
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(abs(raw_diff), line.unit, target_unit,
-                                  f"Adj#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(abs(raw_diff), line.unit, target_unit,
+                                      f"Adj#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.location_id,
                             q if raw_diff > 0 else -q)
         
         elif doc_type == 'DamagedReport':
             for line in doc.lines.all():
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"Damaged#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"Damaged#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.location_id, -q)
         
         elif doc_type == 'POSSale':
             for line in doc.lines.all():
                 loc_id = line.location_id or doc.location_id
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"POSSale#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"POSSale#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, loc_id, -q)
             
             # Bundle component deductions
@@ -1009,37 +1105,52 @@ def _build_balance_from_documents(warn_fn):
                     if qty <= Decimal('0'):
                         continue
                     target_unit = _inventory_unit(item)
-                    q = _safe_convert(qty, pli.unit, target_unit,
-                                      f"POSSale#{doc.pk} bundle={bundle_line.price_list.name} item={item.code}",
-                                      warn_fn, item=item)
+                    try:
+                        q = _safe_convert(qty, pli.unit, target_unit,
+                                          f"POSSale#{doc.pk} bundle={bundle_line.price_list.name} item={item.code}",
+                                          warn_fn, item=item)
+                    except (ValueError, Exception):
+                        continue
                     _accumulate(bal, item.pk, doc.location_id, -q)
         
         elif doc_type == 'POSRefund':
             for line in doc.lines.all():
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"POSRefund#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"POSRefund#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.location_id, q)
         
         elif doc_type == 'InventoryToSupplyTransfer':
             for line in doc.lines.all():
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"IST#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"IST#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.location_id, -q)
         
         elif doc_type == 'PurchaseReturn':
             for line in doc.lines.all():
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"PurchReturn#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"PurchReturn#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.location_id, -q)
         
         elif doc_type == 'SalesReturn':
             for line in doc.lines.all():
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"SalesReturn#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"SalesReturn#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.location_id, q)
         
         elif doc_type == 'CustomerService':
@@ -1050,8 +1161,11 @@ def _build_balance_from_documents(warn_fn):
                 if line.location_id is None:
                     continue
                 target_unit = _inventory_unit(line.item)
-                q = _safe_convert(line.qty, line.unit, target_unit,
-                                  f"Service#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                try:
+                    q = _safe_convert(line.qty, line.unit, target_unit,
+                                      f"Service#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                except (ValueError, Exception):
+                    continue
                 _accumulate(bal, line.item_id, line.location_id, -q)
             
             # Bundle component deductions
@@ -1071,10 +1185,13 @@ def _build_balance_from_documents(warn_fn):
                             if bundle_qty <= Decimal('0'):
                                 continue
                             target_unit = _inventory_unit(item)
-                            q = _safe_convert(
-                                bundle_qty, pli.unit, target_unit,
-                                f"Service#{doc.pk} bundle item={item.code}", warn_fn, item=item,
-                            )
+                            try:
+                                q = _safe_convert(
+                                    bundle_qty, pli.unit, target_unit,
+                                    f"Service#{doc.pk} bundle item={item.code}", warn_fn, item=item,
+                                )
+                            except (ValueError, Exception):
+                                continue
                             _accumulate(bal, item.pk, default_loc_id, -q)
     
     # Report document type counts
@@ -1105,9 +1222,9 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             '--phase',
-            choices=['0', '1', '2', '3', 'all'],
+            choices=['0', '1', '2', '3', '4', '5', 'all'],
             default='all',
-            help='0=dedup moves, 1=fix qtys, 2=recalc balances, 3=audit, all=all (default).',
+            help='0=clean moves, 1=fix qtys, 2=recalc balances, 3=audit, 4=financials, 5=log, all=all.',
         )
         parser.add_argument(
             '--quiet', '-q',
@@ -1143,6 +1260,17 @@ class Command(BaseCommand):
         dry_run = options['dry_run']
         phase = options['phase']
 
+        # Reset the global error collector at the start of each run.
+        _conversion_errors.clear()
+
+        # Track what was changed for the audit log
+        self._resync_summary = {
+            'started_at': timezone.now().isoformat(),
+            'dry_run': dry_run,
+            'phase': phase,
+            'changes': {},
+        }
+
         mode = 'DRY-RUN' if dry_run else 'APPLYING'
         self.stdout.write(self.style.SUCCESS(
             f'\n=== resync_inventory [{mode}] phase={phase} ===\n'
@@ -1157,12 +1285,159 @@ class Command(BaseCommand):
             self._run_phase0(dry_run)
         if phase in ('1', 'all'):
             self._run_phase1(dry_run)
+
+        # ── Check for conversion errors before committing balance changes ──
+        if _conversion_errors and phase in ('2', 'all'):
+            self._report_conversion_errors()
+            self.stderr.write(self.style.ERROR(
+                '\n  ABORTING Phase 2 — cannot rebuild balances with missing conversions.\n'
+                '  Add the unit conversions listed above, then re-run.\n'
+            ))
+            if phase == 'all':
+                self._run_phase3()
+            return
+
         if phase in ('2', 'all'):
             self._run_phase2(dry_run)
+
+            if _conversion_errors:
+                self._report_conversion_errors()
+                self.stderr.write(self.style.ERROR(
+                    '\n  WARNING: Phase 2 completed but skipped items with missing conversions.\n'
+                    '  The balances for those items are WRONG.  Add the conversions and re-run.\n'
+                ))
+
         if phase in ('3', 'all'):
             self._run_phase3()
 
+        if phase in ('4', 'all'):
+            self._run_phase4(dry_run)
+
+        if phase in ('5', 'all') and not dry_run:
+            self._run_phase5()
+
         self.stdout.write(self.style.SUCCESS('\n=== Done ===\n'))
+
+    # ── Phase 4: Recalculate financial statements ────────────────────────────
+
+    def _run_phase4(self, dry_run):
+        """Recalculate MonthlyCashflowSummary for all months with data."""
+        self.stdout.write('\n--- Phase 4: Recalculating financial statements ---')
+
+        try:
+            from cashflow.monthly_signals import update_monthly_summary
+            from cashflow.models import MonthlyCashflowSummary
+
+            # Find all months that have summaries
+            periods = list(
+                MonthlyCashflowSummary.objects
+                .values_list('year', 'month')
+                .distinct()
+                .order_by('year', 'month')
+            )
+
+            if not periods:
+                self.stdout.write('  No monthly summaries to recalculate.')
+                return
+
+            recalculated = 0
+            for year, month in periods:
+                if not dry_run:
+                    update_monthly_summary(year, month)
+                recalculated += 1
+
+            mode = '(dry-run) would recalculate' if dry_run else 'Recalculated'
+            self.stdout.write(self.style.SUCCESS(
+                f'  {mode} {recalculated} monthly financial statement(s).'
+            ))
+            self._resync_summary['changes']['financial_months_recalculated'] = recalculated
+
+        except ImportError:
+            self.stdout.write(self.style.WARNING(
+                '  Skipped — cashflow.monthly_signals not available.'
+            ))
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'  Error recalculating financials: {e}'))
+
+    # ── Phase 5: Create audit log entry ──────────────────────────────────────
+
+    def _run_phase5(self):
+        """Record what the resync changed in the ManualLog table."""
+        self.stdout.write('\n--- Phase 5: Creating audit log ---')
+
+        try:
+            from audit.models import ManualLog
+
+            summary = self._resync_summary
+            summary['completed_at'] = timezone.now().isoformat()
+            changes = summary.get('changes', {})
+
+            # Build a human-readable description
+            parts = []
+            if changes.get('orphaned_deleted'):
+                parts.append(f"{changes['orphaned_deleted']} orphaned moves deleted")
+            if changes.get('duplicates_removed'):
+                parts.append(f"{changes['duplicates_removed']} duplicate moves removed")
+            if changes.get('excess_deleted'):
+                parts.append(f"{changes['excess_deleted']} excess moves deleted")
+            if changes.get('moves_corrected'):
+                parts.append(f"{changes['moves_corrected']} move quantities corrected")
+            if changes.get('moves_backfilled'):
+                parts.append(f"{changes['moves_backfilled']} missing moves backfilled")
+            if changes.get('balances_updated'):
+                parts.append(f"{changes['balances_updated']} balances updated")
+            if changes.get('balances_created'):
+                parts.append(f"{changes['balances_created']} balances created")
+            if changes.get('financial_months_recalculated'):
+                parts.append(f"{changes['financial_months_recalculated']} financial months recalculated")
+
+            if not parts:
+                parts.append('No changes needed — data was already consistent')
+
+            reason = 'resync_inventory: ' + '; '.join(parts)
+
+            ManualLog.objects.create(
+                user=None,  # system action
+                action='FIX',
+                table_name='inventory_stockbalance, inventory_stockmove',
+                record_id='',
+                fields_changed='qty_on_hand, qty, status',
+                old_value='',
+                new_value=str(changes),
+                reason=reason,
+                notes=f'Phase: {summary["phase"]}, Started: {summary["started_at"]}',
+            )
+            self.stdout.write(self.style.SUCCESS(f'  Logged: {reason}'))
+
+        except ImportError:
+            self.stdout.write(self.style.WARNING('  Skipped — audit.models not available.'))
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'  Error creating audit log: {e}'))
+
+    def _report_conversion_errors(self):
+        """Print a de-duplicated summary of all conversion errors encountered."""
+        seen = set()
+        unique_errors = []
+        for err in _conversion_errors:
+            if err.key not in seen:
+                seen.add(err.key)
+                unique_errors.append(err)
+
+        self.stdout.write(self.style.ERROR(
+            f'\n{"═"*70}\n'
+            f'  MISSING UNIT CONVERSIONS — {len(unique_errors)} item(s) need attention\n'
+            f'{"═"*70}'
+        ))
+        self.stdout.write(self.style.ERROR(
+            '  These items have documents using a unit that cannot be converted\n'
+            '  to the item\'s inventory unit.  Add the conversion in:\n'
+            '  Catalog → Unit Conversions  (or Admin → Unit Conversions)\n'
+        ))
+        for err in sorted(unique_errors, key=lambda e: e.item_code):
+            self.stdout.write(self.style.ERROR(
+                f'    {err.item_code:40s}  {err.from_unit} → {err.to_unit}'
+            ))
+        self.stdout.write('')
 
     # ── Phase 0: clean up StockMoves ─────────────────────────────────────────
 
@@ -1191,12 +1466,55 @@ class Command(BaseCommand):
                 '  Re-run without --dry-run to commit removals.'
             ))
 
+        # Step 0c: remove excess moves whose document line was deleted in admin
+        self.stdout.write('\n--- Phase 0c: Removing excess moves (deleted lines) ---')
+        excess = self._delete_excess_moves(dry_run)
+        mode = '(dry-run) would delete' if dry_run else 'Deleted'
+        self.stdout.write(self.style.SUCCESS(
+            f'  {mode} {excess} excess move(s) for deleted document lines.'
+        ))
+
+        self._resync_summary['changes']['orphaned_deleted'] = deleted
+        self._resync_summary['changes']['duplicates_removed'] = removed
+        self._resync_summary['changes']['excess_deleted'] = excess
+
+    def _delete_excess_moves(self, dry_run):
+        """
+        Delete POSTED StockMoves whose source document still exists but the
+        specific line item was deleted in admin.  The move references a
+        (document, item) pair that no longer has a matching line.
+        """
+        deleted = 0
+        for ref_type, lookup_factory in REFERENCE_TYPE_LOOKUPS.items():
+            moves = (
+                StockMove.objects.filter(
+                    reference_type=ref_type, status=MoveStatus.POSTED,
+                )
+                .exclude(reference_number__startswith='REV-')
+                .exclude(reference_number__startswith='VOID-')
+                .select_related('item')
+            )
+            lookup_fn = lookup_factory()
+            for move in moves:
+                line = lookup_fn(move)
+                if line is None:
+                    # The document exists (not orphaned — 0a would have caught it)
+                    # but the specific line is gone.  This move is excess.
+                    self._info(
+                        f'    [EXCESS] Move#{move.pk} {ref_type}#{move.reference_id} '
+                        f'item={move.item.code} qty={move.qty} — line deleted'
+                    )
+                    if not dry_run:
+                        move.delete()
+                    deleted += 1
+        return deleted
+
     # ── Phase 1: fix StockMove.qty ───────────────────────────────────────────
 
     def _run_phase1(self, dry_run):
         self.stdout.write('\n--- Phase 1: Correcting StockMove quantities ---')
 
-        total_stats = {'updated': 0, 'already_correct': 0, 'no_line': 0, 'backfilled': 0}
+        total_stats = {'updated': 0, 'already_correct': 0, 'no_line': 0, 'backfilled': 0, 'conversion_error': 0}
 
         with transaction.atomic():
             po_backfilled = _ensure_grn_purchase_orders(self._warn, dry_run, self._info)
@@ -1215,7 +1533,7 @@ class Command(BaseCommand):
                 continue
 
             self._info(f'  {ref_type:<35} {count:>5} moves')
-            stats = {'updated': 0, 'already_correct': 0, 'no_line': 0}
+            stats = {'updated': 0, 'already_correct': 0, 'no_line': 0, 'conversion_error': 0}
             lookup_fn = lookup_factory()
 
             with transaction.atomic():
@@ -1270,6 +1588,9 @@ class Command(BaseCommand):
             f'missing_source: {total_stats["no_line"]}  '
             f'backfilled: {total_stats["backfilled"]}'
         ))
+
+        self._resync_summary['changes']['moves_corrected'] = total_stats['updated']
+        self._resync_summary['changes']['moves_backfilled'] = total_stats['backfilled']
 
     # ── Phase 2: recalculate StockBalance from document lines ────────────────
 
@@ -1337,6 +1658,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(
                 f'  Committed: {len(to_create)} created, {len(to_update)} updated.'
             ))
+            self._resync_summary['changes']['balances_created'] = len(to_create)
+            self._resync_summary['changes']['balances_updated'] = len(to_update)
         else:
             self.stdout.write(self.style.WARNING(
                 '  (dry-run) No changes written.  Re-run without --dry-run to commit.'

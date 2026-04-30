@@ -1,0 +1,116 @@
+{% extends "theme/base.html" %}
+{% block title %}New Manual Log Entry{% endblock %}
+{% block page_title %}New Manual Log Entry{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="/core/settings/">Settings</a></li>
+<li class="breadcrumb-item"><a href="{% url 'audit:manual_logs' %}">Manual Logs</a></li>
+<li class="breadcrumb-item active">New Entry</li>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card card-outline card-success">
+      <div class="card-header py-2">
+        <h3 class="card-title" style="font-size:.92rem;">
+          <i class="fas fa-pen-square me-1"></i> Log a Manual Change
+        </h3>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          <i class="fas fa-info-circle me-1"></i>
+          Use this form to record changes made outside the system — Django Admin edits,
+          direct database updates, shell commands, or any force-fix that the system couldn't track automatically.
+        </p>
+
+        <form method="post">
+          {% csrf_token %}
+
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Action Type <span class="text-danger">*</span></label>
+              <select name="action" class="form-select" required>
+                {% for val, label in action_choices %}
+                <option value="{{ val }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Table / Model <span class="text-danger">*</span></label>
+              <select name="table_name" class="form-select" id="tableSelect" required>
+                <option value="">— Select table —</option>
+                {% for t in table_choices %}
+                <option value="{{ t }}">{{ t }}</option>
+                {% endfor %}
+                <option value="__custom__">Other (type manually)</option>
+              </select>
+              <input type="text" id="tableCustom" class="form-control mt-1 d-none" placeholder="Type table name...">
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-bold">Record ID(s)</label>
+              <input type="text" name="record_id" class="form-control" placeholder="e.g. 42 or 10,11,12">
+              <small class="text-muted">Primary key(s) of affected record(s)</small>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label fw-bold">Fields Changed</label>
+              <input type="text" name="fields_changed" class="form-control" placeholder="e.g. cost_price, qty_on_hand, status">
+              <small class="text-muted">Comma-separated field names</small>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold">Old Value(s)</label>
+              <textarea name="old_value" class="form-control" rows="2" placeholder="e.g. cost_price=150.00, status=DRAFT"></textarea>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-bold">New Value(s)</label>
+              <textarea name="new_value" class="form-control" rows="2" placeholder="e.g. cost_price=200.00, status=POSTED"></textarea>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-bold">Reason <span class="text-danger">*</span></label>
+            <textarea name="reason" class="form-control" rows="3" required placeholder="Why was this change made? Be specific — this is the audit trail."></textarea>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-bold">Additional Notes</label>
+            <textarea name="notes" class="form-control" rows="2" placeholder="Ticket numbers, references, or additional context..."></textarea>
+          </div>
+
+          <div class="d-flex justify-content-between">
+            <a href="{% url 'audit:manual_logs' %}" class="btn btn-outline-secondary">
+              <i class="fas fa-arrow-left me-1"></i> Cancel
+            </a>
+            <button type="submit" class="btn btn-success">
+              <i class="fas fa-save me-1"></i> Save Log Entry
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('tableSelect').addEventListener('change', function() {
+  const custom = document.getElementById('tableCustom');
+  if (this.value === '__custom__') {
+    custom.classList.remove('d-none');
+    custom.setAttribute('name', 'table_name');
+    this.removeAttribute('name');
+    custom.focus();
+  } else {
+    custom.classList.add('d-none');
+    custom.removeAttribute('name');
+    this.setAttribute('name', 'table_name');
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "theme/base.html" %}
+{% block title %}Manual Log #{{ log.pk }}{% endblock %}
+{% block page_title %}Manual Log Entry{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="/core/settings/">Settings</a></li>
+<li class="breadcrumb-item"><a href="{% url 'audit:manual_logs' %}">Manual Logs</a></li>
+<li class="breadcrumb-item active">#{{ log.pk }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0" style="font-size:.92rem;">
+          {% if log.action == 'FIX' %}<span class="badge bg-warning text-dark me-1">{{ log.get_action_display }}</span>
+          {% elif log.action == 'DELETE' %}<span class="badge bg-danger me-1">{{ log.get_action_display }}</span>
+          {% elif log.action == 'CREATE' %}<span class="badge bg-success me-1">{{ log.get_action_display }}</span>
+          {% elif log.action == 'ADMIN' %}<span class="badge bg-info me-1">{{ log.get_action_display }}</span>
+          {% else %}<span class="badge bg-secondary me-1">{{ log.get_action_display }}</span>{% endif %}
+          <code>{{ log.table_name }}</code>
+          {% if log.record_id %}<small class="text-muted ms-1">#{{ log.record_id }}</small>{% endif %}
+        </h3>
+        <small class="text-muted">{{ log.created_at|date:"M d, Y H:i:s" }}</small>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm" style="font-size:.88rem;">
+          <tr>
+            <td class="fw-bold text-muted" style="width:140px;">Logged by</td>
+            <td><span class="badge bg-primary">{{ log.user.username }}</span> — {{ log.created_at|date:"F d, Y \a\t H:i" }}</td>
+          </tr>
+          <tr>
+            <td class="fw-bold text-muted">Action</td>
+            <td>{{ log.get_action_display }}</td>
+          </tr>
+          <tr>
+            <td class="fw-bold text-muted">Table</td>
+            <td><code>{{ log.table_name }}</code></td>
+          </tr>
+          {% if log.record_id %}
+          <tr>
+            <td class="fw-bold text-muted">Record ID(s)</td>
+            <td><code>{{ log.record_id }}</code></td>
+          </tr>
+          {% endif %}
+          {% if log.fields_changed %}
+          <tr>
+            <td class="fw-bold text-muted">Fields Changed</td>
+            <td><code>{{ log.fields_changed }}</code></td>
+          </tr>
+          {% endif %}
+          {% if log.old_value %}
+          <tr>
+            <td class="fw-bold text-muted">Old Value</td>
+            <td><pre class="mb-0 p-2 rounded" style="background:#fef2f2; font-size:.82rem;">{{ log.old_value }}</pre></td>
+          </tr>
+          {% endif %}
+          {% if log.new_value %}
+          <tr>
+            <td class="fw-bold text-muted">New Value</td>
+            <td><pre class="mb-0 p-2 rounded" style="background:#f0fdf4; font-size:.82rem;">{{ log.new_value }}</pre></td>
+          </tr>
+          {% endif %}
+          <tr>
+            <td class="fw-bold text-muted">Reason</td>
+            <td>{{ log.reason }}</td>
+          </tr>
+          {% if log.notes %}
+          <tr>
+            <td class="fw-bold text-muted">Notes</td>
+            <td class="text-muted">{{ log.notes }}</td>
+          </tr>
+          {% endif %}
+        </table>
+      </div>
+      <div class="card-footer py-2">
+        <a href="{% url 'audit:manual_logs' %}" class="btn btn-sm btn-outline-secondary">
+          <i class="fas fa-arrow-left me-1"></i> Back to Manual Logs
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

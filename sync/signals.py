@@ -5,8 +5,13 @@ When any web-admin model save hits the default (SQLite) database:
   1. A background thread asynchronously writes the same row to Neon so
      mobile clients that read Neon directly can see the change.
   2. A WebSocket broadcast is sent via Django Channels to all connected
-     clients (web + mobile) on the 'sync' group with payload
-     {"type": "table_changed", "tables": [<db_table_name>]}.
+     clients (web + mobile) on the 'sync' group with TWO event types:
+       a) {"type": "table_changed", "tables": [<db_table_name>]}
+          — lightweight notification for clients that pull from Neon
+       b) {"type": "data_changed", "table": <db_table_name>,
+           "action": "upsert"|"delete", "rows": [...]}
+          — carries the actual row data so clients can apply changes
+            to their local DB instantly without a separate pull/query.
   3. (Legacy) A Pusher event is also triggered if credentials are configured,
      for any mobile clients still using the Pusher SDK.
 
@@ -16,10 +21,14 @@ thread itself triggers a post_save (e.g. via bulk_create).
 
 import logging
 import threading
+from datetime import date, datetime
+from decimal import Decimal
+from uuid import UUID
 
 from django.db import transaction as db_transaction
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +39,39 @@ SYNCED_APP_LABELS = {
     'inventory', 'procurement', 'sales', 'audit', 'pricing',
     'pos', 'services', 'cashflow',
 }
+
+
+# ── JSON-safe serialisation helper ─────────────────────────────────────
+def _make_json_safe(value):
+    """Convert a model field value to a JSON-serialisable Python type."""
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, bytes):
+        return value.decode('utf-8', errors='replace')
+    return str(value)
+
+
+def _instance_to_dict(instance) -> dict:
+    """
+    Serialise a Django model instance to a dict of {db_column: value}
+    using only concrete (non-relation) fields.  All values are JSON-safe.
+    """
+    data = {}
+    for field in instance._meta.concrete_fields:
+        col = field.column  # actual DB column name (e.g. 'category_id')
+        raw = field.value_from_object(instance)
+        data[col] = _make_json_safe(raw)
+    return data
 
 
 # ── Pusher (legacy, optional) ─────────────────────────────────────────
@@ -95,6 +137,35 @@ def _broadcast_ws(tables: list[str]) -> None:
         logger.debug('WS broadcast skipped (%s): %s', tables, exc)
 
 
+def _broadcast_ws_data(table: str, action: str, rows: list[dict]) -> None:
+    """
+    Send a data_changed event carrying the actual row data so clients
+    can apply changes to their local DB without a separate pull.
+
+    action: 'upsert' | 'delete'
+    rows:   list of dicts — full row for upsert, just {'id': pk} for delete.
+    """
+    try:
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        if channel_layer is None:
+            return
+        async_to_sync(channel_layer.group_send)(
+            'sync',
+            {
+                'type': 'data_changed',
+                'table': table,
+                'action': action,
+                'rows': rows,
+                'timestamp': timezone.now().isoformat(),
+            },
+        )
+        logger.debug('WS broadcast data-changed: %s %s (%d rows)', action, table, len(rows))
+    except Exception as exc:
+        logger.debug('WS data broadcast skipped (%s): %s', table, exc)
+
+
 def broadcast_table_changed(tables: list[str]) -> None:
     """
     Broadcast a table-changed event to all real-time clients.
@@ -104,12 +175,25 @@ def broadcast_table_changed(tables: list[str]) -> None:
     _broadcast_pusher(tables)
 
 
+def broadcast_data_changed(table: str, action: str, rows: list[dict]) -> None:
+    """
+    Broadcast a data-changed event with the actual row data.
+    Also sends the lightweight table_changed for backward compatibility.
+    """
+    _broadcast_ws_data(table, action, rows)
+    # Legacy Pusher gets the lightweight notification only
+    _broadcast_pusher([table])
+
+
 # ── Neon write-through ─────────────────────────────────────────────────
-def _write_to_neon_async(sender, pk: int, table: str) -> None:
+def _write_to_neon_async(sender, pk: int, table: str, row_data: dict) -> None:
     """
     Spawn a daemon thread that upserts the record identified by *pk* into the
     'neon' database alias.  Broadcasts the event only after the write
     succeeds so clients never receive a stale-read notification.
+
+    row_data is the pre-serialised dict captured at signal time so the
+    broadcast carries the actual data even if the background thread is slow.
     """
     if getattr(_NEON_WRITE_ACTIVE, 'value', False):
         return
@@ -142,8 +226,8 @@ def _write_to_neon_async(sender, pk: int, table: str) -> None:
                 sender._default_manager.using('neon').bulk_create(
                     [obj], ignore_conflicts=True,
                 )
-            # Notify clients only after Neon has the data
-            broadcast_table_changed([table])
+            # Notify clients with the actual row data after Neon has it
+            broadcast_data_changed(table, 'upsert', [row_data])
         except Exception as exc:
             logger.debug(
                 'Neon write-through skipped (%s pk=%s): %s', sender.__name__, pk, exc
@@ -168,7 +252,7 @@ def _delete_from_neon_async(sender, pk: int, table: str) -> None:
             if 'neon' not in connections.databases:
                 return
             sender._default_manager.using('neon').filter(pk=pk).delete()
-            broadcast_table_changed([table])
+            broadcast_data_changed(table, 'delete', [{'id': pk}])
         except Exception as exc:
             logger.debug(
                 'Neon delete skipped (%s pk=%s): %s', sender.__name__, pk, exc
@@ -189,11 +273,13 @@ def on_model_save(sender, instance, using, **kwargs):
     if getattr(_NEON_WRITE_ACTIVE, 'value', False):
         return
 
-    # Defer until the Django transaction commits so the background thread
-    # always reads committed data from SQLite (prevents stale-read corruption).
+    # Capture the row data NOW while the instance is still in memory.
+    # The background thread may run later when the instance is stale.
     pk, table = instance.pk, sender._meta.db_table
+    row_data = _instance_to_dict(instance)
+
     db_transaction.on_commit(
-        lambda: _write_to_neon_async(sender, pk, table)
+        lambda: _write_to_neon_async(sender, pk, table, row_data)
     )
 
 

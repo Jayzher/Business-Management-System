@@ -576,13 +576,28 @@ class Command(BaseCommand):
         return total
 
     def _calculate_cash_to_suppliers(self, start_date, end_date):
-        """Calculate cash paid to suppliers (assume immediate payment for now)."""
-        return self._calculate_procurement_costs(start_date, end_date)
+        """
+        Calculate cash paid to suppliers from CashFlowTransaction PROCUREMENT
+        entries (the actual cash ledger), not from GRN cost calculations.
+        Includes both APPROVED and PENDING transactions since pending
+        represents money already spent but not yet reviewed.
+        """
+        from cashflow.models import CashFlowTransaction, CashFlowType, CashFlowStatus, CashFlowCategory
+        txns = CashFlowTransaction.objects.filter(
+            flow_type=CashFlowType.CASH_OUT,
+            category=CashFlowCategory.PROCUREMENT,
+            transaction_date__gte=start_date,
+            transaction_date__lt=end_date,
+        ).filter(
+            status__in=[CashFlowStatus.APPROVED, 'PENDING'],
+        )
+        return txns.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
 
     def _calculate_operational_expenses(self, start_date, end_date):
         """
         Calculate operational expenses from both Expense model and CashFlowTransaction.
         Combines approved expenses with EXPENSES category cash flow transactions.
+        Includes PENDING transactions since they represent real money spent.
         """
         from cashflow.models import CashFlowTransaction, CashFlowType, CashFlowStatus, CashFlowCategory
         
@@ -597,11 +612,12 @@ class Command(BaseCommand):
         
         # From CashFlowTransaction with EXPENSES category
         expense_txns = CashFlowTransaction.objects.filter(
-            status=CashFlowStatus.APPROVED,
             flow_type=CashFlowType.CASH_OUT,
             category=CashFlowCategory.EXPENSES,
             transaction_date__gte=start_date,
             transaction_date__lt=end_date,
+        ).filter(
+            status__in=[CashFlowStatus.APPROVED, 'PENDING'],
         )
         expense_txn_total = expense_txns.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
         
@@ -611,16 +627,18 @@ class Command(BaseCommand):
         """
         Calculate other cash out (excluding procurement, expenses, and supplies).
         Includes: OTHER category and any other miscellaneous cash out.
+        Includes PENDING transactions since they represent real money spent.
         """
         from cashflow.models import CashFlowTransaction, CashFlowType, CashFlowStatus, CashFlowCategory
         txns = CashFlowTransaction.objects.filter(
-            status=CashFlowStatus.APPROVED,
             flow_type=CashFlowType.CASH_OUT,
             transaction_date__gte=start_date,
             transaction_date__lt=end_date,
+        ).filter(
+            status__in=[CashFlowStatus.APPROVED, 'PENDING'],
         ).exclude(category__in=[
-            CashFlowCategory.PROCUREMENT,  # Tracked via GRNs
-            CashFlowCategory.EXPENSES,     # Tracked via Expense model + included in operational_expenses
+            CashFlowCategory.PROCUREMENT,  # Tracked via _calculate_cash_to_suppliers
+            CashFlowCategory.EXPENSES,     # Tracked via _calculate_operational_expenses
             CashFlowCategory.SUPPLIES,     # Tracked separately
         ])
         return txns.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
@@ -655,14 +673,15 @@ class Command(BaseCommand):
         return txns.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
     
     def _calculate_supplies_expenses(self, start_date, end_date):
-        """Calculate supplies expenses from CashFlowTransaction."""
+        """Calculate supplies expenses from CashFlowTransaction. Includes PENDING."""
         from cashflow.models import CashFlowTransaction, CashFlowType, CashFlowStatus, CashFlowCategory
         txns = CashFlowTransaction.objects.filter(
-            status=CashFlowStatus.APPROVED,
             flow_type=CashFlowType.CASH_OUT,
             category=CashFlowCategory.SUPPLIES,
             transaction_date__gte=start_date,
             transaction_date__lt=end_date,
+        ).filter(
+            status__in=[CashFlowStatus.APPROVED, 'PENDING'],
         )
         return txns.aggregate(Sum('amount'))['amount__sum'] or Decimal('0')
 
