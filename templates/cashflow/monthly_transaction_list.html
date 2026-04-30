@@ -182,13 +182,13 @@
         <div class="row align-items-center">
             <div class="col-md-2">
                 <label class="mb-2"><strong><i class="fas fa-calendar-alt"></i> Year</strong></label>
-                <select class="form-control" onchange="window.location.href='?year='+this.value+'&month={{ month }}'">
+                <select class="form-control no-select2" onchange="window.location.href='?year='+this.value+'&month={{ month }}'">
                     {% for yr in available_years %}
                     <option value="{{ yr }}" {% if yr == year %}selected{% endif %}>{{ yr }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-10">
+            <div class="col-md-7">
                 <label class="mb-2"><strong><i class="far fa-calendar"></i> Month</strong></label>
                 <div class="d-flex flex-wrap">
                     {% for m in available_months %}
@@ -198,6 +198,14 @@
                     </a>
                     {% endfor %}
                 </div>
+            </div>
+            <div class="col-md-3 d-flex align-items-end justify-content-end pb-1">
+                <a href="{% url 'cashflow:monthly_dashboard' %}" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-chart-bar me-1"></i>Dashboard
+                </a>
+                <a href="#" data-modal-url="{% url 'cashflow:cashflow_create' %}" class="btn btn-success btn-sm ml-3">
+                    <i class="fas fa-plus me-1"></i>New Transaction
+                </a>
             </div>
         </div>
     </div>
@@ -1262,21 +1270,21 @@
         </div>
     </div>
 
-    <!-- Quick Actions -->
-    <div class="text-center mb-4">
-        <a href="{% url 'cashflow:monthly_dashboard' %}" class="btn btn-primary btn-lg">
-            <i class="fas fa-chart-bar"></i> View Dashboard
-        </a>
-        <a href="#" data-modal-url="{% url 'cashflow:cashflow_create' %}" class="btn btn-success btn-lg">
-            <i class="fas fa-plus"></i> New Transaction
-        </a>
-        <a href="#top" class="btn btn-outline-secondary btn-lg">
-            <i class="fas fa-arrow-up"></i> Back to Top
-        </a>
-    </div>
+    <!-- Back to Top (floating) -->
+    <a href="#top" id="backToTop" style="display:none;position:fixed;bottom:20px;right:20px;z-index:999;width:36px;height:36px;border-radius:50%;background:#495057;color:#fff;text-align:center;line-height:36px;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.2);text-decoration:none;transition:opacity .2s;" title="Back to top">
+        <i class="fas fa-arrow-up"></i>
+    </a>
 </div>
 
 <script>
+// Back to top button visibility
+(function(){
+  var btn = document.getElementById('backToTop');
+  window.addEventListener('scroll', function(){
+    btn.style.display = window.scrollY > 400 ? 'block' : 'none';
+  });
+})();
+
 // Toggle collapsible sections
 function toggleSection(sectionId) {
     const section = document.getElementById(sectionId);

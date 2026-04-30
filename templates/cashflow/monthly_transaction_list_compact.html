@@ -68,13 +68,13 @@
                 <label style="font-size: 11px; font-weight: 600; margin-bottom: 3px;">
                     <i class="fas fa-calendar-alt"></i> Year
                 </label>
-                <select class="form-control form-control-sm" onchange="window.location.href='?year='+this.value+'&month={{ month }}'">
+                <select class="form-control form-control-sm no-select2" onchange="window.location.href='?year='+this.value+'&month={{ month }}'">
                     {% for yr in available_years %}
                     <option value="{{ yr }}" {% if yr == year %}selected{% endif %}>{{ yr }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-10 mb-2">
+            <div class="col-md-7 mb-2">
                 <label style="font-size: 11px; font-weight: 600; margin-bottom: 3px;">
                     <i class="far fa-calendar"></i> Month
                 </label>
@@ -86,6 +86,14 @@
                     </a>
                     {% endfor %}
                 </div>
+            </div>
+            <div class="col-md-3 mb-2 d-flex align-items-end justify-content-end gap-2">
+                <a href="{% url 'cashflow:monthly_dashboard' %}" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-chart-bar me-1"></i>Dashboard
+                </a>
+                <a href="#" data-modal-url="{% url 'cashflow:cashflow_create' %}" class="btn btn-success btn-sm">
+                    <i class="fas fa-plus me-1"></i>New
+                </a>
             </div>
         </div>
     </div>
@@ -317,21 +325,21 @@
 
     </div>
 
-    <!-- Quick Actions -->
-    <div class="text-center mt-3 mb-3">
-        <a href="{% url 'cashflow:monthly_dashboard' %}" class="btn btn-primary btn-sm">
-            <i class="fas fa-chart-bar"></i> Dashboard
-        </a>
-        <a href="#" data-modal-url="{% url 'cashflow:cashflow_create' %}" class="btn btn-success btn-sm">
-            <i class="fas fa-plus"></i> New Transaction
-        </a>
-        <a href="#top" class="btn btn-outline-secondary btn-sm">
-            <i class="fas fa-arrow-up"></i> Top
-        </a>
-    </div>
+    <!-- Back to Top (floating) -->
+    <a href="#top" id="backToTop" style="display:none;position:fixed;bottom:20px;right:20px;z-index:999;width:36px;height:36px;border-radius:50%;background:#495057;color:#fff;text-align:center;line-height:36px;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.2);text-decoration:none;transition:opacity .2s;" title="Back to top">
+        <i class="fas fa-arrow-up"></i>
+    </a>
 </div>
 
 <script>
+// Back to top floating button
+(function(){
+  var btn = document.getElementById('backToTop');
+  window.addEventListener('scroll', function(){
+    btn.style.display = window.scrollY > 400 ? 'block' : 'none';
+  });
+})();
+
 // Remember last active tab
 document.querySelectorAll('.nav-tabs a').forEach(tab => {
     tab.addEventListener('click', function() {
