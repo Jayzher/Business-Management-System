@@ -6,9 +6,17 @@ Provides two consumers:
      notifications.  Both web (session auth) and mobile (JWT auth) clients
      connect here.  When a model save/delete fires, the signal layer
      broadcasts to the 'sync' channel group and every connected client
-     receives {"type": "table_changed", "tables": [...]}.
+     receives either:
 
-  2. Clients can also subscribe to specific tables by sending:
+       {"type": "table_changed", "tables": [...]}
+         — lightweight notification (client must pull from Neon)
+
+       {"type": "data_changed", "table": "...", "action": "upsert"|"delete",
+        "rows": [...], "timestamp": "..."}
+         — carries the actual row data so the client can apply changes
+           to its local DB instantly without a separate pull/query.
+
+  2. Clients can subscribe to specific tables by sending:
        {"action": "subscribe", "tables": ["catalog_item", "inventory_stockbalance"]}
      and will then only receive events for those tables.
      Send {"action": "subscribe", "tables": ["*"]} to receive all events (default).
@@ -38,6 +46,8 @@ class SyncConsumer(AsyncJsonWebsocketConsumer):
     Protocol (JSON):
       Server → Client:
         {"type": "table_changed", "tables": ["catalog_item", ...]}
+        {"type": "data_changed", "table": "catalog_item",
+         "action": "upsert", "rows": [{...}], "timestamp": "..."}
         {"type": "connected", "message": "..."}
 
       Client → Server:
@@ -93,11 +103,13 @@ class SyncConsumer(AsyncJsonWebsocketConsumer):
         elif action == 'ping':
             await self.send_json({'type': 'pong'})
 
-    # ── Group message handler ──────────────────────────────────────────
+    # ── Group message handlers ─────────────────────────────────────────
+
     async def table_changed(self, event):
         """
         Called when the channel layer receives a message with
         type='table_changed' on the SYNC_GROUP.
+        Lightweight notification — client must pull data separately.
         """
         tables = event.get('tables', [])
 
@@ -110,6 +122,28 @@ class SyncConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json({
             'type': 'table_changed',
             'tables': tables,
+        })
+
+    async def data_changed(self, event):
+        """
+        Called when the channel layer receives a message with
+        type='data_changed' on the SYNC_GROUP.
+        Carries the actual row data so the client can apply changes
+        to its local DB instantly.
+        """
+        table = event.get('table', '')
+
+        # Filter by subscription
+        if self.subscribed_tables is not None:
+            if table not in self.subscribed_tables:
+                return
+
+        await self.send_json({
+            'type': 'data_changed',
+            'table': table,
+            'action': event.get('action', 'upsert'),
+            'rows': event.get('rows', []),
+            'timestamp': event.get('timestamp', ''),
         })
 
     # ── JWT authentication helper ──────────────────────────────────────
