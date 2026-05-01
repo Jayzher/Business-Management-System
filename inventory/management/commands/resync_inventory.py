@@ -1286,25 +1286,24 @@ class Command(BaseCommand):
         if phase in ('1', 'all'):
             self._run_phase1(dry_run)
 
-        # ── Check for conversion errors before committing balance changes ──
+        # ── Report conversion errors from Phase 0/1 but continue ──────────
         if _conversion_errors and phase in ('2', 'all'):
             self._report_conversion_errors()
-            self.stderr.write(self.style.ERROR(
-                '\n  ABORTING Phase 2 — cannot rebuild balances with missing conversions.\n'
-                '  Add the unit conversions listed above, then re-run.\n'
+            self.stderr.write(self.style.WARNING(
+                '\n  WARNING: conversion errors found in Phase 0/1 (see above).\n'
+                '  Phase 2 will proceed and skip only the affected items.\n'
             ))
-            if phase == 'all':
-                self._run_phase3()
-            return
+            # Clear so Phase 2 starts with a fresh error list
+            _conversion_errors.clear()
 
         if phase in ('2', 'all'):
             self._run_phase2(dry_run)
 
             if _conversion_errors:
                 self._report_conversion_errors()
-                self.stderr.write(self.style.ERROR(
+                self.stderr.write(self.style.WARNING(
                     '\n  WARNING: Phase 2 completed but skipped items with missing conversions.\n'
-                    '  The balances for those items are WRONG.  Add the conversions and re-run.\n'
+                    '  The balances for those items may be inaccurate. Add the conversions and re-run.\n'
                 ))
 
         if phase in ('3', 'all'):

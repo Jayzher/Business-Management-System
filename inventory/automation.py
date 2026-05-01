@@ -100,8 +100,11 @@ def auto_create_delivery_from_so(so, user):
     if getattr(so, 'fulfillment_type', None) != 'DELIVER':
         return None
 
-    # Check if a DN already exists for this SO
-    existing = DeliveryNote.objects.filter(sales_order=so).first()
+    # Check if a non-cancelled DN already exists for this SO
+    from core.models import DocumentStatus
+    existing = DeliveryNote.objects.filter(
+        sales_order=so,
+    ).exclude(status=DocumentStatus.CANCELLED).first()
     if existing:
         return existing
 
@@ -125,14 +128,11 @@ def auto_create_delivery_from_so(so, user):
     dn.save()
 
     for so_line in so.lines.select_related('item', 'unit').all():
-        qty_remaining = so_line.qty_ordered - so_line.qty_delivered
-        if qty_remaining <= 0:
-            continue
         DeliveryLine.objects.create(
             delivery=dn,
             item=so_line.item,
             location=default_location,
-            qty=qty_remaining,
+            qty=so_line.qty_ordered,
             unit=so_line.unit,
             notes=f'From SO line: {so_line.item.code}',
         )
@@ -169,7 +169,10 @@ def auto_create_pickup_from_so(so, user):
     if getattr(so, 'fulfillment_type', None) != 'PICKUP':
         return None
 
-    existing = SalesPickup.objects.filter(sales_order=so).first()
+    from core.models import DocumentStatus
+    existing = SalesPickup.objects.filter(
+        sales_order=so,
+    ).exclude(status=DocumentStatus.CANCELLED).first()
     if existing:
         return existing
 
@@ -192,14 +195,11 @@ def auto_create_pickup_from_so(so, user):
     pickup.save()
 
     for so_line in so.lines.select_related('item', 'unit').all():
-        qty_remaining = so_line.qty_ordered - so_line.qty_delivered
-        if qty_remaining <= 0:
-            continue
         SalesPickupLine.objects.create(
             pickup=pickup,
             item=so_line.item,
             location=default_location,
-            qty=qty_remaining,
+            qty=so_line.qty_ordered,
             unit=so_line.unit,
             batch_number=getattr(so_line, 'batch_number', '') or '',
             serial_number=getattr(so_line, 'serial_number', '') or '',
