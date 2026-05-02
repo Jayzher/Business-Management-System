@@ -192,7 +192,7 @@
               <td class="text-right font-weight-bold text-warning">{{ bp.mat_cogs|floatformat:2|intcomma }}</td>
               <td class="text-center">
                 <button type="button" class="btn btn-sm btn-outline-info"
-                        data-toggle="modal" data-target="#bmodal-{{ bp.bundle.id }}"
+                        data-bs-toggle="modal" data-bs-target="#bmodal-{{ bp.bundle.id }}"
                         title="View bundle items with COGS">
                   <i class="fas fa-list-ul mr-1"></i>Detail
                 </button>
@@ -226,7 +226,7 @@
               <i class="fas fa-layer-group mr-2"></i>{{ bp.bundle.price_list.name }}
               <span class="badge badge-light ml-2">&times;{{ bp.bundle.qty|floatformat:0 }} sets</span>
             </h5>
-            <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+            <button type="button" class="close text-white" data-bs-dismiss="modal">&times;</button>
           </div>
           <div class="modal-body p-0">
             <table class="table table-bordered table-sm mb-0">
@@ -281,7 +281,7 @@
               Bundle Charge: <strong>&#8369;{{ bp.bundle.bundle_total|floatformat:2|intcomma }}</strong> &nbsp;|&nbsp;
               Material COGS: <strong class="text-danger">&#8369;{{ bp.mat_cogs|floatformat:2|intcomma }}</strong>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Close</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
           </div>
         </div>
       </div>

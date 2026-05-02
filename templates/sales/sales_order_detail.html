@@ -65,6 +65,7 @@
           <th class="text-end">Remaining</th>
           <th>Unit</th>
           <th class="text-end">Unit Price</th>
+          <th class="text-end">Discount</th>
           <th class="text-end text-danger">COGS</th>
           <th class="text-end">Line Total</th>
         </tr>
@@ -79,12 +80,13 @@
           <td class="text-end">{{ line.qty_remaining|decimal2 }}</td>
           <td>{{ line.unit.abbreviation }}</td>
           <td class="text-end">{{ line.unit_price|currency }}</td>
+          <td class="text-end">{% if line.discount_value %}{% if line.discount_type == 'PERCENT' %}{{ line.discount_value|decimal2 }}%{% else %}{{ line.discount_amount|currency }}{% endif %}{% else %}-{% endif %}</td>
           <td class="text-end text-danger">{{ line_cogs_map|get_item:line.pk|currency }}</td>
           <td class="text-end fw-semibold text-primary">{{ line.line_total|currency }}</td>
         </tr>
         {% empty %}
         {% if not order.price_list_lines.exists %}
-        <tr><td colspan="9" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
+        <tr><td colspan="10" class="text-center text-muted py-4"><i class="fas fa-inbox me-2"></i>No lines added yet.</td></tr>
         {% endif %}
         {% endfor %}
         {% for bundle in order.price_list_lines.select_related %}
@@ -100,6 +102,7 @@
           <td class="text-end text-muted">—</td>
           <td><span class="text-muted fst-italic">bundle</span></td>
           <td class="text-end">{{ bundle.bundle_subtotal|currency }}</td>
+          <td class="text-end">{% if bundle.discount_value %}{{ bundle.bundle_discount_amount|currency }}{% else %}-{% endif %}</td>
           <td class="text-end text-danger">{{ bundle_cogs_map|get_item:bundle.pk|currency }}</td>
           <td class="text-end fw-semibold text-primary">{{ bundle.bundle_total|currency }}</td>
         </tr>
@@ -109,14 +112,14 @@
       <tfoot class="table-light fw-bold">
         {% if order.lines.exists %}
         <tr>
-          <td colspan="7" class="text-end">Lines Subtotal</td>
+          <td colspan="8" class="text-end">Lines Subtotal</td>
           <td class="text-end text-danger">{{ so_line_cogs_total|currency }}</td>
           <td class="text-end text-primary">{{ order.line_amount_total|currency }}</td>
         </tr>
         {% endif %}
         {% if order.price_list_lines.exists %}
         <tr>
-          <td colspan="7" class="text-end">Bundles Subtotal</td>
+          <td colspan="8" class="text-end">Bundles Subtotal</td>
           <td class="text-end text-danger">{{ so_bundle_cogs_total|currency }}</td>
           <td class="text-end text-primary">{{ order.bundle_amount_total|currency }}</td>
         </tr>
@@ -145,6 +148,12 @@
             <tr>
               <td class="text-muted">Bundle / Package Total</td>
               <td class="text-end fw-semibold">{{ order.bundle_amount_total|currency }}</td>
+            </tr>
+            {% endif %}
+            {% if so_discount_total %}
+            <tr>
+              <td class="text-muted text-danger">Total Discount</td>
+              <td class="text-end text-danger">({{ so_discount_total|currency }})</td>
             </tr>
             {% endif %}
             <tr class="table-success">

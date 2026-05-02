@@ -46,10 +46,15 @@ def service_invoice_list(request):
         total_revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
     )
 
+    paid_count = qs.filter(is_paid=True).count()
+    unpaid_count = qs.filter(is_paid=False).count()
+
     return render(request, 'services/service_invoice_list.html', {
         'invoices': qs,
         'paid_filter': paid_filter,
         'total_revenue': agg['total_revenue'],
+        'paid_count': paid_count,
+        'unpaid_count': unpaid_count,
     })
 
 

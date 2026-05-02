@@ -21,9 +21,18 @@ class Command(BaseCommand):
 
     def _seed_roles(self):
         from accounts.models import Role
-        roles = ['Admin', 'Warehouse Manager', 'Encoder', 'Checker', 'Viewer']
-        for name in roles:
-            Role.objects.get_or_create(name=name, defaults={'description': f'{name} role'})
+        roles = [
+            ('Admin', 'Full system access. Can manage users, roles, settings, and all modules.'),
+            ('Manager', 'Can approve/post documents, view reports, manage catalog and partners.'),
+            ('Manager (View Only)', 'Read-only access across the system.'),
+            ('Procurement Officer', 'Can create/edit purchase orders and goods receipts.'),
+            ('Sales Officer', 'Can create/edit sales orders and delivery notes.'),
+            ('Warehouse Staff', 'Can create/edit transfers, adjustments, and damaged reports.'),
+            ('POS Cashier', 'Can operate POS terminal, open/close shifts, process sales and refunds.'),
+            ('Viewer', 'Read-only access to catalog items only.'),
+        ]
+        for name, description in roles:
+            Role.objects.get_or_create(name=name, defaults={'description': description})
         self.stdout.write(f'  Roles: {len(roles)}')
 
     def _seed_units(self):

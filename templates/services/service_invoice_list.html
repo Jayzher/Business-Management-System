@@ -39,15 +39,13 @@
       <div class="col-md-3">
         <div class="small text-muted">Paid</div>
         <div class="font-weight-bold text-success">
-          {% with paid_count=invoices|length %}{{ invoices|length }}{% endwith %}
+          {{ paid_count }}
         </div>
       </div>
       <div class="col-md-3">
-        <div class="small text-muted">Filter</div>
-        <div>
-          {% if paid_filter == '1' %}<span class="badge badge-success">Paid Only</span>
-          {% elif paid_filter == '0' %}<span class="badge badge-secondary">Unpaid Only</span>
-          {% else %}<span class="badge badge-info">All</span>{% endif %}
+        <div class="small text-muted">Unpaid</div>
+        <div class="font-weight-bold text-danger">
+          {{ unpaid_count }}
         </div>
       </div>
     </div>
