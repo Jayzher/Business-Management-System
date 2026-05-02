@@ -88,21 +88,20 @@
     <!-- Summary Cards -->
     <div class="summary-grid">
         <div class="summary-item">
-            <div class="summary-label">Capital (Sales)</div>
+            <div class="summary-label">Revenue (Accrual)</div>
+            <div class="summary-value text-success">₱{{ summary.revenue_accrual|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">COGS (Actual)</div>
+            <div class="summary-value text-danger">₱{{ summary.cogs_actual|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div class="summary-label">Gross Profit</div>
             <div class="summary-value text-success">₱{{ summary.capital_sales|floatformat:2 }}</div>
         </div>
         <div class="summary-item">
-            <div class="summary-label">Capital (Other)</div>
+            <div class="summary-label">Other Income</div>
             <div class="summary-value text-success">₱{{ summary.capital_other|floatformat:2 }}</div>
-        </div>
-        <div class="summary-item">
-            <div class="summary-label">Total Capital</div>
-            <div class="summary-value text-success">₱{{ summary.capital_total|floatformat:2 }}</div>
-        </div>
-        <div class="summary-item">
-            <div class="summary-label">Cost of Goods Sold (COGS)</div>
-            <div class="summary-value text-danger">₱{{ summary.cogs_actual|floatformat:2 }}</div>
-            <small class="text-muted">Actual cost of inventory sold</small>
         </div>
         <div class="summary-item">
             <div class="summary-label">Procurement (Cash Flow)</div>
@@ -110,7 +109,7 @@
             <small class="text-muted">Inventory purchased (not an expense)</small>
         </div>
         <div class="summary-item">
-            <div class="summary-label">Operational</div>
+            <div class="summary-label">Operational Expenses</div>
             <div class="summary-value text-danger">₱{{ summary.expenses_operational|floatformat:2 }}</div>
         </div>
         <div class="summary-item">
@@ -118,11 +117,11 @@
             <div class="summary-value text-danger">₱{{ summary.expenses_other|floatformat:2 }}</div>
         </div>
         <div class="summary-item">
-            <div class="summary-label">Total Expenses</div>
+            <div class="summary-label">Total Operating Expenses</div>
             <div class="summary-value text-danger">₱{{ summary.expenses_total|floatformat:2 }}</div>
         </div>
         <div class="summary-item" style="grid-column: span 2;">
-            <div class="summary-label">Net Profit</div>
+            <div class="summary-label">Net Profit (Gross Profit − Expenses)</div>
             <div class="summary-value {% if summary.net_profit >= 0 %}text-primary{% else %}text-danger{% endif %}">
                 ₱{{ summary.net_profit|floatformat:2 }}
             </div>

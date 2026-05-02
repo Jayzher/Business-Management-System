@@ -90,12 +90,12 @@
                 <i class="bi bi-plus-circle"></i> Auto-Create Summaries
             </a>
             {% endif %}
-            {% comment %} <form method="post" action="{% url 'cashflow:recalculate_all' %}">
+            <form method="post" action="{% url 'cashflow:recalculate_all' %}">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-primary" onclick="return confirm('Recalculate all monthly summaries?')">
+                <button type="submit" class="btn btn-warning" onclick="return confirm('Recalculate all monthly summaries for {{ year }}? This may take a moment.')">
                     <i class="bi bi-arrow-clockwise"></i> Recalculate All
                 </button>
-            </form> {% endcomment %}
+            </form>
         </div>
     </div>
 

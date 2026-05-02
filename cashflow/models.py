@@ -364,8 +364,8 @@ class MonthlyCashflowSummary(TimeStampedModel):
     
     @property
     def profit_margin(self):
-        """Calculate profit margin percentage."""
-        if self.capital_total > 0:
-            return (self.net_profit / self.capital_total) * 100
+        """Calculate profit margin percentage (Net Profit / Revenue)."""
+        if self.revenue_accrual > 0:
+            return (self.net_profit / self.revenue_accrual) * 100
         return 0
 

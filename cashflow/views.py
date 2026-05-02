@@ -84,8 +84,9 @@ def transaction_list(request):
     
     invoices_qs = Invoice.objects.filter(
         is_void=False,
-        paid_at__gte=start_date,
-        paid_at__lt=end_date,
+        date__gte=start_date,
+        date__lt=end_date,
+        pos_sale__isnull=True,
     ).select_related('created_by')
     
     # Apply search to sales
@@ -200,14 +201,17 @@ def transaction_list(request):
         # Invoices - handle missing data gracefully
         for inv in invoices_qs:
             try:
-                gross_profit = (inv.grand_total or Decimal('0')) - (inv.grand_total_cogs or Decimal('0'))
+                revenue = inv.grand_total or Decimal('0')
+                cogs = inv.grand_total_cogs or Decimal('0')
+                gross_profit = revenue - cogs
                 sales_breakdown.append({
                     'type': 'Invoice',
                     'number': inv.invoice_number,
-                    'date': inv.paid_at,
-                    'revenue': inv.grand_total,
-                    'cogs': inv.grand_total_cogs,
+                    'date': inv.date,
+                    'revenue': revenue,
+                    'cogs': cogs,
                     'gross_profit': gross_profit,
+                    'flag': 'zero-revenue' if revenue == 0 and cogs > 0 else '',
                 })
             except Exception:
                 # Skip invoices with errors

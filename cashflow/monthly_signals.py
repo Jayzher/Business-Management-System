@@ -191,13 +191,13 @@ def update_monthly_summary(year, month, user=None):
             'net_profit': net_profit,
             'collection_rate_pct': collection_rate_pct,
             'days_sales_outstanding': dso,
-            'capital_sales': revenue_sales,
+            'capital_sales': gross_profit,
             'capital_other': revenue_other,
-            'capital_total': revenue_sales + revenue_other,
+            'capital_total': gross_profit + revenue_other,
             'expenses_procurement': inventory_purchased,
             'expenses_operational': expenses_operational,
             'expenses_other': expenses_other,
-            'expenses_total': cogs_actual + expenses_operational + expenses_other,
+            'expenses_total': expenses_operational + expenses_other,
             'total_inflow': total_cash_in,
             'total_outflow': total_cash_out,
             'net_cash_flow': net_cash_flow,
@@ -309,7 +309,12 @@ def _get_weighted_avg_cost(item, as_of_date):
 
 
 def _calculate_actual_cogs(start_date, end_date, start_dt, end_dt):
-    """Calculate COGS from sales."""
+    """Calculate COGS from sales.
+
+    POS sale COGS are calculated dynamically via pos_sale_cogs().
+    Invoice COGS are counted ONLY for non-POS invoices to avoid
+    double-counting POS sales that also have auto-created invoices.
+    """
     from core.cogs import pos_sale_cogs
 
     total = Decimal('0')
@@ -322,8 +327,10 @@ def _calculate_actual_cogs(start_date, end_date, start_dt, end_dt):
         except Exception:
             continue
 
+    # Exclude invoices linked to POS sales — those COGS are already counted above
     invoices = Invoice.objects.filter(
         is_void=False, date__gte=start_date, date__lt=end_date,
+        pos_sale__isnull=True,
     )
     for inv in invoices:
         try:
@@ -335,24 +342,41 @@ def _calculate_actual_cogs(start_date, end_date, start_dt, end_dt):
 
 
 def _calculate_sales_revenue(start_date, end_date, start_dt, end_dt):
-    """Calculate total sales revenue (accrual basis)."""
+    """Calculate total sales revenue (accrual basis).
+
+    POS sales are counted directly from the POSSale table.
+    Invoices are counted ONLY for non-POS sources (Delivery Notes, Sales
+    Pickups, Services) to avoid double-counting POS sales that also have
+    auto-created invoices.
+    """
     pos_rev = POSSale.objects.filter(
         status=SaleStatus.POSTED, posted_at__gte=start_dt, posted_at__lt=end_dt,
     ).aggregate(total=Coalesce(Sum('grand_total'), Decimal('0')))['total']
 
+    # Exclude invoices linked to POS sales — those are already counted above
     inv_rev = Invoice.objects.filter(
         is_void=False, date__gte=start_date, date__lt=end_date,
+        pos_sale__isnull=True,
     ).aggregate(total=Coalesce(Sum('grand_total'), Decimal('0')))['total']
 
     return pos_rev + inv_rev
 
 
 def _calculate_cash_from_customers(start_date, end_date, start_dt, end_dt):
-    """Calculate actual cash received from customers."""
+    """Calculate actual cash received from customers.
+
+    POS sales are immediate cash — counted directly from POSSale.
+    Invoice payments are counted ONLY for non-POS invoices to avoid
+    double-counting POS sales that also have auto-created InvoicePayment
+    records (via sync_payments or manual invoice generation).
+    """
+    # Invoice payments EXCLUDING those linked to POS sales
     payments = InvoicePayment.objects.filter(
         date__gte=start_date, date__lt=end_date,
+        invoice__pos_sale__isnull=True,
     ).aggregate(total=Coalesce(Sum('amount'), Decimal('0')))['total']
 
+    # POS sales are immediate cash
     pos_cash = POSSale.objects.filter(
         status=SaleStatus.POSTED, posted_at__gte=start_dt, posted_at__lt=end_dt,
     ).aggregate(total=Coalesce(Sum('grand_total'), Decimal('0')))['total']
@@ -361,17 +385,23 @@ def _calculate_cash_from_customers(start_date, end_date, start_dt, end_dt):
 
 
 def _calculate_ar_collections(start_date, end_date):
-    """Calculate AR collections (invoice payments only)."""
+    """Calculate AR collections (invoice payments only, excluding POS)."""
     return InvoicePayment.objects.filter(
         date__gte=start_date, date__lt=end_date,
+        invoice__pos_sale__isnull=True,
     ).aggregate(total=Coalesce(Sum('amount'), Decimal('0')))['total']
 
 
 def _calculate_ar(as_of_date):
-    """Calculate accounts receivable as of date."""
+    """Calculate accounts receivable as of date.
+
+    Excludes POS-originated invoices since POS sales are immediate cash
+    and should never appear as receivables.
+    """
     total = Decimal('0')
     for inv in Invoice.objects.filter(
         is_void=False, date__lt=as_of_date,
+        pos_sale__isnull=True,
     ).prefetch_related('payments'):
         paid = sum(p.amount for p in inv.payments.filter(date__lt=as_of_date))
         balance = inv.grand_total - paid
