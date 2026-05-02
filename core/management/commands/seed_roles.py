@@ -35,6 +35,10 @@ DEFAULT_ROLES = [
         'name': 'POS Cashier',
         'description': 'Can operate POS terminal, open/close shifts, process sales and refunds. Limited to POS module.',
     },
+    {
+        'name': 'Viewer',
+        'description': 'Read-only access to catalog items only. Cannot access dashboard, reports, or any other module.',
+    },
 ]
 
 

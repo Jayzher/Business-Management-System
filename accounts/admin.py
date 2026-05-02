@@ -13,6 +13,7 @@ ROLE_MODULES = {
     'Sales Officer': 'Dashboard, Catalog, Partners, Sales, Services, Pricing, POS, Reports',
     'Warehouse Staff': 'Dashboard, Catalog, Warehouses, Inventory, Supplies, QR Codes',
     'POS Cashier': 'Dashboard, Catalog, POS',
+    'Viewer': 'Catalog only (read-only)',
 }
 
 

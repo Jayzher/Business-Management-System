@@ -54,6 +54,10 @@ def login_view(request):
         user = authenticate(request, username=username, password=password)
         if user is not None:
             login(request, user)
+            # Redirect Viewer-only users to catalog instead of dashboard
+            from accounts.decorators import _user_is_viewer
+            if _user_is_viewer(user):
+                return redirect('item_list')
             next_url = request.GET.get('next', '/dashboard/')
             return redirect(next_url)
         else:

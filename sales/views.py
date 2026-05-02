@@ -348,6 +348,17 @@ def sales_order_detail_view(request, pk):
 
     grand_total_cogs = so_line_cogs_total + so_bundle_cogs_total
 
+    # ── Per-line discount totals ──────────────────────────────────────
+    so_line_discount_total = sum(
+        (line.discount_amount for line in order.lines.all()),
+        Decimal('0'),
+    )
+    so_bundle_discount_total = sum(
+        (bundle.bundle_discount_amount for bundle in order.price_list_lines.all()),
+        Decimal('0'),
+    )
+    so_discount_total = so_line_discount_total + so_bundle_discount_total
+
     return render(request, 'sales/sales_order_detail.html', {
         'order': order,
         'line_cogs_map': line_cogs_map,
@@ -355,6 +366,9 @@ def sales_order_detail_view(request, pk):
         'so_line_cogs_total': so_line_cogs_total,
         'so_bundle_cogs_total': so_bundle_cogs_total,
         'grand_total_cogs': grand_total_cogs,
+        'so_line_discount_total': so_line_discount_total,
+        'so_bundle_discount_total': so_bundle_discount_total,
+        'so_discount_total': so_discount_total,
     })
 
 

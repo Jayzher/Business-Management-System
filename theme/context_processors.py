@@ -2,24 +2,27 @@ def user_role_flags(request):
     """Expose role flags and role set to all templates."""
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
-        return {'is_view_only': False, 'user_roles': set()}
+        return {'is_view_only': False, 'is_viewer': False, 'user_roles': set()}
     if user.is_superuser:
-        return {'is_view_only': False, 'user_roles': {'Admin'}}
-    from accounts.decorators import _user_is_view_only
+        return {'is_view_only': False, 'is_viewer': False, 'user_roles': {'Admin'}}
+    from accounts.decorators import _user_is_view_only, _user_is_viewer
     roles = set(user.user_roles.values_list('role__name', flat=True))
     return {
         'is_view_only': _user_is_view_only(user),
+        'is_viewer': _user_is_viewer(user),
         'user_roles': roles,
     }
 
 
 _ALL = None  # sentinel: every role can see this item
+_VIEWER_ONLY = {'Viewer'}  # Viewer role — catalog read-only
 
 # Role → sidebar module access map.  _ALL means every authenticated user.
 # The set values must match accounts.Role.name exactly.
 _ADMIN_MANAGER = {'Admin', 'Manager', 'Manager (View Only)'}
+_EVERYONE_EXCEPT_VIEWER = {*_ADMIN_MANAGER, 'Procurement Officer', 'Sales Officer', 'Warehouse Staff', 'POS Cashier'}
 _ROLE_MAP = {
-    'Dashboard':   _ALL,
+    'Dashboard':   _EVERYONE_EXCEPT_VIEWER,
     'Catalog':     _ALL,
     'Partners':    {*_ADMIN_MANAGER, 'Procurement Officer', 'Sales Officer'},
     'Warehouses':  {*_ADMIN_MANAGER, 'Procurement Officer', 'Warehouse Staff'},
@@ -35,7 +38,7 @@ _ROLE_MAP = {
     'QR Codes':    {*_ADMIN_MANAGER, 'Warehouse Staff'},
     'Reports':     {*_ADMIN_MANAGER, 'Sales Officer', 'Procurement Officer'},
     'Target Goals': _ADMIN_MANAGER,
-    'Dictionary':  _ALL,
+    'Dictionary':  _EVERYONE_EXCEPT_VIEWER,
     'Settings':    {'Admin'},
 }
 

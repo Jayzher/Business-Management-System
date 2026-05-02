@@ -1,5 +1,5 @@
 from decimal import Decimal
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.db.models import Sum, Count, Q, F, DecimalField
 from django.db.models.functions import Coalesce
@@ -10,6 +10,11 @@ from core.cogs import compute_invoice_cogs
 
 @login_required
 def dashboard_view(request):
+    # Viewer-only users cannot access the dashboard — redirect to catalog
+    from accounts.decorators import _user_is_viewer
+    if _user_is_viewer(request.user):
+        return redirect('item_list')
+
     from catalog.models import Item
     from inventory.models import StockBalance, StockMove
     from procurement.models import GoodsReceipt

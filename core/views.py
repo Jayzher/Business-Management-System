@@ -314,8 +314,14 @@ def invoice_from_so(request, so_id):
         return redirect('invoice_detail', pk=existing.pk)
 
     lines_total = sum(l.line_total for l in so.lines.all())
+    lines_subtotal = sum(l.qty_ordered * l.unit_price for l in so.lines.all())
+    lines_discount = lines_subtotal - lines_total
     bundles_total = sum(b.bundle_total for b in so.price_list_lines.all())
+    bundles_subtotal = sum(b.bundle_subtotal for b in so.price_list_lines.all())
+    bundles_discount = bundles_subtotal - bundles_total
     grand_total = lines_total + bundles_total
+    subtotal = lines_subtotal + bundles_subtotal
+    discount_total = lines_discount + bundles_discount
 
     inv = Invoice.objects.create(
         invoice_number=_next_invoice_number(),
@@ -323,7 +329,8 @@ def invoice_from_so(request, so_id):
         sales_order=so,
         customer_name=so.customer.name if so.customer else '',
         customer_address=so.customer.address if so.customer else '',
-        subtotal=lines_total,
+        subtotal=subtotal,
+        discount_total=discount_total,
         grand_total=grand_total,
         created_by=request.user,
     )
@@ -335,6 +342,7 @@ def invoice_from_so(request, so_id):
             qty=line.qty_ordered,
             unit=line.unit.abbreviation,
             unit_price=line.unit_price,
+            discount=line.discount_amount,
             line_total=line.line_total,
         )
     for bundle in so.price_list_lines.select_related('price_list').all():
@@ -345,6 +353,7 @@ def invoice_from_so(request, so_id):
             qty=bundle.qty_multiplier,
             unit='bundle',
             unit_price=bundle.bundle_subtotal,
+            discount=bundle.bundle_discount_amount,
             line_total=bundle.bundle_total,
         )
     messages.success(request, f'Invoice {inv.invoice_number} generated.')
