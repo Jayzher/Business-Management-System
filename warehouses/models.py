@@ -13,7 +13,7 @@ class Warehouse(SoftDeleteModel):
         'accounts.User', on_delete=models.SET_NULL,
         null=True, blank=True, related_name='managed_warehouses'
     )
-    allow_negative_stock = models.BooleanField(default=False)
+    allow_negative_stock = models.BooleanField(default=True)
 
     class Meta:
         ordering = ['code']
