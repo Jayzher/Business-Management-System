@@ -104,6 +104,10 @@
             <div class="summary-value text-success">₱{{ summary.capital_other|floatformat:2 }}</div>
         </div>
         <div class="summary-item">
+            <div class="summary-label">Total Income</div>
+            <div class="summary-value text-success">₱{{ summary.capital_total|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
             <div class="summary-label">Procurement (Cash Flow)</div>
             <div class="summary-value text-info">₱{{ summary.expenses_procurement|floatformat:2 }}</div>
             <small class="text-muted">Inventory purchased (not an expense)</small>
@@ -116,12 +120,8 @@
             <div class="summary-label">Other Expenses</div>
             <div class="summary-value text-danger">₱{{ summary.expenses_other|floatformat:2 }}</div>
         </div>
-        <div class="summary-item">
-            <div class="summary-label">Total Operating Expenses</div>
-            <div class="summary-value text-danger">₱{{ summary.expenses_total|floatformat:2 }}</div>
-        </div>
         <div class="summary-item" style="grid-column: span 2;">
-            <div class="summary-label">Net Profit (Gross Profit − Expenses)</div>
+            <div class="summary-label">Net Profit (Total Income − Expenses)</div>
             <div class="summary-value {% if summary.net_profit >= 0 %}text-primary{% else %}text-danger{% endif %}">
                 ₱{{ summary.net_profit|floatformat:2 }}
             </div>
@@ -146,7 +146,6 @@
                         </div>
                         <div class="text-end">
                             <div class="text-success fw-bold">₱{{ sale.grand_total|floatformat:2 }}</div>
-                            <small class="text-muted">GP: ₱{{ sale.grand_total|add:sale.grand_total_cogs|floatformat:2 }}</small>
                         </div>
                     </div>
                     {% empty %}

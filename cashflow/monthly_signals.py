@@ -121,13 +121,14 @@ def update_monthly_summary(year, month, user=None):
     # 4. P&L (Accrual Basis)
     # ══════════════════════════════════════════════════════════════════════
     revenue_sales = _calculate_sales_revenue(start_date, next_month_start, start_dt, end_dt)
-    revenue_other = other_cash_in + capital_injections
 
     gross_profit = revenue_sales - cogs_actual
     gross_margin_pct = (
         (gross_profit / revenue_sales * 100) if revenue_sales > 0 else Decimal('0')
     )
-    net_profit = gross_profit - expenses_operational - expenses_other
+    # Net Profit includes other income (capital injections, purchase returns, etc.)
+    total_income = gross_profit + other_cash_in + capital_injections
+    net_profit = total_income - expenses_operational - expenses_other - expenses_supplies
 
     # ══════════════════════════════════════════════════════════════════════
     # 5. BALANCE SHEET
@@ -192,12 +193,12 @@ def update_monthly_summary(year, month, user=None):
             'collection_rate_pct': collection_rate_pct,
             'days_sales_outstanding': dso,
             'capital_sales': gross_profit,
-            'capital_other': revenue_other,
-            'capital_total': gross_profit + revenue_other,
+            'capital_other': other_cash_in + capital_injections,
+            'capital_total': total_income,
             'expenses_procurement': inventory_purchased,
-            'expenses_operational': expenses_operational,
+            'expenses_operational': expenses_operational + expenses_supplies,
             'expenses_other': expenses_other,
-            'expenses_total': expenses_operational + expenses_other,
+            'expenses_total': expenses_operational + expenses_other + expenses_supplies,
             'total_inflow': total_cash_in,
             'total_outflow': total_cash_out,
             'net_cash_flow': net_cash_flow,
@@ -552,11 +553,22 @@ def update_summary_on_pos_sale(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=Invoice)
 def update_summary_on_invoice(sender, instance, created, **kwargs):
-    if not instance.is_void and instance.paid_at:
+    if instance.is_void:
+        return
+    # Recalculate the month the invoice was ISSUED (accrual revenue)
+    if instance.date:
         update_monthly_summary(
-            instance.paid_at.year, instance.paid_at.month,
+            instance.date.year, instance.date.month,
             user=getattr(instance, 'created_by', None),
         )
+    # Also recalculate the month it was PAID if different (cash flow)
+    if instance.paid_at:
+        paid_year, paid_month = instance.paid_at.year, instance.paid_at.month
+        if not instance.date or (paid_year, paid_month) != (instance.date.year, instance.date.month):
+            update_monthly_summary(
+                paid_year, paid_month,
+                user=getattr(instance, 'created_by', None),
+            )
 
 
 @receiver(post_save, sender=DeliveryNote)
@@ -604,6 +616,16 @@ def update_summary_on_cashflow(sender, instance, created, **kwargs):
         )
 
 
+@receiver(post_save, sender=InvoicePayment)
+def update_summary_on_invoice_payment(sender, instance, created, **kwargs):
+    """Recalculate when an invoice payment is recorded (affects cash_from_customers and AR)."""
+    if instance.date:
+        update_monthly_summary(
+            instance.date.year, instance.date.month,
+            user=getattr(instance, 'created_by', None),
+        )
+
+
 # ── Delete handlers ──────────────────────────────────────────────────────
 
 @receiver(post_delete, sender=POSSale)
@@ -614,8 +636,12 @@ def recalc_on_pos_sale_delete(sender, instance, **kwargs):
 
 @receiver(post_delete, sender=Invoice)
 def recalc_on_invoice_delete(sender, instance, **kwargs):
+    if instance.date:
+        update_monthly_summary(instance.date.year, instance.date.month)
     if instance.paid_at:
-        update_monthly_summary(instance.paid_at.year, instance.paid_at.month)
+        paid_year, paid_month = instance.paid_at.year, instance.paid_at.month
+        if not instance.date or (paid_year, paid_month) != (instance.date.year, instance.date.month):
+            update_monthly_summary(paid_year, paid_month)
 
 
 @receiver(post_delete, sender=GoodsReceipt)
@@ -636,3 +662,9 @@ def recalc_on_cashflow_delete(sender, instance, **kwargs):
         update_monthly_summary(
             instance.transaction_date.year, instance.transaction_date.month,
         )
+
+
+@receiver(post_delete, sender=InvoicePayment)
+def recalc_on_invoice_payment_delete(sender, instance, **kwargs):
+    if instance.date:
+        update_monthly_summary(instance.date.year, instance.date.month)

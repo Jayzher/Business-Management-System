@@ -169,12 +169,20 @@ class MonthlyCashflowSummary(TimeStampedModel):
     """
     Monthly cashflow summary with opening/closing balance tracking.
     
-    Formula:
-    - Opening Balance = Previous month's closing balance
-    - Total Inflow = Gross Profit from Sales + Other Cash-In
-    - Total Outflow = Procurement Costs + Operational Expenses + Other Cash-Out
+    Two parallel views of the same month:
+    
+    Cash Flow (Cash Basis — when money moves):
+    - Total Inflow = Cash from Customers + Capital Injections + Other Cash-In
+    - Total Outflow = Cash to Suppliers + Operational Expenses + Supplies + Other Cash-Out
     - Net Cash Flow = Total Inflow - Total Outflow
-    - Closing Balance = Opening Balance + Net Cash Flow
+    
+    P&L (Accrual Basis — when revenue is earned):
+    - Gross Profit = Revenue (accrual) - COGS (actual)
+    - Net Profit = Gross Profit - Operating Expenses
+    
+    Balance Sheet:
+    - Opening Balance = Cash + Inventory + AR at start of month
+    - Closing Balance = Cash + Inventory + AR at end of month
     """
     year = models.IntegerField(db_index=True)
     month = models.IntegerField(db_index=True)  # 1-12
@@ -308,7 +316,7 @@ class MonthlyCashflowSummary(TimeStampedModel):
     )
     expenses_total = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
-        help_text='Total expenses (COGS + operational + other) - excludes procurement',
+        help_text='Total operating expenses (operational + supplies + other) — excludes COGS and procurement',
     )
     
     # ── Totals & Net Flow ────────────────────────────────────────────────────
@@ -326,7 +334,7 @@ class MonthlyCashflowSummary(TimeStampedModel):
     )
     net_profit = models.DecimalField(
         max_digits=15, decimal_places=2, default=0,
-        help_text='Net profit (capital - expenses) - DEPRECATED, use net_cash_flow',
+        help_text='Net profit: Gross Profit (Revenue - COGS) minus Operating Expenses',
     )
     
     # ── Metadata ─────────────────────────────────────────────────────────────

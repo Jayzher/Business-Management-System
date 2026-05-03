@@ -224,12 +224,11 @@
             <div class="row">
                 <div class="col-md-4 mb-2">
                     <div class="summary-card capital">
-                        <div class="summary-label">💰 GROSS PROFIT</div>
-                        <div class="summary-value text-success">₱{{ summary.capital_sales|floatformat:2|intcomma }}</div>
+                        <div class="summary-label">💰 TOTAL INCOME</div>
+                        <div class="summary-value text-success">₱{{ summary.capital_total|floatformat:2|intcomma }}</div>
                         <div class="summary-detail">
-                            Revenue: ₱{{ summary.revenue_accrual|floatformat:2|intcomma }}<br>
-                            COGS: ₱{{ summary.cogs_actual|floatformat:2|intcomma }}<br>
-                            Other: ₱{{ summary.capital_other|floatformat:2|intcomma }}
+                            Gross Profit: ₱{{ summary.capital_sales|floatformat:2|intcomma }}<br>
+                            Other Income: ₱{{ summary.capital_other|floatformat:2|intcomma }}
                         </div>
                     </div>
                 </div>
