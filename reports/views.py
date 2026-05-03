@@ -705,24 +705,32 @@ def financial_statement_view(request):
         invoice_period_cogs[inv.pk] = (full_cogs * ratio).quantize(Decimal('0.01'))
         invoice_period_discount[inv.pk] = (inv.discount_total * ratio).quantize(Decimal('0.01'))
 
-    # Aggregate totals
-    invoice_revenue = sum(invoice_period_revenue.values(), Decimal('0'))
-    discount = sum(invoice_period_discount.values(), Decimal('0'))
-    cogs_from_invoices = sum(invoice_period_cogs.values(), Decimal('0'))
+    # Aggregate totals — ONLY fully-paid invoices count toward P&L.
+    # Partial payments are tracked separately for display but excluded
+    # from revenue, COGS, and profit calculations.
+    invoice_revenue = sum(
+        invoice_period_revenue[inv.pk] for inv in invoice_rows if inv.is_paid
+    )
+    discount = sum(
+        invoice_period_discount[inv.pk] for inv in invoice_rows if inv.is_paid
+    )
+    cogs_from_invoices = sum(
+        invoice_period_cogs[inv.pk] for inv in invoice_rows if inv.is_paid
+    )
 
     # ── Separate P&L: Materials Sales vs Services ──────────────────────
-    # Materials Sales = POS + Sales Orders
+    # Materials Sales = POS + Sales Orders (fully paid only)
     materials_revenue = sum(
         invoice_period_revenue[inv.pk] for inv in invoice_rows
-        if inv.sales_order_id or inv.pos_sale_id
+        if (inv.sales_order_id or inv.pos_sale_id) and inv.is_paid
     )
     materials_discount = sum(
         invoice_period_discount[inv.pk] for inv in invoice_rows
-        if inv.sales_order_id or inv.pos_sale_id
+        if (inv.sales_order_id or inv.pos_sale_id) and inv.is_paid
     )
     materials_cogs = sum(
         invoice_period_cogs[inv.pk] for inv in invoice_rows
-        if inv.sales_order_id or inv.pos_sale_id
+        if (inv.sales_order_id or inv.pos_sale_id) and inv.is_paid
     )
     materials_gross_profit = materials_revenue - materials_discount - materials_cogs
     materials_gross_margin = (
@@ -730,18 +738,18 @@ def financial_statement_view(request):
         if (materials_revenue - materials_discount) > 0 else Decimal('0')
     )
 
-    # Services = Everything else (customer services)
+    # Services = Everything else (customer services, fully paid only)
     services_revenue = sum(
         invoice_period_revenue[inv.pk] for inv in invoice_rows
-        if not inv.sales_order_id and not inv.pos_sale_id
+        if not inv.sales_order_id and not inv.pos_sale_id and inv.is_paid
     )
     services_discount = sum(
         invoice_period_discount[inv.pk] for inv in invoice_rows
-        if not inv.sales_order_id and not inv.pos_sale_id
+        if not inv.sales_order_id and not inv.pos_sale_id and inv.is_paid
     )
     services_cogs = sum(
         invoice_period_cogs[inv.pk] for inv in invoice_rows
-        if not inv.sales_order_id and not inv.pos_sale_id
+        if not inv.sales_order_id and not inv.pos_sale_id and inv.is_paid
     )
     services_gross_profit = services_revenue - services_discount - services_cogs
     services_gross_margin = (
@@ -896,31 +904,26 @@ def financial_statement_view(request):
     debug_so_query_count = debug_so_with_partial
     
     # ── Update totals ─────────────────────────────────────────────────
-    # Services totals: invoice-based payments are already in services_revenue,
-    # only add non-invoiced partial payments on top
-    services_revenue_with_partial = services_revenue + non_invoiced_partial_services_revenue
-    services_cogs_with_partial = services_cogs + non_invoiced_partial_services_cogs
-    services_gross_profit_with_partial = services_revenue_with_partial - services_discount - services_cogs_with_partial
-    services_gross_margin_with_partial = (
-        (services_gross_profit_with_partial / (services_revenue_with_partial - services_discount) * 100)
-        if (services_revenue_with_partial - services_discount) > 0 else Decimal('0')
-    )
+    # Partial payments are excluded from P&L. The _with_partial variables
+    # are kept identical to the base values for template backward
+    # compatibility, but no partial amounts are added.
+    services_revenue_with_partial = services_revenue
+    services_cogs_with_partial = services_cogs
+    services_gross_profit_with_partial = services_gross_profit
+    services_gross_margin_with_partial = services_gross_margin
 
-    # Materials totals: no non-invoiced partial payments for materials
+    # Materials totals: no partial payments included
     materials_revenue_with_partial = materials_revenue
     materials_cogs_with_partial = materials_cogs
-    materials_gross_profit_with_partial = materials_revenue_with_partial - materials_discount - materials_cogs_with_partial
-    materials_gross_margin_with_partial = (
-        (materials_gross_profit_with_partial / (materials_revenue_with_partial - materials_discount) * 100)
-        if (materials_revenue_with_partial - materials_discount) > 0 else Decimal('0')
-    )
+    materials_gross_profit_with_partial = materials_gross_profit
+    materials_gross_margin_with_partial = materials_gross_margin
 
     # Calculate net revenues (after discounts)
     materials_net_revenue = materials_revenue_with_partial - materials_discount
     services_net_revenue = services_revenue_with_partial - services_discount
 
-    # Total revenue = invoice payments in period + non-invoiced partial payments
-    invoice_revenue_with_partial = invoice_revenue + non_invoiced_partial_services_revenue
+    # Total revenue = fully-paid invoice payments only (no partial)
+    invoice_revenue_with_partial = invoice_revenue
     net_revenue = invoice_revenue_with_partial - discount
 
     # ── COGS from expense categories marked as COGS ────────────────────
@@ -935,9 +938,8 @@ def financial_statement_view(request):
     )['total']
 
     # ── Total COGS ──────────────────────────────────────────────────────
-    # cogs_from_invoices already uses proportional COGS (payment-based).
-    # Only add non-invoiced partial service COGS and expense-based COGS.
-    total_cogs = cogs_from_invoices + cogs_expenses + non_invoiced_partial_services_cogs
+    # Only fully-paid invoice COGS + expense-based COGS. No partial payments.
+    total_cogs = cogs_from_invoices + cogs_expenses
     gross_profit = net_revenue - total_cogs
     gross_margin = (gross_profit / net_revenue * 100) if net_revenue > 0 else Decimal('0')
 
