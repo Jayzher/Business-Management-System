@@ -380,14 +380,6 @@
                         <td class="ps-4"><span data-toggle="tooltip" title="Total revenue from materials sales before discounts">Revenue (gross)</span></td>
                         <td class="text-right">&#8369; {{ materials_revenue_with_partial|floatformat:2|intcomma }}</td>
                       </tr>
-                      {% if partial_so_revenue %}
-                      <tr>
-                        <td class="ps-5 text-info small">
-                          <span data-toggle="tooltip" title="Partial payments from Sales Order invoices not yet fully paid"><i class="fas fa-clock mr-1"></i>Includes &#8369;{{ partial_so_revenue|floatformat:2|intcomma }} from {{ partial_so_count }} partial payment{{ partial_so_count|pluralize }}</span>
-                        </td>
-                        <td></td>
-                      </tr>
-                      {% endif %}
                       {% if materials_discount %}
                       <tr>
                         <td class="ps-4"><span data-toggle="tooltip" title="Total discounts given on materials sales">Less: Discounts</span></td>
@@ -436,14 +428,6 @@
                         <td class="ps-4"><span data-toggle="tooltip" title="Total revenue from services before discounts">Revenue (gross)</span></td>
                         <td class="text-right">&#8369; {{ services_revenue_with_partial|floatformat:2|intcomma }}</td>
                       </tr>
-                      {% if partial_services_revenue %}
-                      <tr>
-                        <td class="ps-5 text-info small">
-                          <span data-toggle="tooltip" title="Partial payments from service invoices not yet fully paid"><i class="fas fa-clock mr-1"></i>Includes &#8369;{{ partial_services_revenue|floatformat:2|intcomma }} from {{ partial_services_count }} partial payment{{ partial_services_count|pluralize }}</span>
-                        </td>
-                        <td></td>
-                      </tr>
-                      {% endif %}
                       {% if services_discount %}
                       <tr>
                         <td class="ps-4"><span data-toggle="tooltip" title="Total discounts given on services">Less: Discounts</span></td>
@@ -591,16 +575,6 @@
               </button>
             </li>
             <li class="nav-item" role="presentation">
-              <button class="nav-link" id="stab-partial-svc" data-bs-toggle="pill" data-bs-target="#spane-partial-svc" type="button" role="tab" aria-selected="false">
-                <i class="fas fa-clock mr-1 text-info"></i> Partial - Services <span class="badge bg-info ms-1">{{ partial_services_count }}</span>
-              </button>
-            </li>
-            <li class="nav-item" role="presentation">
-              <button class="nav-link" id="stab-partial-so" data-bs-toggle="pill" data-bs-target="#spane-partial-so" type="button" role="tab" aria-selected="false">
-                <i class="fas fa-clock mr-1 text-primary"></i> Partial - Sales Orders <span class="badge bg-primary ms-1">{{ partial_so_count }}</span>
-              </button>
-            </li>
-            <li class="nav-item" role="presentation">
               <button class="nav-link" id="stab-payments" data-bs-toggle="pill" data-bs-target="#spane-payments" type="button" role="tab" aria-selected="false">
                 <i class="fas fa-credit-card mr-1"></i> Payment Methods
               </button>
@@ -675,140 +649,6 @@
                       </td>
                       <td class="text-right {% if breakdown_total_gp >= 0 %}text-success{% else %}text-danger{% endif %}">
                         &#8369; {{ breakdown_total_gp|floatformat:2|intcomma }}
-                      </td>
-                    </tr>
-                  </tfoot>
-                  {% endif %}
-                </table>
-              </div>
-            </div>
-
-            <!-- ── Partial Payments - Services Sub-tab ── -->
-            <div class="tab-pane fade" id="spane-partial-svc" role="tabpanel">
-              <div class="alert alert-info py-2 mb-3" style="font-size:.82rem;">
-                <i class="fas fa-info-circle mr-1"></i>
-                Revenue is recognized based on <strong>actual payment dates</strong>. Partial payments are counted only once — in the period when received. This prevents double-counting across periods.
-              </div>
-              <div class="table-responsive">
-                <table class="table fs-txn-table table-hover mb-0" id="partialTable">
-                  <thead>
-                    <tr>
-                      <th>Invoice #</th>
-                      <th>Service #</th>
-                      <th>Customer</th>
-                      <th>Date</th>
-                      <th class="text-right">Grand Total</th>
-                      <th class="text-right">Paid</th>
-                      <th class="text-right">Balance</th>
-                      <th class="text-right">% Paid</th>
-                      <th class="text-right">COGS</th>
-                      <th class="text-right">Gross Profit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for item in partial_services_breakdown %}
-                    <tr>
-                      <td class="font-monospace">{{ item.invoice.invoice_number }}</td>
-                      <td class="font-monospace">{{ item.service.service_number|default:"—" }}</td>
-                      <td>{{ item.invoice.customer_name }}</td>
-                      <td>{{ item.invoice.date|date:"M d, Y"|default:"—" }}</td>
-                      <td class="text-right">&#8369; {{ item.invoice.grand_total|floatformat:2|intcomma }}</td>
-                      <td class="text-right text-info font-weight-bold">&#8369; {{ item.revenue|floatformat:2|intcomma }}</td>
-                      <td class="text-right" style="color:#d97706;">&#8369; {{ item.balance_due|floatformat:2|intcomma }}</td>
-                      <td class="text-right"><span class="badge bg-info">{{ item.payment_percentage|floatformat:0 }}%</span></td>
-                      <td class="text-right negative">&#8369; {{ item.cogs|floatformat:2|intcomma }}</td>
-                      <td class="text-right {% if item.gross_profit >= 0 %}positive{% else %}negative{% endif %} font-weight-bold">
-                        &#8369; {{ item.gross_profit|floatformat:2|intcomma }}
-                      </td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="10">
-                      <div class="fs-empty">
-                        <i class="fas fa-check-circle text-success"></i>
-                        <p>No partial service payments for this period. All services are either fully paid or unpaid.</p>
-                      </div>
-                    </td></tr>
-                    {% endfor %}
-                  </tbody>
-                  {% if partial_services_breakdown %}
-                  <tfoot style="background:#1e293b; color:#fff; font-weight:700;">
-                    <tr>
-                      <td colspan="5" class="text-right">TOTALS</td>
-                      <td class="text-right text-info">&#8369; {{ partial_services_revenue|floatformat:2|intcomma }}</td>
-                      <td class="text-right">—</td>
-                      <td class="text-right">—</td>
-                      <td class="text-right" style="color:#fca5a5;">&#8369; {{ partial_services_cogs|floatformat:2|intcomma }}</td>
-                      <td class="text-right text-success">
-                        &#8369; {{ partial_services_revenue|subtract:partial_services_cogs|floatformat:2|intcomma }}
-                      </td>
-                    </tr>
-                  </tfoot>
-                  {% endif %}
-                </table>
-              </div>
-            </div>
-
-            <!-- ── Partial Payments - Sales Orders Sub-tab ── -->
-            <div class="tab-pane fade" id="spane-partial-so" role="tabpanel">
-              <div class="alert alert-info py-2 mb-3" style="font-size:.82rem;">
-                <i class="fas fa-info-circle mr-1"></i>
-                Sales Order and POS invoices with <strong>partial payments received</strong> (not yet fully paid). Revenue and COGS are recognized proportionally. Once fully paid, the full revenue appears in the "Invoices" tab.
-              </div>
-              <div class="table-responsive">
-                <table class="table fs-txn-table table-hover mb-0" id="partialSOTable">
-                  <thead>
-                    <tr>
-                      <th>Invoice #</th>
-                      <th>SO/POS #</th>
-                      <th>Customer</th>
-                      <th>Date</th>
-                      <th class="text-right">Grand Total</th>
-                      <th class="text-right">Paid</th>
-                      <th class="text-right">Balance</th>
-                      <th class="text-right">% Paid</th>
-                      <th class="text-right">COGS</th>
-                      <th class="text-right">Gross Profit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for item in partial_so_breakdown %}
-                    <tr>
-                      <td class="font-monospace">{{ item.invoice.invoice_number }}</td>
-                      <td class="font-monospace">
-                        {% if item.sales_order %}{{ item.sales_order.document_number }}
-                        {% elif item.pos_sale %}{{ item.pos_sale.sale_no }}
-                        {% else %}—{% endif %}
-                      </td>
-                      <td>{{ item.invoice.customer_name }}</td>
-                      <td>{{ item.invoice.date|date:"M d, Y"|default:"—" }}</td>
-                      <td class="text-right">&#8369; {{ item.invoice.grand_total|floatformat:2|intcomma }}</td>
-                      <td class="text-right text-primary font-weight-bold">&#8369; {{ item.revenue|floatformat:2|intcomma }}</td>
-                      <td class="text-right" style="color:#d97706;">&#8369; {{ item.balance_due|floatformat:2|intcomma }}</td>
-                      <td class="text-right"><span class="badge bg-primary">{{ item.payment_percentage|floatformat:0 }}%</span></td>
-                      <td class="text-right negative">&#8369; {{ item.cogs|floatformat:2|intcomma }}</td>
-                      <td class="text-right {% if item.gross_profit >= 0 %}positive{% else %}negative{% endif %} font-weight-bold">
-                        &#8369; {{ item.gross_profit|floatformat:2|intcomma }}
-                      </td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="10">
-                      <div class="fs-empty">
-                        <i class="fas fa-check-circle text-success"></i>
-                        <p>No partial sales order payments for this period.</p>
-                      </div>
-                    </td></tr>
-                    {% endfor %}
-                  </tbody>
-                  {% if partial_so_breakdown %}
-                  <tfoot style="background:#1e293b; color:#fff; font-weight:700;">
-                    <tr>
-                      <td colspan="5" class="text-right">TOTALS</td>
-                      <td class="text-right text-primary">&#8369; {{ partial_so_revenue|floatformat:2|intcomma }}</td>
-                      <td class="text-right">—</td>
-                      <td class="text-right">—</td>
-                      <td class="text-right" style="color:#fca5a5;">&#8369; {{ partial_so_cogs|floatformat:2|intcomma }}</td>
-                      <td class="text-right text-success">
-                        &#8369; {{ partial_so_revenue|subtract:partial_so_cogs|floatformat:2|intcomma }}
                       </td>
                     </tr>
                   </tfoot>
