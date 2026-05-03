@@ -199,11 +199,17 @@
                     {% endfor %}
                 </div>
             </div>
-            <div class="col-md-3 d-flex align-items-end justify-content-end pb-1">
+            <div class="col-md-3 d-flex align-items-end justify-content-end pb-1 gap-1">
+                <form method="post" action="{% url 'cashflow:recalculate_month' year month %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-warning btn-sm" onclick="return confirm('Recalculate {{ month_name }} {{ year }}?')">
+                        <i class="fas fa-sync-alt me-1"></i>Recalculate
+                    </button>
+                </form>
                 <a href="{% url 'cashflow:monthly_dashboard' %}" class="btn btn-outline-primary btn-sm">
                     <i class="fas fa-chart-bar me-1"></i>Dashboard
                 </a>
-                <a href="#" data-modal-url="{% url 'cashflow:cashflow_create' %}" class="btn btn-success btn-sm ml-3">
+                <a href="#" data-modal-url="{% url 'cashflow:cashflow_create' %}" class="btn btn-success btn-sm">
                     <i class="fas fa-plus me-1"></i>New Transaction
                 </a>
             </div>
@@ -506,12 +512,12 @@
                     <span class="cashflow-value text-inflow">₱{{ summary.cash_from_customers|default:0|floatformat:2|intcomma }}</span>
                 </div>
                 <div class="cashflow-row">
-                    <span class="cashflow-label">Capital Injections & Other Cash-In</span>
+                    <span class="cashflow-label">Capital Injections &amp; Other Cash-In</span>
                     <span class="cashflow-value text-inflow">₱{{ summary.capital_other|floatformat:2|intcomma }}</span>
                 </div>
-                <div class="cashflow-row">
-                    <span class="cashflow-label">AR Collections (Invoice Payments)</span>
-                    <span class="cashflow-value text-inflow">₱{{ summary.ar_collections|default:0|floatformat:2|intcomma }}</span>
+                <div class="cashflow-row" style="color: #adb5bd; font-size: 11px;">
+                    <span class="cashflow-label"><i class="fas fa-info-circle"></i> AR Collections (included in Cash from Customers above)</span>
+                    <span class="cashflow-value" style="color: #adb5bd;">₱{{ summary.ar_collections|default:0|floatformat:2|intcomma }}</span>
                 </div>
                 <div class="cashflow-row total">
                     <span>Total Cash Inflow</span>
@@ -527,12 +533,12 @@
                     <span></span>
                 </div>
                 <div class="cashflow-row">
-                    <span class="cashflow-label">Operating Expenses</span>
-                    <span class="cashflow-value text-outflow">₱{{ summary.expenses_operational|floatformat:2|intcomma }}</span>
+                    <span class="cashflow-label">Cash to Suppliers (Procurement)</span>
+                    <span class="cashflow-value text-outflow">₱{{ summary.cash_to_suppliers|default:0|floatformat:2|intcomma }}</span>
                 </div>
                 <div class="cashflow-row">
-                    <span class="cashflow-label">Cash to Suppliers (Procurement)</span>
-                    <span class="cashflow-value text-outflow">₱{{ summary.expenses_procurement|floatformat:2|intcomma }}</span>
+                    <span class="cashflow-label">Operating Expenses</span>
+                    <span class="cashflow-value text-outflow">₱{{ summary.expenses_operational|floatformat:2|intcomma }}</span>
                 </div>
                 <div class="cashflow-row">
                     <span class="cashflow-label">Other Cash Out</span>
@@ -807,22 +813,24 @@
     <div class="row">
         <div class="col-md-4">
             <div class="summary-card capital">
-                <div class="summary-label"><i class="fas fa-arrow-circle-down text-inflow"></i> CAPITAL (Cash In)</div>
+                <div class="summary-label"><i class="fas fa-chart-line text-inflow"></i> TOTAL INCOME (P&amp;L)</div>
                 <div class="summary-value text-inflow">₱{{ summary.capital_total|floatformat:2|intcomma }}</div>
                 <div class="summary-detail">
-                    Sales: ₱{{ summary.capital_sales|floatformat:2|intcomma }}<br>
-                    Other: ₱{{ summary.capital_other|floatformat:2|intcomma }}
+                    Revenue: ₱{{ summary.revenue_accrual|floatformat:2|intcomma }}<br>
+                    COGS: -₱{{ summary.cogs_actual|floatformat:2|intcomma }}<br>
+                    <strong>Gross Profit: ₱{{ summary.capital_sales|floatformat:2|intcomma }}</strong><br>
+                    Other Income: +₱{{ summary.capital_other|floatformat:2|intcomma }}
                 </div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="summary-card expenses">
-                <div class="summary-label"><i class="fas fa-arrow-circle-up text-outflow"></i> EXPENSES (Cash Out)</div>
+                <div class="summary-label"><i class="fas fa-arrow-circle-up text-outflow"></i> OPERATING EXPENSES</div>
                 <div class="summary-value text-outflow">₱{{ summary.expenses_total|floatformat:2|intcomma }}</div>
                 <div class="summary-detail">
-                    Procurement: ₱{{ summary.expenses_procurement|floatformat:2|intcomma }}<br>
                     Operational: ₱{{ summary.expenses_operational|floatformat:2|intcomma }}<br>
-                    Other: ₱{{ summary.expenses_other|floatformat:2|intcomma }}
+                    Other: ₱{{ summary.expenses_other|floatformat:2|intcomma }}<br>
+                    <small class="text-muted">Procurement (Cash→Inventory): ₱{{ summary.expenses_procurement|floatformat:2|intcomma }}</small>
                 </div>
             </div>
         </div>
@@ -833,6 +841,7 @@
                     ₱{{ summary.net_profit|floatformat:2|intcomma }}
                 </div>
                 <div class="summary-detail">
+                    Total Income − Expenses<br>
                     Margin: {{ summary.profit_margin|floatformat:1 }}%<br>
                     Transactions: {{ summary.sales_count }} sales, {{ summary.procurement_count }} procurements
                 </div>
@@ -845,8 +854,8 @@
         <div class="breakdown-header section-toggle" onclick="toggleSection('capital-section')">
             <i class="fas fa-chevron-down"></i>
             <i class="fas fa-chart-line text-success"></i> 
-            <span>Capital Breakdown (Cash In)</span>
-            <span class="ml-auto badge badge-success">₱{{ summary.capital_total|floatformat:2|intcomma }}</span>
+            <span>Sales &amp; Revenue Breakdown (P&amp;L)</span>
+            <span class="ml-auto badge badge-success">₱{{ summary.revenue_accrual|floatformat:2|intcomma }}</span>
         </div>
         
         <div id="capital-section" class="section-content">
@@ -867,8 +876,13 @@
                     </thead>
                     <tbody>
                         {% for sale in sales_breakdown %}
-                        <tr>
-                            <td><span class="badge badge-success">{{ sale.type }}</span></td>
+                        <tr{% if sale.flag == 'zero-revenue' %} style="background: #fff3cd;"{% endif %}>
+                            <td>
+                                <span class="badge badge-success">{{ sale.type }}</span>
+                                {% if sale.flag == 'zero-revenue' %}
+                                <span class="badge badge-warning" title="₱0 revenue with COGS — verify if intentional">⚠️</span>
+                                {% endif %}
+                            </td>
                             <td><strong>{{ sale.number }}</strong></td>
                             <td><i class="far fa-calendar"></i> {{ sale.date|date:"M d, Y" }}</td>
                             <td class="text-right">₱{{ sale.revenue|floatformat:2|intcomma }}</td>
@@ -877,7 +891,9 @@
                         </tr>
                         {% endfor %}
                         <tr style="background: #f8f9fa; font-weight: bold;">
-                            <td colspan="5" class="text-right">Total Sales Gross Profit:</td>
+                            <td colspan="3" class="text-right">Total Sales Revenue (All {{ sales_breakdown.paginator.count }} transactions):</td>
+                            <td class="text-right">₱{{ summary.revenue_accrual|floatformat:2|intcomma }}</td>
+                            <td class="text-right">₱{{ summary.cogs_actual|floatformat:2|intcomma }}</td>
                             <td class="text-right text-success">₱{{ summary.capital_sales|floatformat:2|intcomma }}</td>
                         </tr>
                     </tbody>
