@@ -59,7 +59,7 @@ from inventory.models import StockBalance, StockMove, MoveStatus, MoveType
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 def _inventory_unit(item):
-    """Return the canonical resync unit for inventory rebuilding.
+    """Return the canonical unit for inventory rebuilding.
 
     Uses item.default_unit (the procurement/base unit) for all inventory
     tracking. This is the unit in which StockMoves and StockBalances are

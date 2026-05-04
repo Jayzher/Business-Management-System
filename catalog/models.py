@@ -190,12 +190,13 @@ class Item(SoftDeleteModel):
     def stock_unit(self):
         """The canonical unit for all inventory storage (StockBalance/StockMove).
 
-        Returns selling_unit when explicitly set, otherwise falls back to
-        default_unit.  All posting services must convert to this unit before
-        writing to StockBalance so that every quantity is normalised to the
-        selling/inventory unit regardless of the procurement unit used.
+        Always returns default_unit — the procurement/base unit.  This
+        ensures that inventory is tracked in the same unit the item is
+        purchased in, regardless of selling_unit configuration.  The
+        selling_unit is used only at the point-of-sale / invoice layer
+        and never affects how stock quantities are stored.
         """
-        return self.selling_unit if self.selling_unit_id else self.default_unit
+        return self.default_unit
 
     def __str__(self):
         return f"[{self.code}] {self.name}"

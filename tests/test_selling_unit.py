@@ -1,20 +1,23 @@
 """
-Tests for Item.stock_unit property and selling-unit-normalised inventory posting.
+Tests for Item.stock_unit property and default-unit-based inventory posting.
+
+stock_unit always returns default_unit (the procurement/base unit).
+selling_unit is used only at the sales/invoice layer and never affects
+how stock quantities are stored.
 
 Scenarios:
   1.  stock_unit returns default_unit when selling_unit is None.
-  2.  stock_unit returns selling_unit when it is set.
-  3.  GRN in roll (procurement unit) → inventory stored in meters (selling_unit).
-  4.  GRN in selling_unit directly → inventory unchanged.
-  5.  DeliveryNote deducts in selling_unit (converted from doc unit).
-  6.  GRN then DN in rolls → net balance in meters is correct.
-  7.  StockTransfer in rolls normalises to meters in both locations.
-  8.  POS sale in rolls → deducts meters from balance.
-  9.  Damaged report in rolls → deducts meters.
- 10.  resync Phase 2 re-calculates balance using selling_unit.
- 11.  ItemForm clean() rejects selling_unit in different category.
- 12.  ItemForm clean() accepts selling_unit in same category as default_unit.
- 13.  SalesOrderLineForm clean() validates against item.stock_unit category.
+  2.  stock_unit returns default_unit even when selling_unit is set.
+  3.  GRN in roll (default_unit) → inventory stored in rolls.
+  4.  GRN in meters (non-default unit) → converted to rolls for storage.
+  5.  DeliveryNote deducts in default_unit (converted from doc unit).
+  6.  GRN then DN in rolls → net balance in rolls is correct.
+  7.  StockTransfer in meters normalises to rolls in both locations.
+  8.  Damaged report in meters → deducts rolls.
+  9.  resync Phase 2 re-calculates balance using default_unit.
+ 10.  ItemForm clean() rejects selling_unit in different category.
+ 11.  ItemForm clean() accepts selling_unit in same category as default_unit.
+ 12.  SalesOrderLineForm clean() validates against item.stock_unit category.
 """
 import datetime
 from decimal import Decimal
@@ -55,7 +58,8 @@ def _setup(cls):
         default_unit=cls.meter,
         cost_price=Decimal('10'), selling_price=Decimal('20'),
     )
-    # Item WITH selling_unit=meter, default_unit=roll (procurement in rolls, sells in meters)
+    # Item WITH selling_unit=meter, default_unit=roll
+    # stock_unit is always default_unit=roll (selling_unit is for sales layer only)
     cls.item_su = Item.objects.create(
         code='SU_WITH_SU', name='WithSellingUnit',
         item_type=ItemType.FINISHED, category=cls.cat,
@@ -121,7 +125,7 @@ def _call_resync(*args):
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 class StockUnitPropertyTest(TestCase):
-    """stock_unit property returns correct unit."""
+    """stock_unit property always returns default_unit."""
 
     @classmethod
     def setUpTestData(cls):
@@ -132,91 +136,95 @@ class StockUnitPropertyTest(TestCase):
         self.assertEqual(self.item_no_su.stock_unit, self.item_no_su.default_unit)
         self.assertEqual(self.item_no_su.stock_unit, self.meter)
 
-    def test_with_selling_unit_returns_selling_unit(self):
+    def test_with_selling_unit_still_returns_default_unit(self):
+        """stock_unit ignores selling_unit and always returns default_unit."""
         self.assertEqual(self.item_su.default_unit, self.roll)
         self.assertEqual(self.item_su.selling_unit, self.meter)
-        self.assertEqual(self.item_su.stock_unit, self.meter)
+        # stock_unit == default_unit == roll (NOT meter)
+        self.assertEqual(self.item_su.stock_unit, self.roll)
 
 
-class GRNSellingUnitTest(TestCase):
-    """GRN posted in procurement unit → balance stored in selling_unit."""
+class GRNDefaultUnitTest(TestCase):
+    """GRN posted → balance stored in default_unit (procurement unit)."""
 
     @classmethod
     def setUpTestData(cls):
         _setup(cls)
 
-    def test_grn_3_rolls_stores_150_meters(self):
-        # item_su: default_unit=roll, selling_unit=meter (1 roll=50m)
+    def test_grn_3_rolls_stores_3_rolls(self):
+        # item_su: default_unit=roll, selling_unit=meter
+        # stock_unit=roll → no conversion, stored as 3 rolls
         _post_grn(self, self.item_su, Decimal('3'), self.roll)
-        # Expected: 3 rolls × 50 = 150 meters
-        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('150'))
+        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('3'))
 
-    def test_grn_in_selling_unit_stores_directly(self):
-        # Receive in meters directly (no conversion needed)
+    def test_grn_in_meters_converts_to_rolls(self):
+        # Receive 100 meters → converted to rolls: 100 / 50 = 2 rolls
         _post_grn(self, self.item_su, Decimal('100'), self.meter)
-        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('100'))
+        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('2'))
 
     def test_item_no_selling_unit_uses_default(self):
         # item_no_su: default_unit=meter, no selling_unit
         _post_grn(self, self.item_no_su, Decimal('200'), self.meter)
         self.assertEqual(_get_balance(self.item_no_su, self.loc), Decimal('200'))
 
-    def test_stockmove_unit_is_selling_unit(self):
+    def test_stockmove_unit_is_default_unit(self):
         from inventory.models import StockMove
         _post_grn(self, self.item_su, Decimal('2'), self.roll)
         move = StockMove.objects.filter(
             reference_type='GoodsReceipt', item=self.item_su
         ).first()
         self.assertIsNotNone(move)
-        self.assertEqual(move.unit, self.meter)
-        self.assertEqual(move.qty, Decimal('100'))  # 2 × 50
+        # StockMove stored in default_unit=roll
+        self.assertEqual(move.unit, self.roll)
+        self.assertEqual(move.qty, Decimal('2'))
 
 
-class DeliveryNoteSellingUnitTest(TestCase):
-    """DN deducts balance using selling_unit conversion."""
+class DeliveryNoteDefaultUnitTest(TestCase):
+    """DN deducts balance using default_unit conversion."""
 
     @classmethod
     def setUpTestData(cls):
         _setup(cls)
 
-    def test_dn_2_rolls_deducts_100_meters(self):
+    def test_dn_in_meters_deducts_rolls(self):
         from sales.models import DeliveryNote, DeliveryLine
         from inventory.services import post_delivery
         from core.models import DocumentStatus
         from inventory.models import StockBalance
 
-        # Seed 200m balance
+        # Seed 10 rolls balance
         StockBalance.objects.create(
             item=self.item_su, location=self.loc,
-            qty_on_hand=Decimal('200'), qty_reserved=Decimal('0'),
+            qty_on_hand=Decimal('10'), qty_reserved=Decimal('0'),
         )
         dn = DeliveryNote.objects.create(
             document_number='DN-SU-001',
             customer=self.customer, warehouse=self.wh,
             delivery_date=datetime.date.today(), created_by=self.user,
         )
+        # Deliver 100 meters → 100/50 = 2 rolls deducted
         DeliveryLine.objects.create(
             delivery=dn, item=self.item_su, location=self.loc,
-            qty=Decimal('2'), unit=self.roll,
+            qty=Decimal('100'), unit=self.meter,
         )
         post_delivery(dn, self.user)
-        # 200 - 2*50 = 100
-        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('100'))
+        # 10 - 2 = 8 rolls
+        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('8'))
 
 
-class GRNthenDNSellingUnitTest(TestCase):
-    """GRN 4 rolls then DN 1 roll → net 150 meters."""
+class GRNthenDNDefaultUnitTest(TestCase):
+    """GRN 4 rolls then DN 1 roll → net 3 rolls."""
 
     @classmethod
     def setUpTestData(cls):
         _setup(cls)
 
-    def test_net_balance_in_meters(self):
+    def test_net_balance_in_rolls(self):
         from sales.models import DeliveryNote, DeliveryLine
         from inventory.services import post_delivery
         from core.models import DocumentStatus
 
-        _post_grn(self, self.item_su, Decimal('4'), self.roll)   # +200 m
+        _post_grn(self, self.item_su, Decimal('4'), self.roll)   # +4 rolls
         dn = DeliveryNote.objects.create(
             document_number='DN-SU-002',
             customer=self.customer, warehouse=self.wh,
@@ -226,92 +234,94 @@ class GRNthenDNSellingUnitTest(TestCase):
             delivery=dn, item=self.item_su, location=self.loc,
             qty=Decimal('1'), unit=self.roll,
         )
-        post_delivery(dn, self.user)   # -50 m
-        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('150'))
+        post_delivery(dn, self.user)   # -1 roll
+        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('3'))
 
 
-class TransferSellingUnitTest(TestCase):
-    """StockTransfer in rolls normalises to meters in both locations."""
+class TransferDefaultUnitTest(TestCase):
+    """StockTransfer in meters normalises to rolls in both locations."""
 
     @classmethod
     def setUpTestData(cls):
         _setup(cls)
 
-    def test_transfer_2_rolls_moves_100_meters(self):
+    def test_transfer_100_meters_moves_2_rolls(self):
         from inventory.models import StockTransfer, StockTransferLine, StockBalance
         from inventory.services import post_transfer
         from core.models import DocumentStatus
 
         StockBalance.objects.create(
             item=self.item_su, location=self.loc,
-            qty_on_hand=Decimal('200'), qty_reserved=Decimal('0'),
+            qty_on_hand=Decimal('10'), qty_reserved=Decimal('0'),
         )
         tr = StockTransfer.objects.create(
             document_number='TR-SU-001',
             from_warehouse=self.wh, to_warehouse=self.wh,
             created_by=self.user,
         )
+        # Transfer 100 meters → 100/50 = 2 rolls
         StockTransferLine.objects.create(
             transfer=tr, item=self.item_su,
             from_location=self.loc, to_location=self.loc2,
-            qty=Decimal('2'), unit=self.roll,
+            qty=Decimal('100'), unit=self.meter,
         )
         post_transfer(tr, self.user)
-        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('100'))
-        self.assertEqual(_get_balance(self.item_su, self.loc2), Decimal('100'))
+        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('8'))
+        self.assertEqual(_get_balance(self.item_su, self.loc2), Decimal('2'))
 
 
-class DamagedReportSellingUnitTest(TestCase):
-    """Damaged report in rolls → deducts meters."""
+class DamagedReportDefaultUnitTest(TestCase):
+    """Damaged report in meters → deducts rolls."""
 
     @classmethod
     def setUpTestData(cls):
         _setup(cls)
 
-    def test_damaged_1_roll_deducts_50_meters(self):
+    def test_damaged_50_meters_deducts_1_roll(self):
         from inventory.models import DamagedReport, DamagedReportLine, StockBalance
         from inventory.services import post_damaged_report
         from core.models import DocumentStatus
 
         StockBalance.objects.create(
             item=self.item_su, location=self.loc,
-            qty_on_hand=Decimal('200'), qty_reserved=Decimal('0'),
+            qty_on_hand=Decimal('10'), qty_reserved=Decimal('0'),
         )
         dr = DamagedReport.objects.create(
             document_number='DAM-SU-001', warehouse=self.wh,
             created_by=self.user,
         )
+        # Damage 50 meters → 50/50 = 1 roll deducted
         DamagedReportLine.objects.create(
             report=dr, item=self.item_su, location=self.loc,
-            qty=Decimal('1'), unit=self.roll,
+            qty=Decimal('50'), unit=self.meter,
         )
         post_damaged_report(dr, self.user)
-        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('150'))
+        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('9'))
 
 
-class ResyncSellingUnitTest(TestCase):
-    """Resync Phase 2 recalculates balance using selling_unit."""
+class ResyncDefaultUnitTest(TestCase):
+    """Resync Phase 2 recalculates balance using default_unit."""
 
     @classmethod
     def setUpTestData(cls):
         _setup(cls)
 
-    def test_resync_uses_selling_unit(self):
+    def test_resync_uses_default_unit(self):
         from inventory.models import StockBalance
 
-        # GRN: 3 rolls (should produce 150 m balance)
+        # GRN: 3 rolls → stored as 3 rolls (default_unit)
         _post_grn(self, self.item_su, Decimal('3'), self.roll)
 
-        # Corrupt balance to simulate legacy state (raw 3 rolls)
+        # Corrupt balance to simulate bad state
         StockBalance.objects.filter(item=self.item_su, location=self.loc).update(
-            qty_on_hand=Decimal('3')
+            qty_on_hand=Decimal('999')
         )
-        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('3'))  # confirm corrupt
+        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('999'))
 
         _call_resync('--phase', '2')
 
-        # Phase 2 replays GRN line: 3 rolls × 50 = 150 meters
-        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('150'))
+        # Phase 2 replays GRN line: 3 rolls → 3 rolls (no conversion)
+        self.assertEqual(_get_balance(self.item_su, self.loc), Decimal('3'))
 
 
 class ItemFormSellingUnitValidationTest(TestCase):
@@ -399,7 +409,7 @@ class SOLineFormStockUnitValidationTest(TestCase):
     def test_rejects_unit_incompatible_with_stock_unit(self):
         from sales.forms import SalesOrderLineForm
 
-        # item_su.stock_unit = meter (LENGTH); pcs is QUANTITY → invalid
+        # item_su.stock_unit = roll (LENGTH); pcs is QUANTITY → invalid
         form = SalesOrderLineForm(data={
             'item': self.item_su.pk,
             'qty_ordered': '5',
@@ -414,11 +424,11 @@ class SOLineFormStockUnitValidationTest(TestCase):
     def test_accepts_unit_in_same_category_as_stock_unit(self):
         from sales.forms import SalesOrderLineForm
 
-        # item_su.stock_unit = meter (LENGTH); roll is also LENGTH → valid
+        # item_su.stock_unit = roll (LENGTH); meter is also LENGTH → valid
         form = SalesOrderLineForm(data={
             'item': self.item_su.pk,
             'qty_ordered': '2',
-            'unit': self.roll.pk,
+            'unit': self.meter.pk,
             'unit_price': '10',
             'discount_type': 'PERCENT',
             'discount_value': '0',
