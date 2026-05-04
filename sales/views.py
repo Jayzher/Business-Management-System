@@ -223,7 +223,12 @@ def delivery_post_view(request, pk):
     if request.method == 'POST':
         try:
             post_delivery(dn, request.user)
-            messages.success(request, f'Delivery Note {dn.document_number} posted. Stock updated.')
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(dn)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(request, f'Delivery Note {dn.document_number} posted. Stock updated.')
             from inventory.automation import auto_create_invoice_from_delivery
             inv = auto_create_invoice_from_delivery(dn, request.user)
             if inv:
@@ -679,7 +684,12 @@ def pickup_post_view(request, pk):
     if request.method == 'POST':
         try:
             post_sales_pickup(pickup, request.user)
-            messages.success(request, f'Pickup {pickup.document_number} posted. Stock updated.')
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(pickup)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(request, f'Pickup {pickup.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
         except Exception as e:
@@ -798,7 +808,12 @@ def sales_return_post_view(request, pk):
         try:
             from inventory.services import post_sales_return
             post_sales_return(sr, request.user)
-            messages.success(request, f'Sales Return {sr.document_number} posted. Stock updated.')
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(sr)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(request, f'Sales Return {sr.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('sales_return_detail', pk=pk)

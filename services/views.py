@@ -436,10 +436,17 @@ def service_complete(request, pk):
                 )
 
             missing_location_items = []
+            skipped_unit_items = []
             moves = []
 
             def deduct_item(item, sale_unit, qty, location):
-                base_qty = convert_to_base_unit(qty, sale_unit, item.stock_unit, item=item)
+                try:
+                    base_qty = convert_to_base_unit(qty, sale_unit, item.stock_unit, item=item)
+                except (ValueError, Exception) as exc:
+                    skipped_unit_items.append(
+                        f"{item.code} ({qty} {sale_unit.abbreviation} → {item.stock_unit.abbreviation})"
+                    )
+                    return
                 move = StockMove(
                     move_type=MoveType.SERVICE_OUT,
                     item=item,
@@ -501,6 +508,14 @@ def service_complete(request, pk):
                     request,
                     f'No location set for item(s): {", ".join(sorted(set(missing_location_items)))}. '
                     'Their stock was NOT deducted. Set a location or assign a warehouse.'
+                )
+
+            if skipped_unit_items:
+                messages.warning(
+                    request,
+                    f'{len(skipped_unit_items)} line(s) skipped due to incompatible units: '
+                    f'{", ".join(skipped_unit_items)}. '
+                    f'Add the missing Unit Conversions under Catalog → Unit Conversions.'
                 )
 
         except ValueError as exc:

@@ -2,6 +2,7 @@
 Inventory posting engine — the core business logic.
 All stock changes go through this service to ensure consistency.
 """
+import logging
 from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
@@ -12,6 +13,57 @@ from inventory.models import (
 )
 from audit.models import AuditLog
 from catalog.models import convert_to_base_unit
+
+logger = logging.getLogger(__name__)
+
+
+def _try_convert(qty, from_unit, to_unit, item, line, skipped):
+    """Attempt unit conversion; on failure record the skip and return None.
+
+    *skipped* is a list that collects dicts describing each incompatible
+    line so the caller can report them after posting.
+    """
+    try:
+        return convert_to_base_unit(qty, from_unit, to_unit, item=item)
+    except (ValueError, Exception) as exc:
+        skipped.append({
+            'item_code': item.code,
+            'item_name': item.name,
+            'line_qty': qty,
+            'line_unit': getattr(from_unit, 'abbreviation', str(from_unit)),
+            'stock_unit': getattr(to_unit, 'abbreviation', str(to_unit)),
+            'error': str(exc),
+        })
+        logger.warning(
+            'Skipping line %s x%s %s → %s: %s',
+            item.code, qty,
+            getattr(from_unit, 'abbreviation', from_unit),
+            getattr(to_unit, 'abbreviation', to_unit),
+            exc,
+        )
+        return None
+
+
+def format_skipped_lines_message(doc, doc_label=None):
+    """Build a user-facing warning string from ``doc.skipped_lines``.
+
+    Returns an empty string when nothing was skipped.  Views can call
+    this after any post_* function and pass the result to
+    ``messages.warning()`` if non-empty.
+    """
+    skipped = getattr(doc, 'skipped_lines', None)
+    if not skipped:
+        return ''
+    label = doc_label or getattr(doc, 'document_number', str(doc))
+    items = ', '.join(
+        f"{s['item_code']} ({s['line_qty']} {s['line_unit']} → {s['stock_unit']})"
+        for s in skipped
+    )
+    return (
+        f'{label} posted but {len(skipped)} line(s) skipped due to '
+        f'incompatible units: {items}. '
+        f'Add the missing Unit Conversions under Catalog → Unit Conversions.'
+    )
 
 
 def _update_balance(item, location, qty_delta, reserved_delta=Decimal('0')):
@@ -127,6 +179,12 @@ def _create_audit(user, action, obj, changes=None):
 def post_goods_receipt(grn, user):
     """
     Post a GRN: creates RECEIVE StockMoves and updates balances.
+
+    Lines whose unit is incompatible with the item's stock_unit (no
+    UnitConversion exists) are **skipped** — they do not block the rest
+    of the GRN from posting.  The returned object carries a
+    ``skipped_lines`` attribute (list of dicts) describing every line
+    that was skipped so the caller / view can display them.
     """
     from procurement.models import GoodsReceipt
     from core.models import DocumentStatus
@@ -136,9 +194,13 @@ def post_goods_receipt(grn, user):
 
     now = timezone.now()
     moves = []
+    skipped = []
 
     for line in grn.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
+        if base_qty is None:
+            continue
+
         move = StockMove(
             move_type=MoveType.RECEIVE,
             item=line.item,
@@ -216,7 +278,11 @@ def post_goods_receipt(grn, user):
     grn.posted_at = now
     grn.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', grn, {'lines': len(moves)})
+    _create_audit(user, 'POST', grn, {
+        'lines': len(moves),
+        'skipped_lines': len(skipped),
+    })
+    grn.skipped_lines = skipped
     return grn
 
 
@@ -347,9 +413,12 @@ def post_delivery(delivery, user):
 
     now = timezone.now()
     moves = []
+    skipped = []
 
     for line in delivery.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
+        if base_qty is None:
+            continue
         move = StockMove(
             move_type=MoveType.DELIVER,
             item=line.item,
@@ -384,7 +453,8 @@ def post_delivery(delivery, user):
     delivery.posted_at = now
     delivery.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', delivery, {'lines': len(moves)})
+    _create_audit(user, 'POST', delivery, {'lines': len(moves), 'skipped_lines': len(skipped)})
+    delivery.skipped_lines = skipped
     return delivery
 
 
@@ -406,9 +476,12 @@ def post_sales_pickup(pickup, user):
 
     now = timezone.now()
     moves = []
+    skipped = []
 
     for line in pickup.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
+        if base_qty is None:
+            continue
         move = StockMove(
             move_type=MoveType.DELIVER,
             item=line.item,
@@ -443,7 +516,8 @@ def post_sales_pickup(pickup, user):
     pickup.posted_at = now
     pickup.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', pickup, {'lines': len(moves)})
+    _create_audit(user, 'POST', pickup, {'lines': len(moves), 'skipped_lines': len(skipped)})
+    pickup.skipped_lines = skipped
     return pickup
 
 
@@ -459,6 +533,7 @@ def post_transfer(transfer, user):
 
     now = timezone.now()
     moves = []
+    skipped = []
 
     for line in transfer.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
         # Validate locations belong to correct warehouses
@@ -472,7 +547,9 @@ def post_transfer(transfer, user):
                 f"To-location {line.to_location} does not belong to "
                 f"warehouse {transfer.to_warehouse}."
             )
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
+        if base_qty is None:
+            continue
         move = StockMove(
             move_type=MoveType.TRANSFER,
             item=line.item,
@@ -501,7 +578,8 @@ def post_transfer(transfer, user):
     transfer.posted_at = now
     transfer.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', transfer, {'lines': len(moves)})
+    _create_audit(user, 'POST', transfer, {'lines': len(moves), 'skipped_lines': len(skipped)})
+    transfer.skipped_lines = skipped
     return transfer
 
 
@@ -519,10 +597,13 @@ def post_adjustment(adjustment, user):
 
     now = timezone.now()
     moves = []
+    skipped = []
 
     for line in adjustment.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
         # Convert the new counted qty to base/stock units
-        new_qty = convert_to_base_unit(line.qty_counted, line.unit, line.item.stock_unit, item=line.item)
+        new_qty = _try_convert(line.qty_counted, line.unit, line.item.stock_unit, line.item, line, skipped)
+        if new_qty is None:
+            continue
 
         # Lock the balance row and set it directly to the new qty
         balance, created = StockBalance.objects.select_for_update().get_or_create(
@@ -573,7 +654,8 @@ def post_adjustment(adjustment, user):
     adjustment.posted_at = now
     adjustment.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', adjustment, {'lines': len(moves)})
+    _create_audit(user, 'POST', adjustment, {'lines': len(moves), 'skipped_lines': len(skipped)})
+    adjustment.skipped_lines = skipped
     return adjustment
 
 
@@ -589,9 +671,12 @@ def post_damaged_report(report, user):
 
     now = timezone.now()
     moves = []
+    skipped = []
 
     for line in report.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
+        if base_qty is None:
+            continue
         move = StockMove(
             move_type=MoveType.DAMAGE,
             item=line.item,
@@ -618,7 +703,8 @@ def post_damaged_report(report, user):
     report.posted_at = now
     report.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', report, {'lines': len(moves)})
+    _create_audit(user, 'POST', report, {'lines': len(moves), 'skipped_lines': len(skipped)})
+    report.skipped_lines = skipped
     return report
 
 
@@ -720,9 +806,12 @@ def post_purchase_return(pr, user):
 
     now = timezone.now()
     moves = []
+    skipped = []
 
     for line in pr.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
+        if base_qty is None:
+            continue
         move = StockMove(
             move_type=MoveType.RETURN_OUT,
             item=line.item,
@@ -749,7 +838,8 @@ def post_purchase_return(pr, user):
     pr.posted_at = now
     pr.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', pr, {'lines': len(moves)})
+    _create_audit(user, 'POST', pr, {'lines': len(moves), 'skipped_lines': len(skipped)})
+    pr.skipped_lines = skipped
     return pr
 
 
@@ -764,9 +854,12 @@ def post_sales_return(sr, user):
 
     now = timezone.now()
     moves = []
+    skipped = []
 
     for line in sr.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
+        if base_qty is None:
+            continue
         move = StockMove(
             move_type=MoveType.RETURN_IN,
             item=line.item,
@@ -793,7 +886,8 @@ def post_sales_return(sr, user):
     sr.posted_at = now
     sr.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', sr, {'lines': len(moves)})
+    _create_audit(user, 'POST', sr, {'lines': len(moves), 'skipped_lines': len(skipped)})
+    sr.skipped_lines = skipped
     return sr
 
 
@@ -817,9 +911,12 @@ def post_inventory_to_supply(ist, user):
     now = timezone.now()
     moves = []
     supply_movements = []
+    skipped = []
 
     for line in ist.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
+        if base_qty is None:
+            continue
         # Deduct inventory stock
         _update_balance(line.item, line.location, -base_qty)
 
@@ -891,7 +988,8 @@ def post_inventory_to_supply(ist, user):
     ist.posted_at = now
     ist.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', ist, {'lines': len(moves)})
+    _create_audit(user, 'POST', ist, {'lines': len(moves), 'skipped_lines': len(skipped)})
+    ist.skipped_lines = skipped
     return ist
 
 
