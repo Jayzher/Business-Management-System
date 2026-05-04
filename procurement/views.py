@@ -68,7 +68,15 @@ class GoodsReceiptViewSet(viewsets.ModelViewSet):
         grn = self.get_object()
         try:
             post_goods_receipt(grn, request.user)
-            return Response({'status': 'posted', 'document_number': grn.document_number})
+            result = {'status': 'posted', 'document_number': grn.document_number}
+            skipped = getattr(grn, 'skipped_lines', [])
+            if skipped:
+                result['skipped_lines'] = skipped
+                result['warning'] = (
+                    f'{len(skipped)} line(s) skipped due to incompatible units. '
+                    f'Add the missing Unit Conversions under Catalog → Unit Conversions.'
+                )
+            return Response(result)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -119,7 +127,12 @@ def goods_receipt_post_view(request, pk):
     if request.method == 'POST':
         try:
             post_goods_receipt(grn, request.user)
-            messages.success(request, f'Goods Receipt {grn.document_number} posted. Stock updated.')
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(grn)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(request, f'Goods Receipt {grn.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('goods_receipt_detail', pk=pk)
@@ -455,7 +468,12 @@ def purchase_return_post_view(request, pk):
         try:
             from inventory.services import post_purchase_return
             post_purchase_return(pr, request.user)
-            messages.success(request, f'Purchase Return {pr.document_number} posted. Stock updated.')
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(pr)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(request, f'Purchase Return {pr.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('purchase_return_detail', pk=pk)

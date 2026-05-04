@@ -127,7 +127,12 @@ def transfer_post_view(request, pk):
     if request.method == 'POST':
         try:
             post_transfer(obj, request.user)
-            messages.success(request, f'Transfer {obj.document_number} posted. Stock updated.')
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(obj)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(request, f'Transfer {obj.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('transfer_detail', pk=pk)
@@ -172,7 +177,12 @@ def adjustment_post_view(request, pk):
     if request.method == 'POST':
         try:
             post_adjustment(obj, request.user)
-            messages.success(request, f'Adjustment {obj.document_number} posted. Stock updated.')
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(obj)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(request, f'Adjustment {obj.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('adjustment_detail', pk=pk)
@@ -200,7 +210,12 @@ def damaged_post_view(request, pk):
     if request.method == 'POST':
         try:
             post_damaged_report(obj, request.user)
-            messages.success(request, f'Damaged Report {obj.document_number} posted. Stock updated.')
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(obj)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(request, f'Damaged Report {obj.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('damaged_detail', pk=pk)
@@ -674,11 +689,16 @@ def ist_post_view(request, pk):
     if request.method == 'POST':
         try:
             post_inventory_to_supply(obj, request.user)
-            messages.success(
-                request,
-                f'Transfer {obj.document_number} posted. '
-                f'Inventory deducted and supply stock updated.',
-            )
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(obj)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(
+                    request,
+                    f'Transfer {obj.document_number} posted. '
+                    f'Inventory deducted and supply stock updated.',
+                )
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('ist_detail', pk=pk)

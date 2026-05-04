@@ -95,6 +95,22 @@ class ConversionError:
 _conversion_errors: list[ConversionError] = []
 
 
+def _all_manager(model):
+    """Return the unfiltered manager for a model.
+
+    Models that inherit from SoftDeleteModel have an ``all_objects`` manager
+    that bypasses the ``is_active=True`` filter.  The resync command must use
+    this manager so that soft-deleted but POSTED documents are still counted
+    — otherwise Phase 0 would delete their StockMoves as "orphaned" and
+    Phase 2 would omit their quantities, leading to incorrect (often
+    negative) balances.
+
+    Models without soft-delete (POSSale, POSRefund, CustomerService) just
+    use the default ``objects`` manager.
+    """
+    return getattr(model, 'all_objects', model.objects)
+
+
 def _safe_convert(qty, from_unit, to_unit, label, warn_fn, item=None):
     """Convert qty between units.  Raises on failure instead of falling back.
 
@@ -242,8 +258,11 @@ def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
             continue
 
         # Find which of those IDs actually still exist in the source model
+        # Use all_objects (via _all_manager) to include soft-deleted records —
+        # a soft-deleted POSTED document is NOT orphaned; its moves are valid.
+        mgr = _all_manager(Model)
         existing_ids = set(
-            Model.objects.filter(pk__in=move_ref_ids).values_list('pk', flat=True)
+            mgr.filter(pk__in=move_ref_ids).values_list('pk', flat=True)
         )
         orphaned_ids = move_ref_ids - existing_ids
 
@@ -421,7 +440,7 @@ def _ensure_grn_purchase_orders(warn_fn, dry_run, info_fn):
     from inventory.services import generate_document_number
 
     created = 0
-    grns = GoodsReceipt.objects.filter(
+    grns = _all_manager(GoodsReceipt).filter(
         status=DocumentStatus.POSTED,
         purchase_order__isnull=True,
     ).prefetch_related('lines__item', 'lines__unit')
@@ -467,17 +486,17 @@ def _iter_expected_moves(warn_fn):
     from services.models import CustomerService, ServiceStatus
 
     doc_specs = [
-        ('GoodsReceipt', GoodsReceipt.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('DeliveryNote', DeliveryNote.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('SalesPickup', SalesPickup.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('StockTransfer', StockTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__from_location', 'lines__to_location')),
-        ('StockAdjustment', StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('DamagedReport', DamagedReport.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('GoodsReceipt', _all_manager(GoodsReceipt).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('DeliveryNote', _all_manager(DeliveryNote).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('SalesPickup', _all_manager(SalesPickup).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('StockTransfer', _all_manager(StockTransfer).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__from_location', 'lines__to_location')),
+        ('StockAdjustment', _all_manager(StockAdjustment).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('DamagedReport', _all_manager(DamagedReport).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('POSSale', POSSale.objects.filter(status=SaleStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('location')),
         ('POSRefund', POSRefund.objects.filter(status=RefundStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('InventoryToSupplyTransfer', InventoryToSupplyTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('PurchaseReturn', PurchaseReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('SalesReturn', SalesReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('InventoryToSupplyTransfer', _all_manager(InventoryToSupplyTransfer).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('PurchaseReturn', _all_manager(PurchaseReturn).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('SalesReturn', _all_manager(SalesReturn).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('CustomerService', CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('warehouse')),
     ]
 
@@ -924,38 +943,38 @@ def _build_balance_from_documents(warn_fn):
         return getattr(doc, 'posted_at', None) or getattr(doc, 'created_at', None) or timezone.now()
     
     # ── GoodsReceipt ────────────────────────────────────────────────────────
-    for grn in GoodsReceipt.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for grn in _all_manager(GoodsReceipt).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('GoodsReceipt', grn, _doc_date(grn)))
 
     # ── DeliveryNote ────────────────────────────────────────────────────────
-    for dn in DeliveryNote.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for dn in _all_manager(DeliveryNote).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('DeliveryNote', dn, _doc_date(dn)))
 
     # ── SalesPickup ─────────────────────────────────────────────────────────
-    for sp in SalesPickup.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for sp in _all_manager(SalesPickup).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('SalesPickup', sp, _doc_date(sp)))
 
     # ── StockTransfer ────────────────────────────────────────────────────────
-    for tr in StockTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for tr in _all_manager(StockTransfer).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit',
         'lines__from_location', 'lines__to_location'
     ):
         all_documents.append(('StockTransfer', tr, _doc_date(tr)))
 
     # ── StockAdjustment ──────────────────────────────────────────────────────
-    for adj in StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for adj in _all_manager(StockAdjustment).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('StockAdjustment', adj, _doc_date(adj)))
 
     # ── DamagedReport ────────────────────────────────────────────────────────
-    for dr in DamagedReport.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for dr in _all_manager(DamagedReport).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('DamagedReport', dr, _doc_date(dr)))
@@ -977,19 +996,19 @@ def _build_balance_from_documents(warn_fn):
         all_documents.append(('POSRefund', refund, _doc_date(refund)))
 
     # ── InventoryToSupplyTransfer ────────────────────────────────────────────
-    for ist in InventoryToSupplyTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for ist in _all_manager(InventoryToSupplyTransfer).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('InventoryToSupplyTransfer', ist, _doc_date(ist)))
 
     # ── PurchaseReturn ───────────────────────────────────────────────────────
-    for pr in PurchaseReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for pr in _all_manager(PurchaseReturn).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('PurchaseReturn', pr, _doc_date(pr)))
 
     # ── SalesReturn ──────────────────────────────────────────────────────────
-    for sr in SalesReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for sr in _all_manager(SalesReturn).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('SalesReturn', sr, _doc_date(sr)))

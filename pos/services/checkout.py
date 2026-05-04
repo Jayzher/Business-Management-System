@@ -125,11 +125,18 @@ def post_pos_sale(sale_id, user):
 
     now = timezone.now()
     moves = []
+    skipped = []
     warehouse = sale.warehouse
 
     for line in sale.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all():
         loc = line.location or sale.location
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        try:
+            base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        except (ValueError, Exception):
+            skipped.append(
+                f"{line.item.code} ({line.qty} {line.unit.abbreviation} → {line.item.stock_unit.abbreviation})"
+            )
+            continue
 
         # Stock availability check (with row locking)
         balance, _ = StockBalance.objects.select_for_update().get_or_create(
@@ -175,7 +182,13 @@ def post_pos_sale(sale_id, user):
             qty = pli.min_qty * bundle_line.qty_sets
             if qty <= 0:
                 continue
-            base_qty = convert_to_base_unit(qty, pli.unit, item.stock_unit, item=item)
+            try:
+                base_qty = convert_to_base_unit(qty, pli.unit, item.stock_unit, item=item)
+            except (ValueError, Exception):
+                skipped.append(
+                    f"{item.code} ({qty} {pli.unit.abbreviation} → {item.stock_unit.abbreviation})"
+                )
+                continue
 
             loc = sale.location
             balance, _ = StockBalance.objects.select_for_update().get_or_create(
@@ -225,6 +238,8 @@ def post_pos_sale(sale_id, user):
     from inventory.automation import auto_create_invoice_from_pos_sale
     auto_create_invoice_from_pos_sale(sale, user)
 
+    sale.skipped_lines = skipped
+
     _create_audit(user, 'POST', sale, {'lines': len(moves), 'grand_total': str(sale.grand_total)})
     return sale
 
@@ -255,11 +270,18 @@ def sync_pos_sale_stock_moves(sale_id, user):
 
     now = timezone.now()
     moves = []
+    skipped_deduct = []
     warehouse = sale.warehouse
 
     for line in sale.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all():
         loc = line.location or sale.location
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        try:
+            base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        except (ValueError, Exception):
+            skipped_deduct.append(
+                f"{line.item.code} ({line.qty} {line.unit.abbreviation} → {line.item.stock_unit.abbreviation})"
+            )
+            continue
 
         # Deduct using the core inventory helper (enforces negative-stock rule)
         _update_balance(line.item, loc, -base_qty)
@@ -288,6 +310,7 @@ def sync_pos_sale_stock_moves(sale_id, user):
     # If the sale was PAID but not POSTED, we keep the status as-is (this is sync only).
     sale.save(update_fields=['stock_deducted', 'updated_at'])
     _create_audit(user, 'SYNC', sale, {'action': 'sync_pos_sale_stock_moves', 'lines': len(moves)})
+    sale.skipped_lines = skipped_deduct
     return sale
 
 
@@ -307,9 +330,16 @@ def post_pos_refund(refund_id, user):
 
     now = timezone.now()
     moves = []
+    skipped_refund = []
 
     for line in refund.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all():
-        base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        try:
+            base_qty = convert_to_base_unit(line.qty, line.unit, line.item.stock_unit, item=line.item)
+        except (ValueError, Exception):
+            skipped_refund.append(
+                f"{line.item.code} ({line.qty} {line.unit.abbreviation} → {line.item.stock_unit.abbreviation})"
+            )
+            continue
         move = StockMove(
             move_type=MoveType.RETURN_IN,
             item=line.item,
@@ -342,6 +372,7 @@ def post_pos_refund(refund_id, user):
 
     _update_shift_totals(shift)
     _create_audit(user, 'POST', refund, {'lines': len(moves), 'grand_total': str(refund.grand_total)})
+    refund.skipped_lines = skipped_refund
     return refund
 
 
