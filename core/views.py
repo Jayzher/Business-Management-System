@@ -842,6 +842,25 @@ _SYNC_ACTIONS = {
         'command': 'resync_inventory',
         'args': ['--phase', '3'],
     },
+    'fix_kl_to_kg': {
+        'label': 'Fix kl → kg Unit',
+        'icon': 'fas fa-wrench',
+        'color': 'warning',
+        'description': 'Fix mis-selected "kl" unit to "kg" (Kilogram) on all GRNs, Deliveries, Pickups, and StockMoves.',
+        'category': 'sync',
+        'command': 'fix_kl_to_kg',
+        'args': [],
+        'confirm': 'This will change all "kl" unit references to "kg" across procurement and inventory records. Continue?',
+    },
+    'fix_kl_to_kg_dry': {
+        'label': 'Preview: kl → kg Fix',
+        'icon': 'fas fa-eye',
+        'color': 'info',
+        'description': 'Preview what the kl → kg fix would change without writing to the database.',
+        'category': 'test',
+        'command': 'fix_kl_to_kg',
+        'args': ['--dry-run'],
+    },
     'django_check': {
         'label': 'Django System Check',
         'icon': 'fas fa-heartbeat',
@@ -977,7 +996,110 @@ def run_sync_action(request):
     try:
         call_command(spec['command'], *spec['args'], stdout=buf, stderr=buf)
         output = buf.getvalue()
-        return JsonResponse({'ok': True, 'output': output})
+        response = {'ok': True, 'output': output}
+
+        # For resync_inventory actions, parse structured results
+        if action_key in ('resync_inventory', 'resync_inventory_dry', 'integrity_audit'):
+            response['resync_results'] = _parse_resync_output(output)
+
+        return JsonResponse(response)
     except Exception as exc:
         output = buf.getvalue()
-        return JsonResponse({'ok': False, 'output': output, 'error': str(exc)})
+        response = {'ok': False, 'output': output, 'error': str(exc)}
+
+        if action_key in ('resync_inventory', 'resync_inventory_dry', 'integrity_audit'):
+            response['resync_results'] = _parse_resync_output(output)
+
+        return JsonResponse(response)
+
+
+def _parse_resync_output(output):
+    """Parse resync_inventory command output into structured results for the modal."""
+    import re
+
+    results = {
+        'phases': [],
+        'issues': [],
+        'summary': {},
+    }
+
+    lines = output.split('\n')
+    current_phase = None
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Detect phase headers
+        phase_match = re.match(r'---\s*Phase\s+(\w+):\s*(.+?)\s*---', stripped)
+        if phase_match:
+            current_phase = {
+                'id': phase_match.group(1),
+                'title': phase_match.group(2),
+                'details': [],
+                'status': 'ok',
+            }
+            results['phases'].append(current_phase)
+            continue
+
+        # Detect summary line (e.g. "Deleted 5 orphaned move(s)")
+        if current_phase and stripped and not stripped.startswith('---') and not stripped.startswith('==='):
+            # Check for error/warning indicators
+            if '[ERROR]' in stripped or 'Error' in stripped:
+                current_phase['status'] = 'error'
+                results['issues'].append(stripped)
+            elif '[NEG BALANCE]' in stripped and 'none OK' not in stripped:
+                current_phase['status'] = 'warning'
+                results['issues'].append(stripped)
+            elif '[DUPE MOVES]' in stripped and 'none OK' not in stripped:
+                current_phase['status'] = 'warning'
+                results['issues'].append(stripped)
+            elif '[MISSING CONV]' in stripped and 'none OK' not in stripped:
+                current_phase['status'] = 'warning'
+                results['issues'].append(stripped)
+            elif 'WARNING' in stripped:
+                current_phase['status'] = 'warning'
+
+            if stripped:
+                current_phase['details'].append(stripped)
+
+        # Extract numeric summaries
+        orphan_match = re.search(r'(\d+)\s+orphaned move', stripped)
+        if orphan_match:
+            results['summary']['orphaned_deleted'] = int(orphan_match.group(1))
+
+        dedup_match = re.search(r'(\d+)\s+duplicate move', stripped)
+        if dedup_match:
+            results['summary']['duplicates_removed'] = int(dedup_match.group(1))
+
+        excess_match = re.search(r'(\d+)\s+excess move', stripped)
+        if excess_match:
+            results['summary']['excess_deleted'] = int(excess_match.group(1))
+
+        backfill_match = re.search(r'backfilled:\s*(\d+)', stripped)
+        if backfill_match:
+            results['summary']['moves_backfilled'] = int(backfill_match.group(1))
+
+        balance_create_match = re.search(r'(\d+)\s+created', stripped)
+        balance_update_match = re.search(r'(\d+)\s+updated', stripped)
+        if 'Committed:' in stripped or 'Creates:' in stripped:
+            if balance_create_match:
+                results['summary']['balances_created'] = int(balance_create_match.group(1))
+            if balance_update_match:
+                results['summary']['balances_updated'] = int(balance_update_match.group(1))
+
+        financial_match = re.search(r'(\d+)\s+monthly financial', stripped)
+        if financial_match:
+            results['summary']['financial_recalculated'] = int(financial_match.group(1))
+
+        neg_match = re.search(r'\[NEG BALANCE\]\s*(\d+)\s+item', stripped)
+        if neg_match:
+            results['summary']['negative_balances'] = int(neg_match.group(1))
+
+        integrity_match = re.search(r'Phase 3 total:\s*(\d+)\s+issue', stripped)
+        if integrity_match:
+            results['summary']['integrity_issues'] = int(integrity_match.group(1))
+
+        if 'all integrity checks passed' in stripped:
+            results['summary']['integrity_issues'] = 0
+
+    return results
