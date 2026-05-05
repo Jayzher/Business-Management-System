@@ -29,6 +29,24 @@
   .ts-badge-warn { background:#fef3c7; color:#92400e; }
   .ts-badge-err { background:#fee2e2; color:#991b1b; }
   .spinner-border-sm { width:1rem; height:1rem; border-width:.15em; }
+  /* Resync Results Modal */
+  .resync-phase { border-left:3px solid #dee2e6; padding:.6rem .8rem; margin-bottom:.6rem; border-radius:0 6px 6px 0; background:#f8f9fa; }
+  .resync-phase.phase-ok { border-left-color:#22c55e; }
+  .resync-phase.phase-warning { border-left-color:#f59e0b; }
+  .resync-phase.phase-error { border-left-color:#ef4444; }
+  .resync-phase-title { font-weight:700; font-size:.88rem; margin-bottom:.3rem; }
+  .resync-phase-detail { font-size:.78rem; color:#4b5563; font-family:'Fira Code','Courier New',monospace; margin:0; padding:0; list-style:none; }
+  .resync-phase-detail li { padding:.15rem 0; }
+  .resync-summary-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:.6rem; margin-bottom:1rem; }
+  .resync-summary-item { text-align:center; padding:.6rem; border-radius:8px; background:#f8f9fa; }
+  .resync-summary-item .num { font-size:1.4rem; font-weight:800; line-height:1.1; }
+  .resync-summary-item .label { font-size:.7rem; color:#6c757d; text-transform:uppercase; letter-spacing:.3px; margin-top:2px; }
+  .resync-issues { background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:.6rem .8rem; margin-bottom:.8rem; }
+  .resync-issues-title { font-weight:700; font-size:.82rem; color:#991b1b; margin-bottom:.3rem; }
+  .resync-issues-list { font-size:.75rem; font-family:'Fira Code','Courier New',monospace; color:#7f1d1d; margin:0; padding:0; list-style:none; }
+  .resync-issues-list li { padding:.1rem 0; }
+  .resync-raw-output { display:none; background:#1e1e2e; color:#cdd6f4; border-radius:8px; padding:.8rem; font-family:'Fira Code','Courier New',monospace; font-size:.72rem; line-height:1.5; max-height:400px; overflow-y:auto; white-space:pre-wrap; word-break:break-word; margin-top:.8rem; }
+  .resync-raw-output.show { display:block; }
 </style>
 {% endblock %}
 
@@ -220,6 +238,29 @@
 <div class="mb-3">
   <a href="{% url 'settings' %}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> Back to Settings</a>
 </div>
+
+<!-- ── Resync Results Modal ──────────────────────────────────────────────── -->
+<div class="modal fade" id="resyncResultsModal" tabindex="-1" aria-labelledby="resyncResultsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" id="resyncModalHeader">
+        <h5 class="modal-title" id="resyncResultsModalLabel">
+          <i class="fas fa-sync-alt me-2"></i>Inventory Resync Results
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="resyncModalBody">
+        <!-- Populated by JavaScript -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-outline-primary btn-sm" id="resyncShowRawBtn">
+          <i class="fas fa-code me-1"></i>Show Raw Output
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}{{ block.super }}
@@ -227,6 +268,131 @@
 (function(){
   var runUrl = "{% url 'run_sync_action' %}";
   var csrfToken = '{{ csrf_token }}';
+  var resyncActions = ['resync_inventory', 'resync_inventory_dry', 'integrity_audit'];
+
+  function buildResyncModal(data, action, isSuccess) {
+    var results = data.resync_results || {};
+    var phases = results.phases || [];
+    var issues = results.issues || [];
+    var summary = results.summary || {};
+    var rawOutput = data.output || '';
+
+    // Header color
+    var header = document.getElementById('resyncModalHeader');
+    header.className = 'modal-header';
+    if (!isSuccess) {
+      header.style.background = 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)';
+      header.style.borderBottom = '2px solid #fecaca';
+    } else if (issues.length > 0) {
+      header.style.background = 'linear-gradient(135deg, #fffbeb 0%, #fff 100%)';
+      header.style.borderBottom = '2px solid #fde68a';
+    } else {
+      header.style.background = 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)';
+      header.style.borderBottom = '2px solid #bbf7d0';
+    }
+
+    // Title
+    var titleEl = document.getElementById('resyncResultsModalLabel');
+    var titleIcon = isSuccess ? 'fa-check-circle text-success' : 'fa-exclamation-circle text-danger';
+    var titleText = action === 'resync_inventory_dry' ? 'Inventory Resync (Dry Run) Results'
+                  : action === 'integrity_audit' ? 'Integrity Audit Results'
+                  : 'Inventory Resync Results';
+    titleEl.innerHTML = '<i class="fas ' + titleIcon + ' me-2"></i>' + titleText;
+
+    // Body
+    var body = document.getElementById('resyncModalBody');
+    var html = '';
+
+    // Status banner
+    if (!isSuccess && data.error) {
+      html += '<div class="alert alert-danger py-2 px-3 mb-3"><i class="fas fa-times-circle me-2"></i><strong>Error:</strong> ' + escapeHtml(data.error) + '</div>';
+    } else if (isSuccess && issues.length === 0) {
+      html += '<div class="alert alert-success py-2 px-3 mb-3"><i class="fas fa-check-circle me-2"></i>Resync completed successfully with no issues.</div>';
+    }
+
+    // Summary grid
+    var summaryKeys = Object.keys(summary);
+    if (summaryKeys.length > 0) {
+      html += '<div class="resync-summary-grid">';
+      var summaryLabels = {
+        'orphaned_deleted': { label: 'Orphaned Deleted', color: 'text-danger' },
+        'duplicates_removed': { label: 'Duplicates Removed', color: 'text-warning' },
+        'excess_deleted': { label: 'Excess Deleted', color: 'text-warning' },
+        'moves_backfilled': { label: 'Moves Backfilled', color: 'text-info' },
+        'balances_created': { label: 'Balances Created', color: 'text-success' },
+        'balances_updated': { label: 'Balances Updated', color: 'text-primary' },
+        'financial_recalculated': { label: 'Months Recalculated', color: 'text-info' },
+        'negative_balances': { label: 'Negative Balances', color: 'text-danger' },
+        'integrity_issues': { label: 'Integrity Issues', color: 'text-danger' },
+      };
+      for (var key in summary) {
+        var meta = summaryLabels[key] || { label: key, color: 'text-secondary' };
+        var numColor = summary[key] > 0 ? meta.color : 'text-muted';
+        html += '<div class="resync-summary-item">';
+        html += '<div class="num ' + numColor + '">' + summary[key] + '</div>';
+        html += '<div class="label">' + meta.label + '</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    // Issues section
+    if (issues.length > 0) {
+      html += '<div class="resync-issues">';
+      html += '<div class="resync-issues-title"><i class="fas fa-exclamation-triangle me-1"></i>' + issues.length + ' Issue(s) Found</div>';
+      html += '<ul class="resync-issues-list">';
+      for (var i = 0; i < issues.length; i++) {
+        html += '<li>' + escapeHtml(issues[i]) + '</li>';
+      }
+      html += '</ul></div>';
+    }
+
+    // Phase details
+    if (phases.length > 0) {
+      html += '<h6 class="mt-3 mb-2" style="font-size:.82rem;font-weight:700;color:#374151;">Phase Details</h6>';
+      for (var p = 0; p < phases.length; p++) {
+        var phase = phases[p];
+        var phaseClass = 'phase-' + phase.status;
+        var phaseIcon = phase.status === 'ok' ? 'fa-check text-success'
+                      : phase.status === 'warning' ? 'fa-exclamation-triangle text-warning'
+                      : 'fa-times text-danger';
+        html += '<div class="resync-phase ' + phaseClass + '">';
+        html += '<div class="resync-phase-title"><i class="fas ' + phaseIcon + ' me-2"></i>Phase ' + phase.id + ': ' + escapeHtml(phase.title) + '</div>';
+        if (phase.details.length > 0) {
+          html += '<ul class="resync-phase-detail">';
+          for (var d = 0; d < phase.details.length && d < 15; d++) {
+            html += '<li>' + escapeHtml(phase.details[d]) + '</li>';
+          }
+          if (phase.details.length > 15) {
+            html += '<li style="color:#9ca3af;">... ' + (phase.details.length - 15) + ' more lines (see raw output)</li>';
+          }
+          html += '</ul>';
+        }
+        html += '</div>';
+      }
+    }
+
+    // Raw output (hidden by default)
+    html += '<div class="resync-raw-output" id="resyncRawOutput">' + escapeHtml(rawOutput) + '</div>';
+
+    body.innerHTML = html;
+
+    // Toggle raw output button
+    var rawBtn = document.getElementById('resyncShowRawBtn');
+    rawBtn.onclick = function() {
+      var rawEl = document.getElementById('resyncRawOutput');
+      rawEl.classList.toggle('show');
+      this.innerHTML = rawEl.classList.contains('show')
+        ? '<i class="fas fa-eye-slash me-1"></i>Hide Raw Output'
+        : '<i class="fas fa-code me-1"></i>Show Raw Output';
+    };
+  }
+
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(text));
+    return div.innerHTML;
+  }
 
   document.querySelectorAll('.ts-run-btn').forEach(function(btn){
     btn.addEventListener('click', function(e){
@@ -235,6 +401,7 @@
       var outBox = document.getElementById('output-' + action);
       var origHtml = this.innerHTML;
       var confirmMsg = this.dataset.confirm;
+      var isResync = resyncActions.indexOf(action) !== -1;
 
       // Confirm dangerous actions
       if (confirmMsg) {
@@ -266,6 +433,13 @@
           outBox.style.borderLeft = '3px solid #22c55e';
         } else {
           outBox.style.borderLeft = '3px solid #ef4444';
+        }
+
+        // Show modal for resync actions
+        if (isResync && data.resync_results) {
+          buildResyncModal(data, action, data.ok);
+          var modal = new bootstrap.Modal(document.getElementById('resyncResultsModal'));
+          modal.show();
         }
       })
       .catch(function(err){
