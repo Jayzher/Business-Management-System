@@ -45,8 +45,43 @@
   .resync-issues-title { font-weight:700; font-size:.82rem; color:#991b1b; margin-bottom:.3rem; }
   .resync-issues-list { font-size:.75rem; font-family:'Fira Code','Courier New',monospace; color:#7f1d1d; margin:0; padding:0; list-style:none; }
   .resync-issues-list li { padding:.1rem 0; }
+  .resync-detail-section { margin-bottom:.9rem; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; }
+  .resync-detail-section.sev-error { border-color:#fecaca; }
+  .resync-detail-section.sev-warning { border-color:#fde68a; }
+  .resync-detail-header { padding:.5rem .8rem; font-size:.82rem; font-weight:700; display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none; }
+  .resync-detail-header.sev-error { background:#fef2f2; color:#991b1b; }
+  .resync-detail-header.sev-warning { background:#fffbeb; color:#92400e; }
+  .resync-detail-header .chev { transition:transform .15s; }
+  .resync-detail-header.collapsed .chev { transform:rotate(-90deg); }
+  .resync-detail-body { max-height:260px; overflow-y:auto; }
+  .resync-detail-body.collapsed { display:none; }
+  .resync-detail-body table { margin:0; font-size:.75rem; }
+  .resync-detail-body table th { position:sticky; top:0; background:#f9fafb; font-weight:700; font-size:.7rem; text-transform:uppercase; letter-spacing:.3px; color:#374151; border-bottom:2px solid #e5e7eb; padding:.35rem .6rem; }
+  .resync-detail-body table td { padding:.3rem .6rem; font-family:'Fira Code','Courier New',monospace; border-bottom:1px solid #f1f5f9; }
+  .resync-detail-body table tr:last-child td { border-bottom:none; }
+  .resync-detail-body .qty-negative { color:#dc2626; font-weight:700; }
   .resync-raw-output { display:none; background:#1e1e2e; color:#cdd6f4; border-radius:8px; padding:.8rem; font-family:'Fira Code','Courier New',monospace; font-size:.72rem; line-height:1.5; max-height:400px; overflow-y:auto; white-space:pre-wrap; word-break:break-word; margin-top:.8rem; }
   .resync-raw-output.show { display:block; }
+  /* Confirmation modal */
+  .rc-section { border:1px solid #e5e7eb; border-radius:8px; margin-bottom:.8rem; overflow:hidden; }
+  .rc-section-header { padding:.55rem .8rem; font-weight:700; font-size:.82rem; display:flex; align-items:center; justify-content:space-between; background:#f9fafb; border-bottom:1px solid #e5e7eb; }
+  .rc-section-header .rc-title i { margin-right:.4rem; }
+  .rc-section-header .rc-toggle { cursor:pointer; user-select:none; }
+  .rc-group { border-top:1px solid #f1f5f9; padding:.4rem .8rem; }
+  .rc-group:first-child { border-top:none; }
+  .rc-group-title { font-size:.78rem; font-weight:600; color:#374151; margin-bottom:.25rem; display:flex; align-items:center; gap:.4rem; }
+  .rc-group-title .rc-ref { color:#6b7280; font-family:'Fira Code','Courier New',monospace; }
+  .rc-move-row { display:grid; grid-template-columns:28px 80px 1fr 1fr 100px; gap:.5rem; padding:.2rem .4rem; font-size:.72rem; align-items:center; font-family:'Fira Code','Courier New',monospace; border-bottom:1px dashed #f3f4f6; }
+  .rc-move-row:last-child { border-bottom:none; }
+  .rc-move-row.is-keep { background:#f0fdf4; }
+  .rc-move-row.is-keep .rc-move-badge { color:#15803d; }
+  .rc-move-row .rc-move-badge { font-weight:700; font-size:.65rem; text-transform:uppercase; color:#9ca3af; }
+  .rc-move-row input[type="checkbox"] { width:16px; height:16px; cursor:pointer; }
+  .rc-move-row .rc-meta-null { color:#d1d5db; font-style:italic; }
+  .rc-empty { padding:1rem; text-align:center; color:#6b7280; font-size:.85rem; }
+  .rc-count-badge { background:#e5e7eb; color:#374151; padding:.1rem .5rem; border-radius:10px; font-size:.7rem; font-weight:600; }
+  .rc-count-badge.sev-error { background:#fee2e2; color:#991b1b; }
+  .rc-count-badge.sev-warning { background:#fef3c7; color:#92400e; }
 </style>
 {% endblock %}
 
@@ -261,12 +296,49 @@
     </div>
   </div>
 </div>
+
+<!-- ── Resync Confirmation Modal (pre-apply review) ─────────────────────── -->
+<div class="modal fade" id="resyncConfirmModal" tabindex="-1" aria-labelledby="resyncConfirmModalLabel" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#fffbeb 0%,#fff 100%);border-bottom:2px solid #fde68a;">
+        <h5 class="modal-title" id="resyncConfirmModalLabel">
+          <i class="fas fa-shield-alt me-2 text-warning"></i>Review Auto-Fix Candidates
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="resyncConfirmBody">
+        <!-- Populated by JavaScript -->
+      </div>
+      <div class="modal-footer d-flex justify-content-between">
+        <div>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="resyncSelectAllBtn">
+            <i class="fas fa-check-square me-1"></i>Select All
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="resyncSelectNoneBtn">
+            <i class="far fa-square me-1"></i>Select None
+          </button>
+        </div>
+        <div>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+            <i class="fas fa-times me-1"></i>Cancel Sync
+          </button>
+          <button type="button" class="btn btn-primary" id="resyncApplyBtn">
+            <i class="fas fa-play me-1"></i>Apply &amp; Continue Sync
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}{{ block.super }}
 <script>
 (function(){
   var runUrl = "{% url 'run_sync_action' %}";
+  var detectUrl = "{% url 'resync_detect_candidates' %}";
+  var applyUrl = "{% url 'resync_apply_with_selection' %}";
   var csrfToken = '{{ csrf_token }}';
   var resyncActions = ['resync_inventory', 'resync_inventory_dry', 'integrity_audit'];
 
@@ -323,6 +395,9 @@
         'balances_updated': { label: 'Balances Updated', color: 'text-primary' },
         'financial_recalculated': { label: 'Months Recalculated', color: 'text-info' },
         'negative_balances': { label: 'Negative Balances', color: 'text-danger' },
+        'invoices_no_cogs': { label: 'Invoices No COGS', color: 'text-danger' },
+        'items_no_selling_unit': { label: 'Items No Selling Unit', color: 'text-warning' },
+        'missing_conversions': { label: 'Missing Conversions', color: 'text-warning' },
         'integrity_issues': { label: 'Integrity Issues', color: 'text-danger' },
       };
       for (var key in summary) {
@@ -346,6 +421,34 @@
       }
       html += '</ul></div>';
     }
+
+    // Detail tables (no-COGS invoices, negative balances, items missing selling unit, missing conversions)
+    var details = results.details || {};
+    html += renderDetailSection(
+      'invoices_no_cogs', details.invoices_no_cogs,
+      'fa-file-invoice-dollar', 'Invoices Missing COGS', 'error',
+      ['Invoice #', 'Date', 'Total'],
+      function(row){ return [row.invoice_number, row.date, row.total]; }
+    );
+    html += renderDetailSection(
+      'negative_balances', details.negative_balances,
+      'fa-arrow-down', 'Negative Stock Balances', 'error',
+      ['Item', 'Location', 'Qty'],
+      function(row){ return [row.item, row.location, '<span class="qty-negative">' + row.qty + '</span>']; },
+      true  // raw-html column 2
+    );
+    html += renderDetailSection(
+      'items_no_selling_unit', details.items_no_selling_unit,
+      'fa-ruler', 'Catalog Items Missing Selling Unit', 'warning',
+      ['Item Code', 'Name'],
+      function(row){ return [row.code, row.name]; }
+    );
+    html += renderDetailSection(
+      'missing_conversions', details.missing_conversions,
+      'fa-exchange-alt', 'Items Missing Unit Conversion', 'warning',
+      ['Item Code', 'From', 'To'],
+      function(row){ return [row.code, row.from_unit, row.to_unit]; }
+    );
 
     // Phase details
     if (phases.length > 0) {
@@ -377,6 +480,16 @@
 
     body.innerHTML = html;
 
+    // Collapsible detail sections
+    body.querySelectorAll('[data-toggle-detail]').forEach(function(hdr){
+      hdr.addEventListener('click', function(){
+        var section = hdr.parentElement;
+        var bodyEl = section.querySelector('.resync-detail-body');
+        bodyEl.classList.toggle('collapsed');
+        hdr.classList.toggle('collapsed');
+      });
+    });
+
     // Toggle raw output button
     var rawBtn = document.getElementById('resyncShowRawBtn');
     rawBtn.onclick = function() {
@@ -389,10 +502,320 @@
   }
 
   function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
     var div = document.createElement('div');
-    div.appendChild(document.createTextNode(text));
+    div.appendChild(document.createTextNode(String(text)));
     return div.innerHTML;
   }
+
+  function renderDetailSection(key, rows, icon, title, severity, headers, rowFn, allowRawHtmlCol2) {
+    if (!rows || rows.length === 0) return '';
+    var sev = severity || 'warning';
+    var html = '<div class="resync-detail-section sev-' + sev + '" data-detail-key="' + key + '">';
+    html += '<div class="resync-detail-header sev-' + sev + '" data-toggle-detail="' + key + '">';
+    html += '<span><i class="fas ' + icon + ' me-2"></i>' + escapeHtml(title) + ' <span class="badge bg-white text-dark ms-1">' + rows.length + '</span></span>';
+    html += '<i class="fas fa-chevron-down chev"></i>';
+    html += '</div>';
+    html += '<div class="resync-detail-body"><table class="table table-sm mb-0"><thead><tr>';
+    for (var h = 0; h < headers.length; h++) {
+      html += '<th>' + escapeHtml(headers[h]) + '</th>';
+    }
+    html += '</tr></thead><tbody>';
+    for (var i = 0; i < rows.length; i++) {
+      var cells = rowFn(rows[i]);
+      html += '<tr>';
+      for (var c = 0; c < cells.length; c++) {
+        // Allow pre-escaped HTML only for the second cell of the negative-balance table
+        if (allowRawHtmlCol2 && c === 2) {
+          html += '<td>' + cells[c] + '</td>';
+        } else {
+          html += '<td>' + escapeHtml(cells[c]) + '</td>';
+        }
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+    return html;
+  }
+
+  // ── Detect/Review/Apply flow ───────────────────────────────────────────
+  var _currentCatalog = null;
+  var _activeResyncBtn = null;
+  var _activeResyncOutBox = null;
+  var _activeResyncBtnHtml = '';
+
+  function startResyncWithReview(btn, outBox, origHtml) {
+    _activeResyncBtn = btn;
+    _activeResyncOutBox = outBox;
+    _activeResyncBtnHtml = origHtml;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Scanning...';
+    outBox.textContent = 'Scanning for auto-fix candidates...';
+    outBox.classList.add('show');
+
+    fetch(detectUrl, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: '',
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if (!data.ok) {
+          outBox.textContent = '[DETECT FAILED] ' + (data.error || 'unknown');
+          outBox.style.borderLeft = '3px solid #ef4444';
+          resetResyncBtn();
+          return;
+        }
+        _currentCatalog = data.catalog || {};
+        var t = _currentCatalog.totals || {};
+        var anyCandidates = (t.orphans || 0) + (t.duplicate_groups || 0)
+          + (t.loose_duplicate_groups || 0) + (t.excess || 0);
+        if (anyCandidates === 0) {
+          outBox.textContent = 'No auto-fix candidates found. Running resync...';
+          runApply({
+            orphan_move_ids: [], duplicate_move_ids: [],
+            loose_duplicate_move_ids: [], excess_move_ids: [],
+          });
+          return;
+        }
+        buildConfirmModal(_currentCatalog);
+        outBox.textContent = 'Awaiting confirmation...';
+        var modal = new bootstrap.Modal(document.getElementById('resyncConfirmModal'));
+        modal.show();
+        resetResyncBtn();
+      })
+      .catch(function(err){
+        outBox.textContent = '[NETWORK ERROR] ' + err.message;
+        outBox.style.borderLeft = '3px solid #ef4444';
+        resetResyncBtn();
+      });
+  }
+
+  function resetResyncBtn() {
+    if (_activeResyncBtn) {
+      _activeResyncBtn.disabled = false;
+      _activeResyncBtn.innerHTML = _activeResyncBtnHtml;
+    }
+  }
+
+  function buildConfirmModal(catalog) {
+    var body = document.getElementById('resyncConfirmBody');
+    var t = catalog.totals || {};
+    var html = '';
+
+    html += '<p class="text-muted mb-3" style="font-size:.85rem;">';
+    html += 'The scan found these Stock Move records that look like automatic cleanup candidates. ';
+    html += 'Each row is pre-checked — uncheck anything you want to keep. ';
+    html += 'For duplicate groups the suggested <em>keep</em> row is highlighted in green and locked.';
+    html += '</p>';
+
+    html += renderConfirmSection({
+      key: 'orphans', title: 'Orphaned Moves', icon: 'fa-unlink', severity: 'error',
+      count: t.orphans || 0,
+      helper: 'Source document no longer exists in the database.',
+    });
+    html = html.replace('<!--ORPHANS-BODY-->', buildFlatGroupHtml(catalog.orphans || [], 'orphan'));
+
+    html += renderConfirmSection({
+      key: 'duplicates', title: 'Duplicate Move Groups (strict)', icon: 'fa-copy', severity: 'warning',
+      count: t.duplicate_groups || 0,
+      helper: 'Exact duplicates — same ref, item, location, batch, serial.',
+    });
+    html = html.replace('<!--DUPLICATES-BODY-->', buildDuplicateGroupsHtml(catalog.duplicates || [], 'duplicate'));
+
+    html += renderConfirmSection({
+      key: 'loose_duplicates', title: 'Probable Duplicate Groups (loose)', icon: 'fa-clone', severity: 'warning',
+      count: t.loose_duplicate_groups || 0,
+      helper: 'Same ref + item but different location/batch/serial. Often NULL-location phantoms from older runs.',
+    });
+    html = html.replace('<!--LOOSE_DUPLICATES-BODY-->', buildDuplicateGroupsHtml(catalog.loose_duplicates || [], 'loose_duplicate'));
+
+    html += renderConfirmSection({
+      key: 'excess', title: 'Excess Moves (deleted lines)', icon: 'fa-minus-circle', severity: 'error',
+      count: t.excess || 0,
+      helper: 'Source document still exists but the specific line item was deleted.',
+    });
+    html = html.replace('<!--EXCESS-BODY-->', buildFlatGroupHtml(catalog.excess || [], 'excess'));
+
+    body.innerHTML = html;
+  }
+
+  function renderConfirmSection(cfg) {
+    var badgeClass = 'rc-count-badge' + (cfg.severity ? ' sev-' + cfg.severity : '');
+    var html = '<div class="rc-section" data-section="' + cfg.key + '">';
+    html += '<div class="rc-section-header">';
+    html += '<span class="rc-title"><i class="fas ' + cfg.icon + '"></i>' + escapeHtml(cfg.title);
+    html += ' <span class="' + badgeClass + '">' + cfg.count + '</span></span>';
+    html += '<span class="rc-toggle text-muted" data-toggle-sect="' + cfg.key + '" style="font-size:.75rem;"><i class="fas fa-chevron-down"></i></span>';
+    html += '</div>';
+    if (cfg.helper) {
+      html += '<div style="padding:.3rem .8rem;font-size:.7rem;color:#6b7280;background:#f9fafb;border-bottom:1px solid #e5e7eb;">' + escapeHtml(cfg.helper) + '</div>';
+    }
+    if (cfg.count === 0) {
+      html += '<div class="rc-empty"><i class="fas fa-check-circle text-success me-1"></i>None found.</div>';
+    } else {
+      var upper = cfg.key.toUpperCase();
+      html += '<div class="rc-section-body"><!--' + upper + '-BODY--></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function buildFlatGroupHtml(rows, kind) {
+    if (!rows.length) return '';
+    var grouped = groupBy(rows, function(r){ return r.reference_type + '#' + r.reference_id; });
+    var out = '';
+    for (var refKey in grouped) {
+      var list = grouped[refKey];
+      out += '<div class="rc-group">';
+      out += '<div class="rc-group-title"><i class="fas fa-file-alt text-muted"></i>';
+      out += '<span class="rc-ref">' + escapeHtml(refKey);
+      if (list[0].reference_number) out += ' · ' + escapeHtml(list[0].reference_number);
+      out += '</span>';
+      out += '<span class="text-muted">· ' + list.length + ' move(s)</span>';
+      out += '</div>';
+      for (var i = 0; i < list.length; i++) {
+        out += buildMoveRow(list[i], kind, false);
+      }
+      out += '</div>';
+    }
+    return out;
+  }
+
+  function buildDuplicateGroupsHtml(groups, kind) {
+    if (!groups.length) return '';
+    var out = '';
+    for (var g = 0; g < groups.length; g++) {
+      var grp = groups[g];
+      out += '<div class="rc-group">';
+      out += '<div class="rc-group-title"><i class="fas fa-file-alt text-muted"></i>';
+      out += '<span class="rc-ref">' + escapeHtml(grp.reference_type + '#' + grp.reference_id);
+      if (grp.reference_number) out += ' · ' + escapeHtml(grp.reference_number);
+      out += '</span>';
+      out += '<span class="text-muted">· ' + escapeHtml(grp.item_code) + ' — ' + escapeHtml(grp.item_name) + '</span>';
+      out += '</div>';
+      for (var m = 0; m < grp.moves.length; m++) {
+        out += buildMoveRow(grp.moves[m], kind, grp.moves[m].is_keep);
+      }
+      out += '</div>';
+    }
+    return out;
+  }
+
+  function buildMoveRow(move, kind, isKeep) {
+    var fromLoc = move.from_location ? escapeHtml(move.from_location) : '<span class="rc-meta-null">NULL</span>';
+    var toLoc = move.to_location ? escapeHtml(move.to_location) : '<span class="rc-meta-null">NULL</span>';
+    var itemLabel = move.item_code ? (escapeHtml(move.item_code) + ' · ' + escapeHtml(move.item_name || '')) : '';
+    var posted = move.posted_at ? escapeHtml(move.posted_at.substring(0, 19).replace('T', ' ')) : '';
+    var checkbox = isKeep
+      ? '<span title="Suggested keep — cannot delete" class="text-success"><i class="fas fa-lock"></i></span>'
+      : '<input type="checkbox" data-kind="' + kind + '" data-move-id="' + move.move_id + '" checked>';
+    var qtyLabel = escapeHtml(move.qty) + (move.unit ? escapeHtml(move.unit) : '');
+    var rowCls = 'rc-move-row' + (isKeep ? ' is-keep' : '');
+    var badge = isKeep
+      ? '<span class="rc-move-badge">KEEP</span>'
+      : '<span class="rc-move-badge text-danger">DELETE</span>';
+    var html = '<div class="' + rowCls + '">';
+    html += checkbox;
+    html += '<span>Move#' + move.move_id + '</span>';
+    html += '<span>' + (itemLabel || posted) + '</span>';
+    html += '<span>from=' + fromLoc + ' → to=' + toLoc + ' · ' + qtyLabel + '</span>';
+    html += badge;
+    html += '</div>';
+    return html;
+  }
+
+  function groupBy(arr, keyFn) {
+    var map = {};
+    for (var i = 0; i < arr.length; i++) {
+      var k = keyFn(arr[i]);
+      (map[k] = map[k] || []).push(arr[i]);
+    }
+    return map;
+  }
+
+  function collectSelection() {
+    var out = {
+      orphan_move_ids: [], duplicate_move_ids: [],
+      loose_duplicate_move_ids: [], excess_move_ids: [],
+    };
+    document.querySelectorAll('#resyncConfirmBody input[type="checkbox"][data-move-id]').forEach(function(cb){
+      if (!cb.checked) return;
+      var kind = cb.dataset.kind;
+      var id = parseInt(cb.dataset.moveId, 10);
+      if (kind === 'orphan') out.orphan_move_ids.push(id);
+      else if (kind === 'duplicate') out.duplicate_move_ids.push(id);
+      else if (kind === 'loose_duplicate') out.loose_duplicate_move_ids.push(id);
+      else if (kind === 'excess') out.excess_move_ids.push(id);
+    });
+    return out;
+  }
+
+  function runApply(selection) {
+    var outBox = _activeResyncOutBox;
+    var btn = _activeResyncBtn;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Applying...';
+    }
+    if (outBox) {
+      outBox.textContent = 'Running resync with approved fixes...';
+      outBox.classList.add('show');
+    }
+    fetch(applyUrl, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify(selection),
+    })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var text = data.output || '';
+        if (data.error) text += '\n[ERROR] ' + data.error;
+        if (outBox) {
+          outBox.textContent = text || '(no output)';
+          outBox.style.borderLeft = data.ok ? '3px solid #22c55e' : '3px solid #ef4444';
+        }
+        if (data.resync_results) {
+          buildResyncModal(data, 'resync_inventory', data.ok);
+          var modal = new bootstrap.Modal(document.getElementById('resyncResultsModal'));
+          modal.show();
+        }
+      })
+      .catch(function(err){
+        if (outBox) {
+          outBox.textContent = '[NETWORK ERROR] ' + err.message;
+          outBox.style.borderLeft = '3px solid #ef4444';
+        }
+      })
+      .finally(resetResyncBtn);
+  }
+
+  document.getElementById('resyncApplyBtn').addEventListener('click', function(){
+    var selection = collectSelection();
+    bootstrap.Modal.getInstance(document.getElementById('resyncConfirmModal')).hide();
+    runApply(selection);
+  });
+  document.getElementById('resyncSelectAllBtn').addEventListener('click', function(){
+    document.querySelectorAll('#resyncConfirmBody input[type="checkbox"][data-move-id]').forEach(function(cb){ cb.checked = true; });
+  });
+  document.getElementById('resyncSelectNoneBtn').addEventListener('click', function(){
+    document.querySelectorAll('#resyncConfirmBody input[type="checkbox"][data-move-id]').forEach(function(cb){ cb.checked = false; });
+  });
+  document.getElementById('resyncConfirmBody').addEventListener('click', function(e){
+    var toggle = e.target.closest('[data-toggle-sect]');
+    if (!toggle) return;
+    var section = toggle.closest('.rc-section');
+    var bodyEl = section.querySelector('.rc-section-body');
+    if (!bodyEl) return;
+    var hidden = bodyEl.style.display === 'none';
+    bodyEl.style.display = hidden ? '' : 'none';
+    var icon = toggle.querySelector('i');
+    if (icon) {
+      icon.classList.toggle('fa-chevron-down');
+      icon.classList.toggle('fa-chevron-right');
+    }
+  });
 
   document.querySelectorAll('.ts-run-btn').forEach(function(btn){
     btn.addEventListener('click', function(e){
@@ -407,7 +830,9 @@
       if (confirmMsg) {
         if (!confirm(confirmMsg)) return;
       } else if (action === 'resync_inventory') {
-        if (!confirm('This will modify StockBalance and StockMove records. Are you sure?')) return;
+        // New two-step flow: detect → review → apply
+        startResyncWithReview(btn, outBox, origHtml);
+        return;
       }
 
       // UI: disable + spinner

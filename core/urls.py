@@ -7,6 +7,8 @@ urlpatterns = [
     path('settings/', views.settings_view, name='settings'),
     path('settings/tests-syncs/', views.tests_syncs_view, name='tests_syncs'),
     path('settings/tests-syncs/run/', views.run_sync_action, name='run_sync_action'),
+    path('settings/tests-syncs/resync-detect/', views.resync_detect_candidates, name='resync_detect_candidates'),
+    path('settings/tests-syncs/resync-apply/', views.resync_apply_with_selection, name='resync_apply_with_selection'),
 
     # Sales Channels
     path('channels/', views.channel_list, name='channel_list'),
