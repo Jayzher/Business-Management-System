@@ -230,6 +230,8 @@ def sidebar_menu(request):
             'tour_id': 'nav-settings',
             'children': [
                 {'label': 'Business Profile', 'url': '/core/settings/', 'active_prefix': '/core/settings/', 'icon': 'fas fa-building'},
+                {'label': 'User Management', 'url': '/accounts/users/', 'active_prefix': '/accounts/users', 'icon': 'fas fa-users-cog'},
+                {'label': 'Roles', 'url': '/accounts/roles/', 'active_prefix': '/accounts/roles', 'icon': 'fas fa-user-tag'},
                 {'label': 'System Logs', 'url': '/audit/system/', 'active_prefix': '/audit/system', 'icon': 'fas fa-history'},
                 {'label': 'Manual Logs', 'url': '/audit/manual/', 'active_prefix': '/audit/manual', 'icon': 'fas fa-pen-square'},
                 {'label': 'Tests & Syncs', 'url': '/core/settings/tests-syncs/', 'active_prefix': '/core/settings/tests-syncs', 'icon': 'fas fa-vial'},
