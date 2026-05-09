@@ -147,6 +147,10 @@ def _deduplicate_moves(dry_run, warn_fn):
     item_id, from_location_id, to_location_id) tuple appears more than once.
     For each group keep the move with qty closest to the converted source-doc
     qty; when undecidable keep the oldest (lowest pk) and delete the rest.
+    Also removes "phantom" duplicates — a past bug in the backfill created
+    moves with NULL from/to locations alongside real moves with concrete
+    locations for the same (ref_type, ref_id, item). The NULL-location ghost
+    is deleted so real inventory impact is preserved.
     Returns (removed_count, groups_count).
     """
     from django.db.models import Count
@@ -193,7 +197,63 @@ def _deduplicate_moves(dry_run, warn_fn):
                 m.delete()
             removed += 1
 
-    return removed, len(dupes)
+    # ── Phantom NULL-location cleanup ───────────────────────────────────────
+    # Groups keyed only on (ref_type, ref_id, item_id). When one move in the
+    # group has both from_location and to_location NULL AND another move has a
+    # concrete location, the NULL move is a backfill phantom produced by the
+    # pre-fix bug.  Delete the phantom, keep the real ones.
+    phantom_removed, phantom_groups = _remove_phantom_null_location_moves(dry_run, warn_fn)
+    return removed + phantom_removed, len(dupes) + phantom_groups
+
+
+def _remove_phantom_null_location_moves(dry_run, warn_fn):
+    """Delete moves with NULL from/to location when a concrete-location move
+    exists for the same (ref_type, ref_id, item).  Returns (removed, groups)."""
+    from django.db.models import Count, Q
+
+    loose_keys = list(
+        StockMove.objects
+        .filter(status=MoveStatus.POSTED)
+        .exclude(reference_number__startswith='REV-')
+        .exclude(reference_number__startswith='VOID-')
+        .values('reference_type', 'reference_id', 'item_id')
+        .annotate(cnt=Count('id'))
+        .filter(cnt__gt=1)
+    )
+
+    removed = 0
+    groups = 0
+    for key in loose_keys:
+        moves = list(
+            StockMove.objects.filter(
+                reference_type=key['reference_type'],
+                reference_id=key['reference_id'],
+                item_id=key['item_id'],
+                status=MoveStatus.POSTED,
+            )
+            .exclude(reference_number__startswith='REV-')
+            .exclude(reference_number__startswith='VOID-')
+            .order_by('id')
+            .select_related('item')
+        )
+        if len(moves) < 2:
+            continue
+        null_loc = [m for m in moves if m.from_location_id is None and m.to_location_id is None]
+        has_loc = [m for m in moves if m.from_location_id is not None or m.to_location_id is not None]
+        if not null_loc or not has_loc:
+            continue
+        groups += 1
+        for m in null_loc:
+            warn_fn(
+                f'    [PHANTOM] Removing NULL-location Move#{m.pk} '
+                f'ref={m.reference_type}#{m.reference_id} '
+                f'item={m.item.code} qty={m.qty} '
+                f'(real move exists with concrete location)'
+            )
+            if not dry_run:
+                m.delete()
+            removed += 1
+    return removed, groups
 
 
 def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
@@ -400,10 +460,38 @@ def _line_move_type(ref_type):
     }[ref_type]
 
 
+def _service_default_location_id(doc):
+    """Return the default pickable-location id for a CustomerService.
+
+    Mirrors the real-time fallback used by ``services.views.service_complete``:
+    when a ServiceLine has no location, the warehouse's lowest-coded pickable
+    Location is used to post the StockMove.  The backfill and balance rebuild
+    must apply the same fallback; otherwise they key off ``from_location=None``
+    while the real move uses the concrete location, creating phantom duplicate
+    moves on every resync run.
+    """
+    from warehouses.models import Location as _Location
+    if not getattr(doc, 'warehouse_id', None):
+        return None
+    return (
+        _Location.objects
+        .filter(warehouse_id=doc.warehouse_id, is_pickable=True)
+        .order_by('code')
+        .values_list('id', flat=True)
+        .first()
+    )
+
+
 def _line_locations(ref_type, doc, line, qty):
     if ref_type == 'GoodsReceipt':
         return None, line.location_id
-    if ref_type in ('DeliveryNote', 'SalesPickup', 'DamagedReport', 'PurchaseReturn', 'InventoryToSupplyTransfer', 'CustomerService'):
+    if ref_type == 'CustomerService':
+        # ServiceLine.location is nullable — real-time posting falls back to the
+        # warehouse's default pickable location. Keep parity here so backfilled
+        # moves match the real move's from_location and don't get duplicated.
+        loc_id = line.location_id or _service_default_location_id(doc)
+        return loc_id, None
+    if ref_type in ('DeliveryNote', 'SalesPickup', 'DamagedReport', 'PurchaseReturn', 'InventoryToSupplyTransfer'):
         return line.location_id, None
     if ref_type == 'StockTransfer':
         return line.from_location_id, line.to_location_id
@@ -643,6 +731,24 @@ def _backfill_missing_moves(warn_fn, dry_run, info_fn):
         )
     )
 
+    # Safety net against duplicate backfills: any move that already exists for
+    # the same (ref_type, ref_id, item, batch, serial) with a CONCRETE
+    # from/to location is treated as "already there."  Real-time posting is
+    # the source of truth for the move's actual location (it applies warehouse
+    # default-location fallbacks that the document lines don't record); the
+    # backfill must never create a second move in a different location slot.
+    # Phantom moves with NULL from/to location do NOT block backfill — those
+    # are handled by Phase 0b cleanup after the real move is created.
+    existing_loose_keys = set(
+        StockMove.objects.filter(status=MoveStatus.POSTED)
+        .exclude(reference_number__startswith='REV-')
+        .exclude(reference_number__startswith='VOID-')
+        .exclude(from_location_id__isnull=True, to_location_id__isnull=True)
+        .values_list(
+            'reference_type', 'reference_id', 'item_id', 'batch_number', 'serial_number'
+        )
+    )
+
     created = 0
     for payload in _iter_expected_moves(warn_fn):
         key = (
@@ -654,7 +760,14 @@ def _backfill_missing_moves(warn_fn, dry_run, info_fn):
             payload['batch_number'],
             payload['serial_number'],
         )
-        if key in existing_keys:
+        loose_key = (
+            payload['reference_type'],
+            payload['reference_id'],
+            payload['item_id'],
+            payload['batch_number'],
+            payload['serial_number'],
+        )
+        if key in existing_keys or loose_key in existing_loose_keys:
             continue
 
         info_fn(
@@ -680,6 +793,7 @@ def _backfill_missing_moves(warn_fn, dry_run, info_fn):
                 posted_at=payload['posted_at'],
             )
         existing_keys.add(key)
+        existing_loose_keys.add(loose_key)
         created += 1
 
     return created
@@ -1174,10 +1288,20 @@ def _build_balance_from_documents(warn_fn):
         
         elif doc_type == 'CustomerService':
             # Product lines (skip scrap)
+            svc_default_loc = None
             for line in doc.lines.all():
                 if getattr(line, 'is_scrap', False):
                     continue
-                if line.location_id is None:
+                # Match real-time posting's NULL-location fallback
+                # (services.views.service_complete uses the warehouse's default
+                # pickable location when line.location is not set).
+                loc_id = line.location_id
+                if loc_id is None:
+                    if svc_default_loc is None:
+                        svc_default_loc = _service_default_location_id(doc)
+                    loc_id = svc_default_loc
+                if loc_id is None:
+                    # Truly unresolvable: no warehouse or no pickable location.
                     continue
                 target_unit = _inventory_unit(line.item)
                 try:
@@ -1185,7 +1309,7 @@ def _build_balance_from_documents(warn_fn):
                                       f"Service#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
                 except (ValueError, Exception):
                     continue
-                _accumulate(bal, line.item_id, line.location_id, -q)
+                _accumulate(bal, line.item_id, loc_id, -q)
             
             # Bundle component deductions
             if doc.warehouse_id:
