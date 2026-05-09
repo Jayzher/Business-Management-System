@@ -1013,6 +1013,132 @@ def run_sync_action(request):
         return JsonResponse(response)
 
 
+@login_required
+@admin_required
+def resync_detect_candidates(request):
+    """AJAX: run `resync_inventory --detect-only` and return the JSON catalog.
+
+    Used by the Tests & Syncs modal to preview what Phase 0 would delete so
+    the operator can approve/reject individual moves before they run the real
+    resync.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'POST required'}, status=405)
+
+    from django.core.management import call_command
+    buf = io.StringIO()
+    try:
+        call_command('resync_inventory', '--detect-only', stdout=buf, stderr=buf)
+    except Exception as exc:
+        return JsonResponse({
+            'ok': False,
+            'error': str(exc),
+            'output': buf.getvalue(),
+        })
+
+    output = buf.getvalue()
+    catalog = _extract_detect_json(output)
+    if catalog is None:
+        return JsonResponse({
+            'ok': False,
+            'error': 'Could not parse detection payload.',
+            'output': output,
+        })
+
+    return JsonResponse({'ok': True, 'catalog': catalog})
+
+
+@login_required
+@admin_required
+def resync_apply_with_selection(request):
+    """AJAX: run `resync_inventory --apply-fixes <tempfile>` using the supplied
+    selection, then return parsed results identical to run_sync_action.
+
+    POST body expected as JSON::
+
+        {
+          "orphan_move_ids": [...],
+          "duplicate_move_ids": [...],
+          "loose_duplicate_move_ids": [...],
+          "excess_move_ids": [...],
+          "dry_run": false  # optional
+        }
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'POST required'}, status=405)
+
+    try:
+        payload = _json.loads(request.body.decode('utf-8') or '{}')
+    except (ValueError, UnicodeDecodeError) as exc:
+        return JsonResponse({'ok': False, 'error': f'Invalid JSON body: {exc}'}, status=400)
+
+    dry_run = bool(payload.pop('dry_run', False))
+    approved = {
+        'orphan_move_ids': [int(x) for x in payload.get('orphan_move_ids') or [] if str(x).isdigit()],
+        'duplicate_move_ids': [int(x) for x in payload.get('duplicate_move_ids') or [] if str(x).isdigit()],
+        'loose_duplicate_move_ids': [
+            int(x) for x in payload.get('loose_duplicate_move_ids') or [] if str(x).isdigit()
+        ],
+        'excess_move_ids': [int(x) for x in payload.get('excess_move_ids') or [] if str(x).isdigit()],
+    }
+
+    import tempfile
+    import os as _os
+    tf = tempfile.NamedTemporaryFile(
+        mode='w', suffix='.json', prefix='resync_fixes_', delete=False, encoding='utf-8',
+    )
+    try:
+        _json.dump(approved, tf)
+        tf.close()
+
+        from django.core.management import call_command
+        buf = io.StringIO()
+        args = ['--apply-fixes', tf.name]
+        if dry_run:
+            args.append('--dry-run')
+        try:
+            call_command('resync_inventory', *args, stdout=buf, stderr=buf)
+            output = buf.getvalue()
+            return JsonResponse({
+                'ok': True,
+                'output': output,
+                'resync_results': _parse_resync_output(output),
+            })
+        except Exception as exc:
+            output = buf.getvalue()
+            return JsonResponse({
+                'ok': False,
+                'error': str(exc),
+                'output': output,
+                'resync_results': _parse_resync_output(output),
+            })
+    finally:
+        try:
+            _os.unlink(tf.name)
+        except OSError:
+            pass
+
+
+def _extract_detect_json(output):
+    """Pull the JSON catalog emitted between BEGIN_DETECT_JSON / END_DETECT_JSON."""
+    start = output.find('BEGIN_DETECT_JSON')
+    end = output.find('END_DETECT_JSON')
+    if start < 0 or end < 0 or end < start:
+        return None
+    payload = output[start + len('BEGIN_DETECT_JSON'):end].strip()
+    try:
+        return _json.loads(payload)
+    except ValueError:
+        return None
+        output = buf.getvalue()
+        response = {'ok': False, 'output': output, 'error': str(exc)}
+
+        if action_key in ('resync_inventory', 'resync_inventory_dry', 'integrity_audit'):
+            response['resync_results'] = _parse_resync_output(output)
+
+        return JsonResponse(response)
+
+
 def _parse_resync_output(output):
     """Parse resync_inventory command output into structured results for the modal."""
     import re
@@ -1021,13 +1147,32 @@ def _parse_resync_output(output):
         'phases': [],
         'issues': [],
         'summary': {},
+        'details': {
+            'negative_balances': [],      # [{item, location, qty}]
+            'invoices_no_cogs': [],       # [{invoice_number, date, total}]
+            'items_no_selling_unit': [],  # [{code, name}]
+            'missing_conversions': [],    # [{code, from_unit, to_unit}]
+        },
     }
 
     lines = output.split('\n')
     current_phase = None
+    current_detail_key = None  # which details[...] list we're appending to
 
-    for line in lines:
-        stripped = line.strip()
+    # Row parsers for each detail section
+    # NEG BALANCE rows look like: "item=CODE  loc=LOC  qty=N"  (codes can contain spaces)
+    neg_row_re = re.compile(r'item=(.+?)\s{2,}loc=(.+?)\s{2,}qty=(-?\d+(?:\.\d+)?)')
+    # NO COGS rows look like: "INV_NUM  date=YYYY-MM-DD  total=N"
+    cogs_row_re = re.compile(r'^(\S+)\s+date=(\S+)\s+total=([\d.]+)')
+    # NO SELLING rows look like: "CODE  NAME"  (at least two tokens, no = sign)
+    sell_row_re = re.compile(r'^(\S+)\s{2,}(.+)$')
+    # MISSING CONV rows look like: "CODE  (from <-> to)"
+    conv_row_re = re.compile(r'^(\S+)\s+\((\S+)\s*<->\s*(\S+)\)')
+    # "... and N more" terminator
+    more_re = re.compile(r'^\.\.\.\s+and\s+\d+\s+more')
+
+    for raw in lines:
+        stripped = raw.strip()
 
         # Detect phase headers
         phase_match = re.match(r'---\s*Phase\s+(\w+):\s*(.+?)\s*---', stripped)
@@ -1039,7 +1184,62 @@ def _parse_resync_output(output):
                 'status': 'ok',
             }
             results['phases'].append(current_phase)
+            current_detail_key = None
             continue
+
+        # Detect start of a detail section and set the capture key
+        if '[NEG BALANCE]' in stripped and 'none OK' not in stripped:
+            current_detail_key = 'negative_balances'
+        elif '[NO COGS]' in stripped and 'none OK' not in stripped:
+            current_detail_key = 'invoices_no_cogs'
+        elif '[NO SELLING]' in stripped and 'none OK' not in stripped:
+            current_detail_key = 'items_no_selling_unit'
+        elif '[MISSING CONV]' in stripped and 'none OK' not in stripped:
+            current_detail_key = 'missing_conversions'
+        elif stripped.startswith('[') or 'none OK' in stripped or more_re.match(stripped):
+            # End of a detail block (next tag or summary line). "... and N more" stays as-is.
+            if not more_re.match(stripped):
+                current_detail_key = None
+
+        # Capture detail rows (indented lines following a section header)
+        if current_detail_key and raw.startswith('    ') and '[' not in stripped and not more_re.match(stripped):
+            if current_detail_key == 'negative_balances':
+                m = neg_row_re.search(stripped)
+                if m:
+                    results['details']['negative_balances'].append({
+                        'item': m.group(1),
+                        'location': m.group(2).strip(),
+                        'qty': m.group(3),
+                    })
+            elif current_detail_key == 'invoices_no_cogs':
+                m = cogs_row_re.match(stripped)
+                if m:
+                    results['details']['invoices_no_cogs'].append({
+                        'invoice_number': m.group(1),
+                        'date': m.group(2),
+                        'total': m.group(3),
+                    })
+            elif current_detail_key == 'items_no_selling_unit':
+                m = sell_row_re.match(stripped)
+                if m:
+                    results['details']['items_no_selling_unit'].append({
+                        'code': m.group(1),
+                        'name': m.group(2).strip(),
+                    })
+                else:
+                    # Fall back: single-token code only
+                    results['details']['items_no_selling_unit'].append({
+                        'code': stripped,
+                        'name': '',
+                    })
+            elif current_detail_key == 'missing_conversions':
+                m = conv_row_re.match(stripped)
+                if m:
+                    results['details']['missing_conversions'].append({
+                        'code': m.group(1),
+                        'from_unit': m.group(2),
+                        'to_unit': m.group(3),
+                    })
 
         # Detect summary line (e.g. "Deleted 5 orphaned move(s)")
         if current_phase and stripped and not stripped.startswith('---') and not stripped.startswith('==='):
@@ -1054,6 +1254,12 @@ def _parse_resync_output(output):
                 current_phase['status'] = 'warning'
                 results['issues'].append(stripped)
             elif '[MISSING CONV]' in stripped and 'none OK' not in stripped:
+                current_phase['status'] = 'warning'
+                results['issues'].append(stripped)
+            elif '[NO COGS]' in stripped and 'none OK' not in stripped:
+                current_phase['status'] = 'warning'
+                results['issues'].append(stripped)
+            elif '[NO SELLING]' in stripped and 'none OK' not in stripped:
                 current_phase['status'] = 'warning'
                 results['issues'].append(stripped)
             elif 'WARNING' in stripped:
@@ -1094,6 +1300,24 @@ def _parse_resync_output(output):
         neg_match = re.search(r'\[NEG BALANCE\]\s*(\d+)\s+item', stripped)
         if neg_match:
             results['summary']['negative_balances'] = int(neg_match.group(1))
+
+        no_cogs_match = re.search(r'\[NO COGS\]\s*(\d+)\s+paid invoice', stripped)
+        if no_cogs_match:
+            results['summary']['invoices_no_cogs'] = int(no_cogs_match.group(1))
+        elif '[NO COGS]' in stripped and 'none OK' in stripped:
+            results['summary']['invoices_no_cogs'] = 0
+
+        no_selling_match = re.search(r'\[NO SELLING\]\s*(\d+)\s+catalog item', stripped)
+        if no_selling_match:
+            results['summary']['items_no_selling_unit'] = int(no_selling_match.group(1))
+        elif '[NO SELLING]' in stripped and 'none OK' in stripped:
+            results['summary']['items_no_selling_unit'] = 0
+
+        missing_conv_match = re.search(r'\[MISSING CONV\]\s*(\d+)\s+item', stripped)
+        if missing_conv_match:
+            results['summary']['missing_conversions'] = int(missing_conv_match.group(1))
+        elif '[MISSING CONV]' in stripped and 'none OK' in stripped:
+            results['summary']['missing_conversions'] = 0
 
         integrity_match = re.search(r'Phase 3 total:\s*(\d+)\s+issue', stripped)
         if integrity_match:
