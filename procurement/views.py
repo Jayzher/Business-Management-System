@@ -507,6 +507,90 @@ def purchase_return_delete_view(request, pk):
 
 # ── Supplier Catalog ───────────────────────────────────────────────────────
 
+
+def _update_item_cost_from_supplier_catalog(item_ids=None):
+    """
+    After a Supplier Catalog sync (PO or GRN), update each Item.cost_price
+    to the HIGHEST price across its SupplierCatalogEntry rows.
+
+    Multi-supplier items typically have several prices; the most conservative
+    posture for COGS and inventory valuation is to use the maximum — so we
+    never under-state cost of goods sold when reporting.
+
+    Prices stored in a unit other than the Item.default_unit are converted
+    using catalog.utils.convert_price_for_unit so cross-unit entries are
+    compared on an apples-to-apples basis.
+
+    Args:
+        item_ids: Optional iterable of Item pks to limit the update scope.
+                  If None, every item with at least one catalog entry is
+                  processed.
+
+    Returns:
+        dict with keys:
+            updated_count  – items whose cost_price changed
+            unchanged_count – items whose highest price already equals cost_price
+            skipped_count  – items with catalog entries we could not price
+                              (e.g., zero-only entries, all conversions failed)
+    """
+    from decimal import Decimal
+    from catalog.models import Item
+    from catalog.utils import convert_price_for_unit, _lookup_conversion_record
+
+    qs = SupplierCatalogEntry.objects.select_related('item', 'item__default_unit', 'unit')
+    if item_ids is not None:
+        qs = qs.filter(item_id__in=list(item_ids))
+
+    # Bucket entries by item
+    per_item = {}
+    for entry in qs:
+        per_item.setdefault(entry.item_id, (entry.item, []))[1].append(entry)
+
+    updated_count = 0
+    unchanged_count = 0
+    skipped_count = 0
+
+    for item_id, (item, entries) in per_item.items():
+        base_unit = item.default_unit
+        best_price = None
+        for e in entries:
+            if not e.unit_price or e.unit_price <= 0:
+                continue
+            if e.unit_id == base_unit.pk:
+                price_in_base = Decimal(str(e.unit_price))
+            else:
+                # Only accept cross-unit entries when a real conversion record exists
+                conv, _is_rev = _lookup_conversion_record(e.unit, base_unit, item)
+                if conv is None:
+                    continue
+                price_in_base = convert_price_for_unit(
+                    e.unit_price, e.unit, base_unit,
+                    item=item, use_conversion_price=False,
+                )
+
+            if best_price is None or price_in_base > best_price:
+                best_price = price_in_base
+
+        if best_price is None:
+            skipped_count += 1
+            continue
+
+        current = item.cost_price or Decimal('0')
+        best_price_q = best_price.quantize(Decimal('0.0001'))
+        if current.quantize(Decimal('0.0001')) == best_price_q:
+            unchanged_count += 1
+            continue
+
+        Item.objects.filter(pk=item.pk).update(cost_price=best_price_q)
+        updated_count += 1
+
+    return {
+        'updated_count': updated_count,
+        'unchanged_count': unchanged_count,
+        'skipped_count': skipped_count,
+    }
+
+
 @login_required
 @procurement_access
 def supplier_catalog_list_view(request):
@@ -685,6 +769,8 @@ def supplier_catalog_sync_view(request):
     """
     Sync supplier catalog from past PO data.
     For each POSTED or APPROVED PO line, upsert the latest unit_price into SupplierCatalogEntry.
+    After syncing, each affected Item's cost_price is updated to the highest
+    supplier price on record (converted to the item's default unit).
     """
     if request.method == 'POST':
         from decimal import Decimal
@@ -699,6 +785,7 @@ def supplier_catalog_sync_view(request):
 
         created_count = 0
         updated_count = 0
+        touched_items = set()
 
         for line in po_lines:
             if not line.unit_price or line.unit_price <= 0:
@@ -720,11 +807,20 @@ def supplier_catalog_sync_view(request):
                 created_count += 1
             else:
                 updated_count += 1
+            touched_items.add(line.item_id)
+
+        # ── Update Item.cost_price to the highest supplier price ──
+        cost_stats = _update_item_cost_from_supplier_catalog(
+            item_ids=touched_items or None
+        )
 
         messages.success(
             request,
             f'Sync complete: {created_count} new entries created, '
-            f'{updated_count} entries updated from past PO data.',
+            f'{updated_count} entries updated from past PO data. '
+            f'Item costs updated: {cost_stats["updated_count"]} '
+            f'(unchanged: {cost_stats["unchanged_count"]}, '
+            f'skipped: {cost_stats["skipped_count"]}).',
         )
         return redirect('supplier_catalog_list')
 
@@ -755,6 +851,8 @@ def supplier_catalog_sync_grn_view(request):
     """
     Sync supplier catalog from GRN data (posted GRNs linked to POs).
     Always keeps the latest price based on receipt_date.
+    After syncing, each affected Item's cost_price is updated to the highest
+    supplier price on record (converted to the item's default unit).
     """
     if request.method == 'POST':
         # Get all posted GRN lines that have an associated PO
@@ -774,6 +872,7 @@ def supplier_catalog_sync_grn_view(request):
 
         created_count = 0
         updated_count = 0
+        touched_items = set()
 
         for grn_line in grn_lines:
             grn = grn_line.goods_receipt
@@ -815,11 +914,20 @@ def supplier_catalog_sync_grn_view(request):
                 created_count += 1
             else:
                 updated_count += 1
+            touched_items.add(grn_line.item_id)
+
+        # ── Update Item.cost_price to the highest supplier price ──
+        cost_stats = _update_item_cost_from_supplier_catalog(
+            item_ids=touched_items or None
+        )
 
         messages.success(
             request,
             f'GRN Sync complete: {created_count} new entries created, '
-            f'{updated_count} entries updated from Goods Receipts.',
+            f'{updated_count} entries updated from Goods Receipts. '
+            f'Item costs updated: {cost_stats["updated_count"]} '
+            f'(unchanged: {cost_stats["unchanged_count"]}, '
+            f'skipped: {cost_stats["skipped_count"]}).',
         )
         return redirect('supplier_catalog_list')
 
