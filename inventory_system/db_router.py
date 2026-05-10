@@ -6,9 +6,11 @@ production, ``test_env`` for test) based on the thread-local value set by
 ``AppEnvironmentMiddleware``.
 
 Migration behaviour:
-  - ``allow_migrate`` returns ``True`` only for the ``default`` alias.
-    This prevents accidental schema migrations against the test database.
-    Run test DB migrations explicitly when needed.
+  - ``allow_migrate`` returns ``True`` for ``default``, ``sqlite`` and
+    ``neon`` aliases. ``sqlite``/``neon`` are used by the ``db_sync``
+    management command to migrate those destinations before copying data.
+  - All other aliases (e.g. ``test_env``) must be migrated explicitly
+    with ``manage.py migrate --database=<alias>``.
 """
 
 from .env_middleware import get_current_db
@@ -45,8 +47,13 @@ class AppEnvironmentRouter:
         return True
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
-        # Migrations should only run on the production ('default') database.
-        # Run test DB migrations explicitly: manage.py migrate --database=test_env
+        # Migrations run on:
+        #   - 'default'   : primary environment DB
+        #   - 'sqlite'    : explicit local SQLite alias used by db_sync
+        #   - 'neon'      : explicit Neon PostgreSQL alias used by db_sync
+        # Other aliases (e.g. 'test_env') must be migrated explicitly with
+        # manage.py migrate --database=<alias>.
+        _MIGRATABLE_ALIASES = {'default', 'sqlite', 'neon'}
         if app_label in _ROUTED_APP_LABELS:
-            return db == 'default'
+            return db in _MIGRATABLE_ALIASES
         return None  # Let Django decide for built-in apps

@@ -1,7 +1,17 @@
 # Generated migration for adding opening and closing balance fields
 
 from django.db import migrations, models
-from decimal import Decimal
+
+
+def _fk_off(apps, schema_editor):
+    # PRAGMA is SQLite-only; no-op on other backends (e.g. PostgreSQL on Neon).
+    if schema_editor.connection.vendor == 'sqlite':
+        schema_editor.execute('PRAGMA foreign_keys = OFF;')
+
+
+def _fk_on(apps, schema_editor):
+    if schema_editor.connection.vendor == 'sqlite':
+        schema_editor.execute('PRAGMA foreign_keys = ON;')
 
 
 class Migration(migrations.Migration):
@@ -12,10 +22,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql='PRAGMA foreign_keys = OFF;',
-            reverse_sql='PRAGMA foreign_keys = ON;',
-        ),
+        migrations.RunPython(_fk_off, reverse_code=_fk_on),
         migrations.AddField(
             model_name='monthlycashflowsummary',
             name='opening_balance',
@@ -66,8 +73,5 @@ class Migration(migrations.Migration):
                 max_digits=15
             ),
         ),
-        migrations.RunSQL(
-            sql='PRAGMA foreign_keys = ON;',
-            reverse_sql='PRAGMA foreign_keys = OFF;',
-        ),
+        migrations.RunPython(_fk_on, reverse_code=_fk_off),
     ]
