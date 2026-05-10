@@ -63,7 +63,7 @@ class Command(BaseCommand):
         from django.core.management import call_command
         try:
             call_command('migrate', '--run-syncdb', database=src,
-                         verbosity=0, stdout=self.stdout, interactive=False)
+                         verbosity=1, stdout=self.stdout, interactive=False)
             self.stdout.write('  Source migrations up to date.')
         except Exception as e:
             self.stdout.write(self.style.WARNING(f'  Source migration warning: {e}'))
@@ -96,15 +96,30 @@ class Command(BaseCommand):
         # -- Flush destination ------------------------------------------------
         self.stdout.write(f'Step 1/5: Migrating & flushing {label_dst}...')
         from django.core.management import call_command
-        
+
+        # Detect schema drift: migrations marked 'applied' whose columns/tables
+        # are missing (caused by earlier runs that silently swallowed errors).
+        # Unrecord them so `migrate` will re-apply the DDL now.
+        self.stdout.write('  Checking for schema drift on destination...')
+        try:
+            drift_count = self._unrecord_drifted_migrations(dst)
+            if drift_count > 0:
+                self.stdout.write(f'  Unrecorded {drift_count} drifted migration(s) for re-apply')
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'  Drift check warning: {e}'))
+
         # Ensure all tables exist on the destination before flushing
         # Run migrations with --run-syncdb to create any missing tables
         self.stdout.write('  Running migrations on destination...')
         try:
             call_command('migrate', '--run-syncdb', database=dst,
-                         verbosity=0, stdout=self.stdout, interactive=False)
+                         verbosity=1, stdout=self.stdout, interactive=False)
         except Exception as e:
-            self.stdout.write(self.style.WARNING(f'  Migration warning: {e}'))
+            self.stdout.write(self.style.ERROR(f'  Migration FAILED: {e}'))
+            self.stdout.write(self.style.ERROR(
+                '  Destination schema is out of date — aborting before data copy.'
+            ))
+            raise
         
         # Clean up any orphaned FKs on destination before sync
         self.stdout.write('  Cleaning orphaned FKs on destination...')
@@ -223,6 +238,172 @@ class Command(BaseCommand):
         self.stdout.write('=' * 60)
 
     # -- helpers --------------------------------------------------------------
+
+    @staticmethod
+    def _unrecord_drifted_migrations(db_alias):
+        """
+        Detect migrations marked as applied in django_migrations whose target
+        DDL is clearly missing, and unrecord them so `migrate` re-applies.
+
+        After unrecording a "drifted" migration, we also unrecord every
+        descendant migration in the graph — otherwise Django will abort with
+        "Migration X is applied before its dependency Y" on the next migrate.
+
+        This covers the case where a prior sync ran with verbosity=0 and
+        swallowed a SQL failure, leaving the destination with a marked-but-
+        unexecuted migration. The checks below use information_schema
+        (PostgreSQL) or sqlite_master, so they are safe on either backend.
+
+        Returns the count of migrations unrecorded.
+        """
+        # (app, name, check_type, arg1, arg2)
+        # check_type == 'column'  -> arg1 = table, arg2 = column
+        # check_type == 'table'   -> arg1 = table
+        KNOWN_DRIFT_CHECKS = [
+            ('cashflow', '0004_add_opening_closing_balance',
+             'column', 'cashflow_monthlycashflowsummary', 'opening_balance'),
+            ('cashflow', '0005_alter_monthlycashflowsummary_net_profit',
+             'column', 'cashflow_monthlycashflowsummary', 'opening_balance'),
+            ('cashflow', '0006_add_inventory_asset_tracking',
+             'column', 'cashflow_monthlycashflowsummary', 'opening_balance'),
+            ('cashflow', '0008_alter_monthlycashflowsummary_closing_balance_and_more',
+             'column', 'cashflow_monthlycashflowsummary', 'opening_balance'),
+            ('audit', '0002_manuallog',
+             'table', 'audit_manuallog', None),
+            ('sales', '0008_add_partial_payment_amount',
+             'column', 'sales_salesorder', 'partial_payment_amount'),
+            ('core', '0015_add_delivery_charge_to_invoice',
+             'column', 'core_invoice', 'delivery_charge'),
+            ('services', '0010_add_unit_cost_to_other_materials',
+             'column', 'services_serviceothermaterial', 'unit_cost'),
+            ('services', '0011_alter_serviceothermaterial_unit_cost_and_more',
+             'column', 'services_serviceothermaterial', 'unit_cost'),
+            ('procurement', '0007_add_delivery_charge_to_goodsreceipt',
+             'column', 'procurement_goodsreceipt', 'delivery_charge'),
+        ]
+
+        is_pg = 'postgresql' in settings.DATABASES[db_alias].get('ENGINE', '')
+        drifted: set[tuple[str, str]] = set()
+
+        with connections[db_alias].cursor() as cursor:
+            # django_migrations itself must exist first
+            try:
+                cursor.execute("SELECT 1 FROM django_migrations LIMIT 1")
+            except Exception:
+                return 0
+
+            for app, name, kind, t, c in KNOWN_DRIFT_CHECKS:
+                # Is this migration marked applied?
+                if is_pg:
+                    cursor.execute(
+                        "SELECT 1 FROM django_migrations WHERE app = %s AND name = %s",
+                        [app, name],
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT 1 FROM django_migrations WHERE app = ? AND name = ?",
+                        [app, name],
+                    )
+                if not cursor.fetchone():
+                    continue
+
+                # Is the target object actually present?
+                exists = True
+                if kind == 'table':
+                    if is_pg:
+                        cursor.execute(
+                            "SELECT 1 FROM information_schema.tables "
+                            "WHERE table_schema = 'public' AND table_name = %s",
+                            [t],
+                        )
+                    else:
+                        cursor.execute(
+                            "SELECT 1 FROM sqlite_master "
+                            "WHERE type = 'table' AND name = ?",
+                            [t],
+                        )
+                    exists = cursor.fetchone() is not None
+                elif kind == 'column':
+                    if is_pg:
+                        cursor.execute(
+                            "SELECT 1 FROM information_schema.columns "
+                            "WHERE table_name = %s AND column_name = %s",
+                            [t, c],
+                        )
+                        exists = cursor.fetchone() is not None
+                    else:
+                        try:
+                            cursor.execute(f'PRAGMA table_info("{t}")')
+                            cols = [row[1] for row in cursor.fetchall()]
+                            exists = c in cols
+                        except Exception:
+                            exists = False
+
+                if not exists:
+                    drifted.add((app, name))
+
+            if not drifted:
+                # Even if none of the known-drift checks triggered this round,
+                # a prior partial run may have left a recorded migration whose
+                # dependency row is missing. Fall through to the graph-repair
+                # pass below so we always leave the migration graph consistent.
+                pass
+
+            # Expand to include every descendant so the graph stays consistent.
+            from django.db.migrations.loader import MigrationLoader
+            loader = MigrationLoader(connections[db_alias], ignore_no_migrations=True)
+            to_remove: set[tuple[str, str]] = set(drifted)
+            queue = list(drifted)
+            while queue:
+                parent_key = queue.pop()
+                for child_key, migration in loader.graph.nodes.items():
+                    if child_key in to_remove:
+                        continue
+                    if parent_key in migration.dependencies:
+                        to_remove.add(child_key)
+                        queue.append(child_key)
+
+            # Graph-repair pass: find any recorded migration whose
+            # dependencies aren't all recorded, and unrecord it (and its
+            # descendants) so `migrate` can re-apply them in order.
+            recorded: set[tuple[str, str]] = set()
+            cursor.execute("SELECT app, name FROM django_migrations")
+            for app, name in cursor.fetchall():
+                recorded.add((app, name))
+            effective = recorded - to_remove
+
+            # Iterate to fixpoint.
+            changed = True
+            while changed:
+                changed = False
+                for key in list(effective):
+                    migration = loader.graph.nodes.get(key)
+                    if migration is None:
+                        continue
+                    for dep in migration.dependencies:
+                        if dep[0] == '__setting__':
+                            continue
+                        if dep not in effective and dep in loader.graph.nodes:
+                            to_remove.add(key)
+                            effective.discard(key)
+                            changed = True
+                            break
+
+            # Only delete rows that are actually still recorded.
+            removed = 0
+            for app, name in to_remove:
+                if is_pg:
+                    cursor.execute(
+                        "DELETE FROM django_migrations WHERE app = %s AND name = %s",
+                        [app, name],
+                    )
+                else:
+                    cursor.execute(
+                        "DELETE FROM django_migrations WHERE app = ? AND name = ?",
+                        [app, name],
+                    )
+                removed += cursor.rowcount or 0
+        return removed
 
     @staticmethod
     def _topo_sort_models():
@@ -458,37 +639,73 @@ class Command(BaseCommand):
 
     @staticmethod
     def _validate_fk_integrity(db_alias):
-        """Check for orphaned FK references after sync."""
+        """Check for orphaned FK references after sync. Vendor-aware."""
+        is_pg = 'postgresql' in settings.DATABASES[db_alias].get('ENGINE', '')
         orphan_count = 0
+
         with connections[db_alias].cursor() as cursor:
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name NOT LIKE 'sqlite_%'
-            """)
-            tables = [row[0] for row in cursor.fetchall()]
-            
-            for table in tables:
-                cursor.execute(f'PRAGMA foreign_key_list("{table}")')
+            if is_pg:
+                # On PostgreSQL, FK constraints themselves enforce integrity
+                # once restored, so we only report violations that slipped
+                # through (when constraints failed to re-create).
+                cursor.execute("""
+                    SELECT
+                        tc.table_name,
+                        kcu.column_name,
+                        ccu.table_name AS ref_table,
+                        ccu.column_name AS ref_column
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage ccu
+                        ON ccu.constraint_name = tc.constraint_name
+                        AND ccu.table_schema = tc.table_schema
+                    WHERE tc.constraint_type = 'FOREIGN KEY'
+                      AND tc.table_schema = 'public'
+                """)
                 fks = cursor.fetchall()
-                
-                for fk in fks:
-                    ref_table = fk[2]
-                    fk_column = fk[3]
-                    ref_column = fk[4]
-                    
+                for table, col, ref_table, ref_col in fks:
                     try:
-                        cursor.execute(f"""
-                            SELECT COUNT(*)
-                            FROM "{table}" t
-                            LEFT JOIN "{ref_table}" r ON t."{fk_column}" = r."{ref_column}"
-                            WHERE t."{fk_column}" IS NOT NULL
-                              AND r."{ref_column}" IS NULL
-                        """)
-                        count = cursor.fetchone()[0]
-                        orphan_count += count
+                        cursor.execute(
+                            f'SELECT COUNT(*) FROM "{table}" t '
+                            f'LEFT JOIN "{ref_table}" r '
+                            f'ON t."{col}" = r."{ref_col}" '
+                            f'WHERE t."{col}" IS NOT NULL AND r."{ref_col}" IS NULL'
+                        )
+                        orphan_count += cursor.fetchone()[0] or 0
                     except Exception:
                         pass
-        
+            else:
+                # SQLite path
+                try:
+                    cursor.execute("""
+                        SELECT name FROM sqlite_master
+                        WHERE type='table' AND name NOT LIKE 'sqlite_%'
+                    """)
+                    tables = [row[0] for row in cursor.fetchall()]
+                except Exception:
+                    return 0
+
+                for table in tables:
+                    cursor.execute(f'PRAGMA foreign_key_list("{table}")')
+                    fks = cursor.fetchall()
+                    for fk in fks:
+                        ref_table = fk[2]
+                        fk_column = fk[3]
+                        ref_column = fk[4]
+                        try:
+                            cursor.execute(
+                                f'SELECT COUNT(*) FROM "{table}" t '
+                                f'LEFT JOIN "{ref_table}" r '
+                                f'ON t."{fk_column}" = r."{ref_column}" '
+                                f'WHERE t."{fk_column}" IS NOT NULL '
+                                f'AND r."{ref_column}" IS NULL'
+                            )
+                            orphan_count += cursor.fetchone()[0] or 0
+                        except Exception:
+                            pass
+
         return orphan_count
 
     @staticmethod
