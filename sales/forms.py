@@ -27,7 +27,7 @@ class SalesOrderForm(forms.ModelForm):
         model = SalesOrder
         fields = ['document_number', 'customer', 'warehouse', 'order_date', 'delivery_date',
                   'fulfillment_type', 'shipping_address', 'currency', 'exchange_rate',
-                  'payment_status', 'sales_channel', 'receipt_no', 'notes']
+                  'payment_status', 'sales_channel', 'receipt_no', 'delivery_charge', 'notes']
         widgets = {
             'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'customer': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select customer'}),
@@ -40,6 +40,7 @@ class SalesOrderForm(forms.ModelForm):
             'payment_status': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'sales_channel': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'receipt_no': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Receipt / reference number'}),
+            'delivery_charge': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0', 'placeholder': '0.00'}),
             'notes': forms.Textarea(attrs={'class': 'form-control form-control-sm', 'rows': 3, 'placeholder': 'Internal notes or instructions'}),
         }
         help_texts = {
@@ -55,6 +56,7 @@ class SalesOrderForm(forms.ModelForm):
             'payment_status': 'Payment status of this order.',
             'sales_channel': 'Sales channel (e.g. Physical Store, Shopee).',
             'receipt_no': 'External receipt or reference number.',
+            'delivery_charge': 'Delivery/shipping fee charged to the customer (added to grand total).',
             'notes': 'Internal remarks or special instructions.',
         }
 

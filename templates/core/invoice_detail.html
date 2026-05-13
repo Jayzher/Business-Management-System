@@ -129,6 +129,7 @@
             <tr><td colspan="7" class="text-right"><strong>Subtotal</strong></td><td class="text-right">&#8369; {{ invoice.subtotal|floatformat:2|intcomma }}</td></tr>
             {% if invoice.discount_total %}<tr><td colspan="7" class="text-right">Discount</td><td class="text-right text-danger">(&#8369; {{ invoice.discount_total|floatformat:2|intcomma }})</td></tr>{% endif %}
             {% if invoice.tax_total %}<tr><td colspan="7" class="text-right">Tax</td><td class="text-right">&#8369; {{ invoice.tax_total|floatformat:2|intcomma }}</td></tr>{% endif %}
+            {% if invoice.delivery_charge %}<tr><td colspan="7" class="text-right">Delivery Charge</td><td class="text-right">&#8369; {{ invoice.delivery_charge|floatformat:2|intcomma }}</td></tr>{% endif %}
             <tr class="table-primary"><td colspan="7" class="text-right"><strong>Grand Total</strong></td><td class="text-right"><strong>&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
             <tr class="table-success"><td colspan="7" class="text-right"><strong>Total Paid</strong></td><td class="text-right text-success"><strong>&#8369; {{ total_paid|floatformat:2|intcomma }}</strong></td></tr>
             {% if not invoice.is_paid %}

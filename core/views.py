@@ -319,9 +319,10 @@ def invoice_from_so(request, so_id):
     bundles_total = sum(b.bundle_total for b in so.price_list_lines.all())
     bundles_subtotal = sum(b.bundle_subtotal for b in so.price_list_lines.all())
     bundles_discount = bundles_subtotal - bundles_total
-    grand_total = lines_total + bundles_total
     subtotal = lines_subtotal + bundles_subtotal
     discount_total = lines_discount + bundles_discount
+    delivery_charge = so.delivery_charge or Decimal('0')
+    grand_total = lines_total + bundles_total + delivery_charge
 
     inv = Invoice.objects.create(
         invoice_number=_next_invoice_number(),
@@ -331,6 +332,7 @@ def invoice_from_so(request, so_id):
         customer_address=so.customer.address if so.customer else '',
         subtotal=subtotal,
         discount_total=discount_total,
+        delivery_charge=delivery_charge,
         grand_total=grand_total,
         created_by=request.user,
     )
