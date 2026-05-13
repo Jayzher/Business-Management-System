@@ -37,8 +37,10 @@ def _get_changes(model_class, serializer_class, since_dt, extra_filter=None):
     """
     Return {created: [...], updated: [...], deleted: [...]} for a model
     since the given datetime.
+    
+    Reads from 'default' (Neon) to ensure mobile clients get authoritative data.
     """
-    qs = model_class.objects.all()
+    qs = model_class.objects.using('default').all()
     if extra_filter:
         qs = qs.filter(extra_filter)
 
@@ -47,11 +49,11 @@ def _get_changes(model_class, serializer_class, since_dt, extra_filter=None):
         updated = qs.filter(updated_at__gt=since_dt).exclude(created_at__gt=since_dt)
     else:
         created = qs
-        updated = model_class.objects.none()
+        updated = model_class.objects.using('default').none()
 
     deleted = []
     if hasattr(model_class, 'all_objects'):
-        deleted_qs = model_class.all_objects.filter(is_active=False)
+        deleted_qs = model_class.all_objects.using('default').filter(is_active=False)
         if since_dt:
             deleted_qs = deleted_qs.filter(updated_at__gt=since_dt)
         deleted = list(deleted_qs.values_list('id', flat=True))
@@ -64,8 +66,11 @@ def _get_changes(model_class, serializer_class, since_dt, extra_filter=None):
 
 
 def _get_simple_changes(model_class, serializer_class, since_dt):
-    """For models without created_at — just return all or changed since."""
-    qs = model_class.objects.all()
+    """For models without created_at — just return all or changed since.
+    
+    Reads from 'default' (Neon) to ensure mobile clients get authoritative data.
+    """
+    qs = model_class.objects.using('default').all()
 
     if since_dt and hasattr(model_class, 'updated_at'):
         changed = qs.filter(updated_at__gt=since_dt)
@@ -83,7 +88,7 @@ def _get_simple_changes(model_class, serializer_class, since_dt):
 
     # Surface soft-deleted IDs so mobile can remove them locally.
     if hasattr(model_class, 'all_objects'):
-        deleted_qs = model_class.all_objects.filter(is_active=False)
+        deleted_qs = model_class.all_objects.using('default').filter(is_active=False)
         if since_dt:
             deleted_qs = deleted_qs.filter(updated_at__gt=since_dt)
         result['deleted'] = list(deleted_qs.values_list('id', flat=True))
@@ -130,7 +135,7 @@ def sync_pull(request):
 
     # Special case: warehouse_permissions (user-scoped)
     if 'warehouse_permissions' in requested_tables:
-        user_perms = WarehousePermission.objects.filter(user=request.user)
+        user_perms = WarehousePermission.objects.using('default').filter(user=request.user)
         changes['warehouse_permissions'] = {
             'created': WarehousePermissionSerializer(user_perms, many=True).data,
             'updated': [],

@@ -409,17 +409,20 @@ def transfer_create_view(request):
     if request.method == 'POST':
         form = StockTransferForm(request.POST)
         formset = StockTransferLineFormSet(request.POST)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             obj = form.save(commit=False)
             obj.created_by = request.user
             if not obj.document_number:
                 obj.document_number = generate_document_number('TR', StockTransfer)
             obj.save()
-            formset = StockTransferLineFormSet(request.POST, instance=obj)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Transfer {obj.document_number} created.')
-                return redirect('transfer_list')
+            formset.instance = obj
+            formset.save()
+            messages.success(request, f'Transfer {obj.document_number} created.')
+            return redirect('transfer_list')
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = StockTransferForm(initial={'document_number': generate_document_number('TR', StockTransfer)})
         formset = StockTransferLineFormSet()
@@ -473,17 +476,20 @@ def adjustment_create_view(request):
     if request.method == 'POST':
         form = StockAdjustmentForm(request.POST)
         formset = StockAdjustmentLineFormSet(request.POST)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             obj = form.save(commit=False)
             obj.created_by = request.user
             if not obj.document_number:
                 obj.document_number = generate_document_number('ADJ', StockAdjustment)
             obj.save()
-            formset = StockAdjustmentLineFormSet(request.POST, instance=obj)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Adjustment {obj.document_number} created.')
-                return redirect('adjustment_list')
+            formset.instance = obj
+            formset.save()
+            messages.success(request, f'Adjustment {obj.document_number} created.')
+            return redirect('adjustment_list')
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = StockAdjustmentForm(initial={'document_number': generate_document_number('ADJ', StockAdjustment)})
         formset = StockAdjustmentLineFormSet()
@@ -537,17 +543,20 @@ def damaged_create_view(request):
     if request.method == 'POST':
         form = DamagedReportForm(request.POST)
         formset = DamagedReportLineFormSet(request.POST, request.FILES)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             obj = form.save(commit=False)
             obj.created_by = request.user
             if not obj.document_number:
                 obj.document_number = generate_document_number('DAM', DamagedReport)
             obj.save()
-            formset = DamagedReportLineFormSet(request.POST, request.FILES, instance=obj)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Damaged Report {obj.document_number} created.')
-                return redirect('damaged_list')
+            formset.instance = obj
+            formset.save()
+            messages.success(request, f'Damaged Report {obj.document_number} created.')
+            return redirect('damaged_list')
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = DamagedReportForm(initial={'document_number': generate_document_number('DAM', DamagedReport)})
         formset = DamagedReportLineFormSet()
@@ -622,17 +631,20 @@ def ist_create_view(request):
     if request.method == 'POST':
         form = InventoryToSupplyTransferForm(request.POST)
         formset = InventoryToSupplyTransferLineFormSet(request.POST)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             obj = form.save(commit=False)
             obj.created_by = request.user
             if not obj.document_number:
                 obj.document_number = generate_document_number('IST', InventoryToSupplyTransfer)
             obj.save()
-            formset = InventoryToSupplyTransferLineFormSet(request.POST, instance=obj)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Transfer {obj.document_number} created.')
-                return redirect('ist_detail', pk=obj.pk)
+            formset.instance = obj
+            formset.save()
+            messages.success(request, f'Transfer {obj.document_number} created.')
+            return redirect('ist_detail', pk=obj.pk)
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = InventoryToSupplyTransferForm(initial={
             'transfer_date': timezone.now().date(),

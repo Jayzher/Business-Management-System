@@ -11,7 +11,7 @@
   </ul>
 
   <!-- Right navbar links -->
-  <ul class="navbar-nav ml-auto">
+  <ul class="navbar-nav ml-auto" style="flex-wrap:nowrap;overflow:hidden;">
 
     {% if request.user.is_staff or request.user.is_superuser %}
     {% with current_env=request.session.app_env|default:"production" %}
@@ -49,8 +49,8 @@
       </a>
     </li>
     <li class="nav-item dropdown">
-      <a class="nav-link" data-toggle="dropdown" data-bs-toggle="dropdown" href="#" role="button" aria-expanded="false">
-        <i class="fas fa-user-circle"></i> {{ request.user.get_full_name|default:request.user.username }}
+      <a class="nav-link" data-toggle="dropdown" data-bs-toggle="dropdown" href="#" role="button" aria-expanded="false" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;">
+        <i class="fas fa-user-circle"></i> <span class="d-none d-md-inline">{{ request.user.get_full_name|default:request.user.username }}</span>
       </a>
       <div class="dropdown-menu dropdown-menu-right dropdown-menu-end">
         <span class="dropdown-item-text text-muted">

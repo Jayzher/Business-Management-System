@@ -404,19 +404,23 @@ def sales_order_create_view(request):
         form = SalesOrderForm(request.POST)
         formset = SalesOrderLineFormSet(request.POST, prefix='lines')
         bundle_formset = SalesOrderPriceListLineFormSet(request.POST, prefix='bundles')
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        bundle_valid = bundle_formset.is_valid()
+        if form_valid and formset_valid and bundle_valid:
             so = form.save(commit=False)
             so.created_by = request.user
             if not so.document_number:
                 so.document_number = generate_document_number('SO', SalesOrder)
             so.save()
-            formset = SalesOrderLineFormSet(request.POST, instance=so, prefix='lines')
-            bundle_formset = SalesOrderPriceListLineFormSet(request.POST, instance=so, prefix='bundles')
-            if formset.is_valid() and bundle_formset.is_valid():
-                formset.save()
-                bundle_formset.save()
-                messages.success(request, f'Sales Order {so.document_number} created.')
-                return redirect('sales_order_detail', pk=so.pk)
+            formset.instance = so
+            formset.save()
+            bundle_formset.instance = so
+            bundle_formset.save()
+            messages.success(request, f'Sales Order {so.document_number} created.')
+            return redirect('sales_order_detail', pk=so.pk)
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = SalesOrderForm(initial={'document_number': generate_document_number('SO', SalesOrder)})
         formset = SalesOrderLineFormSet(prefix='lines')
@@ -474,7 +478,9 @@ def delivery_create_view(request):
     if request.method == 'POST':
         form = DeliveryNoteForm(request.POST)
         formset = DeliveryLineFormSet(request.POST)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid:
             so = form.cleaned_data.get('sales_order')
             if so and so.fulfillment_type == 'PICKUP':
                 messages.error(
@@ -485,16 +491,20 @@ def delivery_create_view(request):
                 return render(request, 'sales/delivery_form.html', {
                     'form': form, 'formset': formset, 'title': 'Create Delivery Note',
                 })
-            dn = form.save(commit=False)
-            dn.created_by = request.user
-            if not dn.document_number:
-                dn.document_number = generate_document_number('DN', DeliveryNote)
-            dn.save()
-            formset = DeliveryLineFormSet(request.POST, instance=dn)
-            if formset.is_valid():
+            if formset_valid:
+                dn = form.save(commit=False)
+                dn.created_by = request.user
+                if not dn.document_number:
+                    dn.document_number = generate_document_number('DN', DeliveryNote)
+                dn.save()
+                formset.instance = dn
                 formset.save()
                 messages.success(request, f'Delivery Note {dn.document_number} created.')
                 return redirect('delivery_detail', pk=dn.pk)
+            else:
+                messages.error(request, 'Please correct the errors below.')
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = DeliveryNoteForm(initial={'document_number': generate_document_number('DN', DeliveryNote)})
         formset = DeliveryLineFormSet()
@@ -603,7 +613,9 @@ def pickup_create_view(request):
     if request.method == 'POST':
         form = SalesPickupForm(request.POST)
         formset = SalesPickupLineFormSet(request.POST)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid:
             so = form.cleaned_data.get('sales_order')
             if so and so.fulfillment_type == 'DELIVER':
                 messages.error(
@@ -614,16 +626,20 @@ def pickup_create_view(request):
                 return render(request, 'sales/pickup_form.html', {
                     'form': form, 'formset': formset, 'title': 'Create Pickup',
                 })
-            pickup = form.save(commit=False)
-            pickup.created_by = request.user
-            if not pickup.document_number:
-                pickup.document_number = generate_document_number('PU', SalesPickup)
-            pickup.save()
-            formset = SalesPickupLineFormSet(request.POST, instance=pickup)
-            if formset.is_valid():
+            if formset_valid:
+                pickup = form.save(commit=False)
+                pickup.created_by = request.user
+                if not pickup.document_number:
+                    pickup.document_number = generate_document_number('PU', SalesPickup)
+                pickup.save()
+                formset.instance = pickup
                 formset.save()
                 messages.success(request, f'Pickup {pickup.document_number} created.')
                 return redirect('pickup_detail', pk=pickup.pk)
+            else:
+                messages.error(request, 'Please correct the errors below.')
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = SalesPickupForm(initial={'document_number': generate_document_number('PU', SalesPickup)})
         formset = SalesPickupLineFormSet()
@@ -780,17 +796,20 @@ def sales_return_create_view(request):
     if request.method == 'POST':
         form = SalesReturnForm(request.POST)
         formset = SalesReturnLineFormSet(request.POST)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             sr = form.save(commit=False)
             sr.created_by = request.user
             if not sr.document_number:
                 sr.document_number = generate_document_number('SR', SalesReturn)
             sr.save()
-            formset = SalesReturnLineFormSet(request.POST, instance=sr)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Sales Return {sr.document_number} created.')
-                return redirect('sales_return_detail', pk=sr.pk)
+            formset.instance = sr
+            formset.save()
+            messages.success(request, f'Sales Return {sr.document_number} created.')
+            return redirect('sales_return_detail', pk=sr.pk)
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = SalesReturnForm(initial={'document_number': generate_document_number('SR', SalesReturn)})
         formset = SalesReturnLineFormSet()

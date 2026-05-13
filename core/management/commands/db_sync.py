@@ -711,8 +711,8 @@ class Command(BaseCommand):
     @staticmethod
     def _ensure_both_databases():
         """
-        Make sure Django knows about both 'sqlite' and 'neon' database aliases
-        regardless of the current DATABASE_URL setting.
+        Make sure Django knows about 'sqlite', 'neon', and 'local_cache'
+        database aliases regardless of the current DATABASE_URL setting.
         """
         from django.db import connections
 
@@ -734,18 +734,23 @@ class Command(BaseCommand):
             },
         }
 
+        sqlite_conf = {
+            **_DB_DEFAULTS,
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': str(base_dir / 'db.sqlite3'),
+            'USER': '',
+            'PASSWORD': '',
+            'HOST': '',
+            'PORT': '',
+        }
+
         if 'sqlite' not in settings.DATABASES:
-            sqlite_conf = {
-                **_DB_DEFAULTS,
-                'ENGINE': 'django.db.backends.sqlite3',
-                'NAME': str(base_dir / 'db.sqlite3'),
-                'USER': '',
-                'PASSWORD': '',
-                'HOST': '',
-                'PORT': '',
-            }
             settings.DATABASES['sqlite'] = sqlite_conf
             connections.databases['sqlite'] = sqlite_conf
+
+        if 'local_cache' not in settings.DATABASES:
+            settings.DATABASES['local_cache'] = sqlite_conf
+            connections.databases['local_cache'] = sqlite_conf
 
         if 'neon' not in settings.DATABASES:
             neon_conf = {

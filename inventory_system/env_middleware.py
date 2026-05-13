@@ -1,17 +1,17 @@
 """
 AppEnvironmentMiddleware
 ========================
-Routes each request to either the 'default' (production) or 'test_env'
-database alias based on the authenticated user's session flag.
+Sets the active database context per request.
 
-Session key : ``app_env``  →  ``'test'`` | ``'production'`` (default)
+In Neon-primary mode (SYNC_MODE = 'neon_primary'):
+  - Writes go to 'default' (Neon) via the router.
+  - Reads go to 'local_cache' (SQLite) via the router.
+  - No thread-local switching needed — the router handles it.
 
-The flag is toggled via the ``toggle_environment`` view (POST only).
-Only superusers and staff are allowed to switch environments; for all
-other users the flag is silently ignored.
+In offline mode (SYNC_MODE = 'offline'):
+  - Everything goes to 'default' (SQLite).
 
-Thread-local ``_current_db`` is read by ``AppEnvironmentRouter`` when
-Django's ORM resolves which database to use for a given query.
+The middleware ensures any per-request state is clean.
 """
 
 import threading
@@ -20,25 +20,24 @@ _thread_local = threading.local()
 
 
 def get_current_db() -> str:
-    """Return the active DB alias for the current thread (always safe to call)."""
-    # Always use 'default' (local DB)
-    return 'default'
+    """Return the active write DB alias for the current thread."""
+    return getattr(_thread_local, 'db', 'default')
 
 
 def set_current_db(alias: str) -> None:
+    """Override the write DB for the current thread (used by test env toggle)."""
     _thread_local.db = alias
 
 
 class AppEnvironmentMiddleware:
-    """Middleware: reads session flag and sets thread-local DB alias per request."""
+    """Middleware: ensures clean DB state per request."""
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        # Always use local DB for every request
+        # Default: use 'default' (Neon in primary mode, SQLite in offline)
         _thread_local.db = 'default'
         response = self.get_response(request)
-        _thread_local.db = 'default'  # Ensure reset
+        _thread_local.db = 'default'  # Reset after request
         return response
-

@@ -1,23 +1,28 @@
 """
 AppEnvironmentRouter
 ====================
-Routes Django ORM queries to the correct database alias (``default`` for
-production, ``test_env`` for test) based on the thread-local value set by
-``AppEnvironmentMiddleware``.
+Routes Django ORM queries to the correct database alias.
+
+Architecture (SYNC_MODE = 'neon_primary'):
+  - Writes → 'default' (Neon PostgreSQL, authoritative)
+  - Reads  → 'local_cache' (SQLite, fast rendering)
+
+Architecture (SYNC_MODE = 'offline'):
+  - Both reads and writes → 'default' (SQLite, same as local_cache)
+
+The signal layer in sync/signals.py mirrors every committed write from
+Neon → local_cache synchronously, so reads from local_cache are always
+fresh within the same request cycle.
 
 Migration behaviour:
-  - ``allow_migrate`` returns ``True`` for ``default``, ``sqlite`` and
-    ``neon`` aliases. ``sqlite``/``neon`` are used by the ``db_sync``
-    management command to migrate those destinations before copying data.
-  - All other aliases (e.g. ``test_env``) must be migrated explicitly
-    with ``manage.py migrate --database=<alias>``.
+  - ``allow_migrate`` returns ``True`` for ``default``, ``local_cache``,
+    ``sqlite``, and ``neon`` aliases.
+  - ``test_env`` must be migrated explicitly.
 """
 
-from .env_middleware import get_current_db
+from django.conf import settings
 
 # All app labels whose models should respect the env-routing.
-# Django's built-in apps (auth, admin, contenttypes, sessions, …) always
-# use 'default' because they are excluded from this set.
 _ROUTED_APP_LABELS = {
     'core', 'accounts', 'catalog', 'partners', 'warehouses',
     'inventory', 'procurement', 'sales', 'qr', 'reports',
@@ -25,35 +30,55 @@ _ROUTED_APP_LABELS = {
 }
 
 
+def _is_neon_primary():
+    """Check if we're running in Neon-primary mode."""
+    return getattr(settings, 'SYNC_MODE', 'offline') == 'neon_primary'
+
+
 class AppEnvironmentRouter:
-    """Routes reads and writes for project apps to the active environment DB."""
+    """
+    Routes reads to local_cache (SQLite) for speed, writes to default (Neon).
+    In offline mode, both go to default (which IS SQLite).
+    """
 
     def db_for_read(self, model, **hints):
         if model._meta.app_label in _ROUTED_APP_LABELS:
-            db = get_current_db()
-            from django.conf import settings
-            return db if db in settings.DATABASES else 'default'
+            if _is_neon_primary():
+                # Use local_cache for fast reads.
+                # If a hint says 'use_primary' (e.g. right after a write where
+                # we need read-your-own-writes consistency), use default.
+                if hints.get('instance') and getattr(
+                    hints.get('instance'), '_state', None
+                ):
+                    # After a save, Django may re-read the instance — route to
+                    # default so the freshly-written row is visible even before
+                    # the mirror fires.
+                    instance = hints['instance']
+                    if getattr(instance._state, 'db', None) == 'default':
+                        return 'default'
+                return 'local_cache'
+            return 'default'
         return None  # Let Django decide for built-in apps
 
     def db_for_write(self, model, **hints):
         if model._meta.app_label in _ROUTED_APP_LABELS:
-            db = get_current_db()
-            from django.conf import settings
-            return db if db in settings.DATABASES else 'default'
+            # Always write to default (Neon in primary mode, SQLite in offline)
+            return 'default'
         return None
 
     def allow_relation(self, obj1, obj2, **hints):
-        # Allow cross-model relations (same DB guaranteed by router logic above)
-        return True
+        # Allow relations between objects in any of our managed databases.
+        # Both local_cache and default hold the same schema.
+        db1 = obj1._state.db or 'default'
+        db2 = obj2._state.db or 'default'
+        allowed_dbs = {'default', 'local_cache', 'sqlite', 'neon'}
+        if db1 in allowed_dbs and db2 in allowed_dbs:
+            return True
+        return None
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
-        # Migrations run on:
-        #   - 'default'   : primary environment DB
-        #   - 'sqlite'    : explicit local SQLite alias used by db_sync
-        #   - 'neon'      : explicit Neon PostgreSQL alias used by db_sync
-        # Other aliases (e.g. 'test_env') must be migrated explicitly with
-        # manage.py migrate --database=<alias>.
-        _MIGRATABLE_ALIASES = {'default', 'sqlite', 'neon'}
+        # Migrations run on these aliases:
+        _MIGRATABLE_ALIASES = {'default', 'local_cache', 'sqlite', 'neon'}
         if app_label in _ROUTED_APP_LABELS:
             return db in _MIGRATABLE_ALIASES
         return None  # Let Django decide for built-in apps
