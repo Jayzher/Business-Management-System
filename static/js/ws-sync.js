@@ -138,6 +138,20 @@
 
         if (data.type === 'table_changed' && Array.isArray(data.tables)) {
           scheduleRefresh(data.tables);
+        } else if (data.type === 'data_changed' && typeof data.table === 'string') {
+          // Rich event: server sent the actual row(s) for this change.
+          // Dispatch a custom event so pages that want row-level reactivity
+          // (e.g. a POS grid) can listen without a full refresh, then fall
+          // through to the same debounced content refresh used for
+          // table_changed so everyone stays consistent.
+          var detail = {
+            table: data.table,
+            action: data.action || 'upsert',
+            rows: Array.isArray(data.rows) ? data.rows : [],
+            timestamp: data.timestamp || '',
+          };
+          document.dispatchEvent(new CustomEvent('ws:data-changed', { detail: detail }));
+          scheduleRefresh([data.table]);
         }
         // 'connected', 'subscribed', 'pong' are informational — no action needed
       } catch (e) {

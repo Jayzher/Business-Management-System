@@ -29,6 +29,39 @@
   .ts-badge-warn { background:#fef3c7; color:#92400e; }
   .ts-badge-err { background:#fee2e2; color:#991b1b; }
   .spinner-border-sm { width:1rem; height:1rem; border-width:.15em; }
+  /* ── Mobile responsive ─────────────────────────────────────────── */
+  @media (max-width: 575.98px) {
+    .ts-card .card-header { padding: .4rem .7rem; }
+    .ts-card .card-header .card-title { font-size: .78rem; }
+    .ts-stat { padding: .4rem .2rem; }
+    .ts-stat .ts-num { font-size: 1.1rem; }
+    .ts-stat .ts-label { font-size: .62rem; letter-spacing: .2px; }
+    .ts-action-card .card-body { padding: .5rem .6rem; gap: .4rem; }
+    .ts-action-icon { width: 28px; height: 28px; font-size: .75rem; border-radius: 6px; }
+    .ts-action-card .ts-action-title { font-size: .78rem; }
+    .ts-action-card .ts-action-desc { font-size: .68rem; margin: .2rem 0 .35rem; }
+    .ts-action-card .btn { font-size: .7rem; padding: .2rem .5rem; }
+    .ts-section-title { font-size: .72rem; margin-bottom: .4rem; }
+    .ts-output-box { font-size: .65rem; padding: .4rem .6rem; max-height: 200px; }
+    .resync-summary-grid { grid-template-columns: repeat(2, 1fr); gap: .4rem; }
+    .resync-summary-item { padding: .4rem; }
+    .resync-summary-item .num { font-size: 1.1rem; }
+    .resync-summary-item .label { font-size: .6rem; }
+    .resync-phase { padding: .4rem .6rem; margin-bottom: .4rem; }
+    .resync-phase-title { font-size: .78rem; }
+    .resync-phase-detail { font-size: .68rem; }
+    .resync-issues { padding: .4rem .6rem; }
+    .resync-issues-title { font-size: .72rem; }
+    .resync-issues-list { font-size: .65rem; }
+    .rc-move-row { grid-template-columns: 22px 55px 1fr 1fr 65px; gap: .3rem; font-size: .62rem; }
+    .rc-section-header { padding: .4rem .6rem; font-size: .72rem; }
+    .rc-group-title { font-size: .68rem; }
+  }
+  @media (min-width: 576px) and (max-width: 991.98px) {
+    .ts-stat .ts-num { font-size: 1.3rem; }
+    .ts-action-icon { width: 32px; height: 32px; font-size: .85rem; }
+    .ts-action-card .ts-action-title { font-size: .85rem; }
+  }
   /* Resync Results Modal */
   .resync-phase { border-left:3px solid #dee2e6; padding:.6rem .8rem; margin-bottom:.6rem; border-radius:0 6px 6px 0; background:#f8f9fa; }
   .resync-phase.phase-ok { border-left-color:#22c55e; }

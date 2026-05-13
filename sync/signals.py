@@ -186,14 +186,28 @@ def broadcast_data_changed(table: str, action: str, rows: list[dict]) -> None:
 
 
 # ── Neon write-through ─────────────────────────────────────────────────
-def _write_to_neon_async(sender, pk: int, table: str, row_data: dict) -> None:
-    """
-    Spawn a daemon thread that upserts the record identified by *pk* into the
-    'neon' database alias.  Broadcasts the event only after the write
-    succeeds so clients never receive a stale-read notification.
+#
+# Design note:
+#   1. Broadcast fires IMMEDIATELY on local-DB commit, carrying the row
+#      data captured pre-signal.  Clients apply it to their local caches
+#      on the hot path — no Neon round-trip required.
+#   2. Neon write-through runs in a background thread afterwards.  A Neon
+#      outage no longer swallows the broadcast.  On success we emit a
+#      lightweight `table_changed` so any pull-model client that relies on
+#      Neon being authoritative can re-fetch.
+#
+# This is Phase 1 of the "Neon = main DB" migration.  Phase 2 will flip
+# the write direction so Neon is written first and local SQLite is the
+# mirror; the broadcast contract stays the same so clients don't need to
+# change.
 
-    row_data is the pre-serialised dict captured at signal time so the
-    broadcast carries the actual data even if the background thread is slow.
+def _write_to_neon_async(sender, pk: int, table: str) -> None:
+    """
+    Spawn a daemon thread that upserts the record identified by *pk* into
+    the 'neon' database alias.  Does NOT broadcast the data_changed event
+    — that already happened synchronously on commit in _broadcast_on_commit.
+    On success, emits a follow-up lightweight table_changed for any
+    pull-model clients still relying on Neon being up-to-date.
     """
     if getattr(_NEON_WRITE_ACTIVE, 'value', False):
         return
@@ -209,6 +223,7 @@ def _write_to_neon_async(sender, pk: int, table: str, row_data: dict) -> None:
 
             obj = sender._default_manager.using('default').filter(pk=pk).first()
             if obj is None:
+                # Row vanished before we could mirror (e.g. immediate delete).
                 return
 
             concrete_fields = [
@@ -226,11 +241,12 @@ def _write_to_neon_async(sender, pk: int, table: str, row_data: dict) -> None:
                 sender._default_manager.using('neon').bulk_create(
                     [obj], ignore_conflicts=True,
                 )
-            # Notify clients with the actual row data after Neon has it
-            broadcast_data_changed(table, 'upsert', [row_data])
+            # Pull-model follow-up notification (legacy clients).
+            broadcast_table_changed([table])
         except Exception as exc:
-            logger.debug(
-                'Neon write-through skipped (%s pk=%s): %s', sender.__name__, pk, exc
+            logger.warning(
+                'Neon write-through failed (%s pk=%s): %s',
+                sender.__name__, pk, exc,
             )
         finally:
             _NEON_WRITE_ACTIVE.value = False
@@ -239,7 +255,11 @@ def _write_to_neon_async(sender, pk: int, table: str, row_data: dict) -> None:
 
 
 def _delete_from_neon_async(sender, pk: int, table: str) -> None:
-    """Propagate a hard delete to Neon. Fails silently if Neon is unavailable."""
+    """
+    Propagate a hard delete to Neon.  Does NOT broadcast — the delete
+    event was already emitted on commit.  On success, emits a follow-up
+    table_changed for pull-model clients.
+    """
     if getattr(_NEON_WRITE_ACTIVE, 'value', False):
         return
 
@@ -252,10 +272,11 @@ def _delete_from_neon_async(sender, pk: int, table: str) -> None:
             if 'neon' not in connections.databases:
                 return
             sender._default_manager.using('neon').filter(pk=pk).delete()
-            broadcast_data_changed(table, 'delete', [{'id': pk}])
+            broadcast_table_changed([table])
         except Exception as exc:
-            logger.debug(
-                'Neon delete skipped (%s pk=%s): %s', sender.__name__, pk, exc
+            logger.warning(
+                'Neon delete failed (%s pk=%s): %s',
+                sender.__name__, pk, exc,
             )
         finally:
             _NEON_WRITE_ACTIVE.value = False
@@ -264,6 +285,18 @@ def _delete_from_neon_async(sender, pk: int, table: str) -> None:
 
 
 # ── Signal receivers ───────────────────────────────────────────────────
+def _broadcast_and_mirror_save(sender, pk, table, row_data):
+    """Hot path on local commit: broadcast data, then mirror to Neon."""
+    broadcast_data_changed(table, 'upsert', [row_data])
+    _write_to_neon_async(sender, pk, table)
+
+
+def _broadcast_and_mirror_delete(sender, pk, table):
+    """Hot path on local commit: broadcast delete, then mirror to Neon."""
+    broadcast_data_changed(table, 'delete', [{'id': pk}])
+    _delete_from_neon_async(sender, pk, table)
+
+
 @receiver(post_save)
 def on_model_save(sender, instance, using, **kwargs):
     if using != 'default':
@@ -273,13 +306,13 @@ def on_model_save(sender, instance, using, **kwargs):
     if getattr(_NEON_WRITE_ACTIVE, 'value', False):
         return
 
-    # Capture the row data NOW while the instance is still in memory.
-    # The background thread may run later when the instance is stale.
+    # Capture the row data NOW while the instance is still in memory —
+    # the on_commit callback may run later when the instance is stale.
     pk, table = instance.pk, sender._meta.db_table
     row_data = _instance_to_dict(instance)
 
     db_transaction.on_commit(
-        lambda: _write_to_neon_async(sender, pk, table, row_data)
+        lambda: _broadcast_and_mirror_save(sender, pk, table, row_data)
     )
 
 
@@ -294,5 +327,5 @@ def on_model_delete(sender, instance, using, **kwargs):
 
     pk, table = instance.pk, sender._meta.db_table
     db_transaction.on_commit(
-        lambda: _delete_from_neon_async(sender, pk, table)
+        lambda: _broadcast_and_mirror_delete(sender, pk, table)
     )

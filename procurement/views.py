@@ -266,17 +266,20 @@ def purchase_order_create_view(request):
     if request.method == 'POST':
         form = PurchaseOrderForm(request.POST)
         formset = PurchaseOrderLineFormSet(request.POST)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             po = form.save(commit=False)
             po.created_by = request.user
             if not po.document_number:
                 po.document_number = generate_document_number('PO', PurchaseOrder)
             po.save()
-            formset = PurchaseOrderLineFormSet(request.POST, instance=po)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Purchase Order {po.document_number} created.')
-                return redirect('purchase_order_detail', pk=po.pk)
+            formset.instance = po
+            formset.save()
+            messages.success(request, f'Purchase Order {po.document_number} created.')
+            return redirect('purchase_order_detail', pk=po.pk)
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = PurchaseOrderForm(initial={'document_number': generate_document_number('PO', PurchaseOrder)})
         formset = PurchaseOrderLineFormSet()
@@ -328,17 +331,20 @@ def goods_receipt_create_view(request):
     if request.method == 'POST':
         form = GoodsReceiptForm(request.POST)
         formset = GoodsReceiptLineFormSet(request.POST, request.FILES)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             grn = form.save(commit=False)
             grn.created_by = request.user
             if not grn.document_number:
                 grn.document_number = generate_document_number('GRN', GoodsReceipt)
             grn.save()
-            formset = GoodsReceiptLineFormSet(request.POST, request.FILES, instance=grn)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Goods Receipt {grn.document_number} created.')
-                return redirect('goods_receipt_detail', pk=grn.pk)
+            formset.instance = grn
+            formset.save()
+            messages.success(request, f'Goods Receipt {grn.document_number} created.')
+            return redirect('goods_receipt_detail', pk=grn.pk)
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = GoodsReceiptForm(initial={'document_number': generate_document_number('GRN', GoodsReceipt)})
         formset = GoodsReceiptLineFormSet()
@@ -409,24 +415,21 @@ def purchase_return_detail_view(request, pk):
 def purchase_return_create_view(request):
     if request.method == 'POST':
         form = PurchaseReturnForm(request.POST)
-        # Validate formset against a dummy (unbound instance) first so we can
-        # check both before persisting anything.
-        if form.is_valid():
+        formset = PurchaseReturnLineFormSet(request.POST)
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             pr = form.save(commit=False)
             pr.created_by = request.user
             if not pr.document_number:
                 pr.document_number = generate_document_number('PR', PurchaseReturn)
             pr.save()
-            formset = PurchaseReturnLineFormSet(request.POST, instance=pr)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Purchase Return {pr.document_number} created.')
-                return redirect('purchase_return_detail', pk=pr.pk)
-            # Formset invalid — roll back by raising inside atomic block
-            # The transaction decorator will revert the pr.save().
-            db_transaction.set_rollback(True)
+            formset.instance = pr
+            formset.save()
+            messages.success(request, f'Purchase Return {pr.document_number} created.')
+            return redirect('purchase_return_detail', pk=pr.pk)
         else:
-            formset = PurchaseReturnLineFormSet(request.POST)
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = PurchaseReturnForm(initial={'document_number': generate_document_number('PR', PurchaseReturn)})
         formset = PurchaseReturnLineFormSet()
