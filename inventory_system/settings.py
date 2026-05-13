@@ -153,33 +153,61 @@ PUSHER_KEY     = os.environ.get('PUSHER_KEY',     'f2314ae2921907f1b2f7')
 PUSHER_SECRET  = os.environ.get('PUSHER_SECRET',  '3a325d3c3376facaa14b')
 PUSHER_CLUSTER = os.environ.get('PUSHER_CLUSTER', 'ap1')
 
-# Run a full Neon→SQLite sync once when the Django server process starts.
-# Set NEON_INITIAL_SYNC=false to skip (e.g. CI, fast restarts).
-# NEON_INITIAL_SYNC = os.environ.get('NEON_INITIAL_SYNC', 'true').lower() in ('true', '1', 'yes')
-# Disabled to prevent database locking issues during development
-NEON_INITIAL_SYNC = False
+# ---------------------------------------------------------------------------
+# Database Architecture
+# ---------------------------------------------------------------------------
+#
+# Neon PostgreSQL = authoritative source of truth (all writes go here).
+# Local SQLite    = fast read cache for page rendering.
+#
+# Modes (controlled by DATABASE_URL env var):
+#   DATABASE_URL=sqlite          → Offline dev mode: SQLite-only, no Neon.
+#   DATABASE_URL=<postgres-url>  → Production: Neon is default, SQLite is cache.
+#   (unset)                      → Hybrid: Neon is default, SQLite is cache.
+#
+# The DB router sends reads to 'local_cache' and writes to 'default'.
+# Signals mirror every write to local_cache synchronously after commit.
+# ---------------------------------------------------------------------------
 
-# Timer-based interval sync is replaced by Pusher event-driven sync.
-# Set > 0 to re-enable the fallback timer (seconds). 0 = disabled.
+# Run a full Neon→SQLite sync once when the Django server process starts.
+# Set NEON_INITIAL_SYNC=true to enable (pulls Neon → local_cache on boot).
+NEON_INITIAL_SYNC = os.environ.get('NEON_INITIAL_SYNC', 'false').lower() in ('true', '1', 'yes')
+
+# Timer-based interval sync (seconds). 0 = disabled (event-driven only).
 NEON_SYNC_INTERVAL = int(os.environ.get('NEON_SYNC_INTERVAL', '0'))
 
-_DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite')
-if _DATABASE_URL == 'sqlite':
+_DATABASE_URL = os.environ.get('DATABASE_URL', '')
+_OFFLINE_MODE = _DATABASE_URL == 'sqlite'
+
+if _OFFLINE_MODE:
+    # ── Offline dev: SQLite-only, no Neon dependency ──────────────────────
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': str(BASE_DIR / 'db.sqlite3'),
-        }
+        },
+        'local_cache': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': str(BASE_DIR / 'db.sqlite3'),
+        },
     }
+    # In offline mode, default IS the local cache (same file).
+    SYNC_MODE = 'offline'
 else:
+    # ── Normal mode: Neon = default (writes), SQLite = local_cache (reads) ─
+    _neon_config = dj_database_url.parse(
+        _DATABASE_URL or NEON_URL,
+        conn_max_age=600,
+        ssl_require=True,
+    )
     DATABASES = {
-        'default': dj_database_url.config(
-            default=_DATABASE_URL,
-            conn_max_age=600,
-            conn_health_checks=True,
-            ssl_require=True,
-        )
+        'default': _neon_config,
+        'local_cache': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': str(BASE_DIR / 'db.sqlite3'),
+        },
     }
+    SYNC_MODE = 'neon_primary'
 
 # ---------------------------------------------------------------------------
 # Test environment database
@@ -196,8 +224,6 @@ if _TEST_DATABASE_URL:
         ssl_require=True,
     )
 
-# Always register the router; it safely falls back to 'default' when
-# test_env is not configured.
 DATABASE_ROUTERS = ['inventory_system.db_router.AppEnvironmentRouter']
 
 # ---------------------------------------------------------------------------
