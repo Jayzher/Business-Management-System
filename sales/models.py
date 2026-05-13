@@ -47,6 +47,10 @@ class SalesOrder(TransactionalDocument):
         null=True, blank=True, related_name='sales_orders',
     )
     receipt_no = models.CharField(max_length=100, blank=True, default='')
+    delivery_charge = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Delivery/shipping fee charged to the customer.',
+    )
 
     class Meta:
         ordering = ['-created_at']
@@ -102,7 +106,8 @@ class SalesOrder(TransactionalDocument):
 
     @property
     def grand_total(self):
-        return self.line_amount_total + self.bundle_amount_total
+        from decimal import Decimal
+        return self.line_amount_total + self.bundle_amount_total + (self.delivery_charge or Decimal('0'))
 
     @property
     def partial_payment_amount_value(self):

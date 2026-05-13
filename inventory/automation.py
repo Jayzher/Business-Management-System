@@ -390,6 +390,7 @@ def auto_create_invoice_from_delivery(delivery, user):
         subtotal = sum(l.line_total for l in so.lines.all())
         for bundle in so.price_list_lines.all():
             subtotal += bundle.bundle_total
+        delivery_charge = so.delivery_charge or Decimal('0')
         inv = Invoice.objects.create(
             invoice_number=inv_number,
             date=date.today(),
@@ -397,7 +398,8 @@ def auto_create_invoice_from_delivery(delivery, user):
             customer_name=delivery.customer.name if delivery.customer else '',
             customer_address=getattr(delivery.customer, 'address', '') if delivery.customer else '',
             subtotal=subtotal,
-            grand_total=subtotal,
+            delivery_charge=delivery_charge,
+            grand_total=subtotal + delivery_charge,
             is_paid=False,
             notes=f'Auto-created from delivery {delivery.document_number}',
             created_by=user,

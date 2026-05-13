@@ -272,6 +272,8 @@ class Command(BaseCommand):
              'table', 'audit_manuallog', None),
             ('sales', '0008_add_partial_payment_amount',
              'column', 'sales_salesorder', 'partial_payment_amount'),
+            ('sales', '0009_add_delivery_charge_to_salesorder',
+             'column', 'sales_salesorder', 'delivery_charge'),
             ('core', '0015_add_delivery_charge_to_invoice',
              'column', 'core_invoice', 'delivery_charge'),
             ('services', '0010_add_unit_cost_to_other_materials',
