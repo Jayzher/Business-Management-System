@@ -37,6 +37,20 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         margin-top: 24px;
     }
+    @media (max-width: 575.98px) {
+        .stat-card { padding: 14px 12px; border-radius: 8px; }
+        .stat-label { font-size: 11px; margin-bottom: 4px; }
+        .stat-value { font-size: 1.2rem; }
+        .chart-container { padding: 12px; margin-top: 12px; border-radius: 8px; }
+        .month-table { margin-top: 12px; }
+        .d-flex.justify-content-between.align-items-center.mb-4 { flex-direction: column; align-items: stretch !important; gap: .5rem; }
+        .d-flex.gap-2.align-items-center { flex-wrap: wrap; }
+    }
+    @media (min-width: 576px) and (max-width: 991.98px) {
+        .stat-value { font-size: 1.6rem; }
+        .stat-label { font-size: 12px; }
+        .chart-container { padding: 16px; }
+    }
     .month-table {
         background: white;
         border-radius: 12px;

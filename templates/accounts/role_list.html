@@ -1,0 +1,65 @@
+{% extends "theme/base.html" %}
+{% block title %}Roles{% endblock %}
+{% block page_title %}Roles{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'settings' %}">Settings</a></li>
+<li class="breadcrumb-item"><a href="{% url 'user_list' %}">Users</a></li>
+<li class="breadcrumb-item active">Roles</li>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .role-card { border-left:4px solid #0d6efd; }
+  .role-card.admin { border-left-color:#b91c1c; }
+  .role-card.manager { border-left-color:#1d4ed8; }
+  .role-card.viewer { border-left-color:#6c757d; }
+  .role-name { font-weight:700; color:#1e293b; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="m-0"><i class="fas fa-user-tag mr-1"></i> Roles &amp; Module Access</h5>
+  <div>
+    <a href="{% url 'user_list' %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-users mr-1"></i> Back to Users</a>
+    <a href="{% url 'role_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Role</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body table-responsive p-0">
+    <table class="table table-hover wis-table mb-0">
+      <thead class="text-nowrap">
+        <tr>
+          <th>Role</th>
+          <th>Description</th>
+          <th>Accessible Modules</th>
+          <th class="text-center">Users</th>
+          <th class="text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in role_rows %}
+        <tr>
+          <td class="role-name">{{ row.obj.name }}</td>
+          <td class="text-muted small">{{ row.obj.description|default:'—' }}</td>
+          <td><span class="text-muted small">{{ row.modules }}</span></td>
+          <td class="text-center"><span class="badge bg-info text-white">{{ row.user_count }}</span></td>
+          <td class="text-right">
+            <a href="{% url 'role_edit' row.obj.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            <a href="{% url 'role_delete' row.obj.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-center text-muted py-4">No roles yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="alert alert-info small mt-3">
+  <i class="fas fa-info-circle mr-1"></i>
+  <strong>Tip:</strong> Built-in roles (Admin, Manager, Procurement Officer, Sales Officer, Warehouse Staff, POS Cashier, Viewer, Manager (View Only)) are wired into the access control layer. Create custom roles for grouping only &mdash; they will not grant module access until referenced in the codebase.
+</div>
+{% endblock %}

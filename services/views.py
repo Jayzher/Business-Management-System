@@ -295,21 +295,26 @@ def service_create(request):
         formset = ServiceLineFormSet(request.POST, prefix='lines')
         mat_formset = ServiceOtherMaterialFormSet(request.POST, prefix='mats')
         bundle_formset = ServiceBundleFormSet(request.POST, prefix='bundles')
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        mat_valid = mat_formset.is_valid()
+        bundle_valid = bundle_formset.is_valid()
+        if form_valid and formset_valid and mat_valid and bundle_valid:
             svc = form.save(commit=False)
             svc.created_by = request.user
             if not svc.service_number:
                 svc.service_number = CustomerService.generate_next_service_number()
             svc.save()
-            formset = ServiceLineFormSet(request.POST, instance=svc, prefix='lines')
-            mat_formset = ServiceOtherMaterialFormSet(request.POST, instance=svc, prefix='mats')
-            bundle_formset = ServiceBundleFormSet(request.POST, instance=svc, prefix='bundles')
-            if formset.is_valid() and mat_formset.is_valid() and bundle_formset.is_valid():
-                formset.save()
-                mat_formset.save()
-                bundle_formset.save()
-                messages.success(request, f'Service {svc.service_number} created.')
-                return redirect('service_detail', pk=svc.pk)
+            formset.instance = svc
+            mat_formset.instance = svc
+            bundle_formset.instance = svc
+            formset.save()
+            mat_formset.save()
+            bundle_formset.save()
+            messages.success(request, f'Service {svc.service_number} created.')
+            return redirect('service_detail', pk=svc.pk)
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         next_number = CustomerService.generate_next_service_number()
         form = CustomerServiceForm(initial={'service_number': next_number})
@@ -436,10 +441,17 @@ def service_complete(request, pk):
                 )
 
             missing_location_items = []
+            skipped_unit_items = []
             moves = []
 
             def deduct_item(item, sale_unit, qty, location):
-                base_qty = convert_to_base_unit(qty, sale_unit, item.stock_unit, item=item)
+                try:
+                    base_qty = convert_to_base_unit(qty, sale_unit, item.stock_unit, item=item)
+                except (ValueError, Exception) as exc:
+                    skipped_unit_items.append(
+                        f"{item.code} ({qty} {sale_unit.abbreviation} → {item.stock_unit.abbreviation})"
+                    )
+                    return
                 move = StockMove(
                     move_type=MoveType.SERVICE_OUT,
                     item=item,
@@ -501,6 +513,14 @@ def service_complete(request, pk):
                     request,
                     f'No location set for item(s): {", ".join(sorted(set(missing_location_items)))}. '
                     'Their stock was NOT deducted. Set a location or assign a warehouse.'
+                )
+
+            if skipped_unit_items:
+                messages.warning(
+                    request,
+                    f'{len(skipped_unit_items)} line(s) skipped due to incompatible units: '
+                    f'{", ".join(skipped_unit_items)}. '
+                    f'Add the missing Unit Conversions under Catalog → Unit Conversions.'
                 )
 
         except ValueError as exc:

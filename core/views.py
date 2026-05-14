@@ -319,9 +319,10 @@ def invoice_from_so(request, so_id):
     bundles_total = sum(b.bundle_total for b in so.price_list_lines.all())
     bundles_subtotal = sum(b.bundle_subtotal for b in so.price_list_lines.all())
     bundles_discount = bundles_subtotal - bundles_total
-    grand_total = lines_total + bundles_total
     subtotal = lines_subtotal + bundles_subtotal
     discount_total = lines_discount + bundles_discount
+    delivery_charge = so.delivery_charge or Decimal('0')
+    grand_total = lines_total + bundles_total + delivery_charge
 
     inv = Invoice.objects.create(
         invoice_number=_next_invoice_number(),
@@ -331,6 +332,7 @@ def invoice_from_so(request, so_id):
         customer_address=so.customer.address if so.customer else '',
         subtotal=subtotal,
         discount_total=discount_total,
+        delivery_charge=delivery_charge,
         grand_total=grand_total,
         created_by=request.user,
     )
@@ -842,6 +844,25 @@ _SYNC_ACTIONS = {
         'command': 'resync_inventory',
         'args': ['--phase', '3'],
     },
+    'fix_kl_to_kg': {
+        'label': 'Fix kl → kg Unit',
+        'icon': 'fas fa-wrench',
+        'color': 'warning',
+        'description': 'Fix mis-selected "kl" unit to "kg" (Kilogram) on all GRNs, Deliveries, Pickups, and StockMoves.',
+        'category': 'sync',
+        'command': 'fix_kl_to_kg',
+        'args': [],
+        'confirm': 'This will change all "kl" unit references to "kg" across procurement and inventory records. Continue?',
+    },
+    'fix_kl_to_kg_dry': {
+        'label': 'Preview: kl → kg Fix',
+        'icon': 'fas fa-eye',
+        'color': 'info',
+        'description': 'Preview what the kl → kg fix would change without writing to the database.',
+        'category': 'test',
+        'command': 'fix_kl_to_kg',
+        'args': ['--dry-run'],
+    },
     'django_check': {
         'label': 'Django System Check',
         'icon': 'fas fa-heartbeat',
@@ -889,6 +910,34 @@ _SYNC_ACTIONS = {
         'command': 'db_sync',
         'args': ['--direction', 'neon_to_local', '--dry-run'],
     },
+    'drain_sync_outbox': {
+        'label': 'Drain Sync Outbox',
+        'icon': 'fas fa-redo-alt',
+        'color': 'success',
+        'description': 'Replay pending offline writes from local_cache to Neon. Run this after connectivity is restored.',
+        'category': 'sync',
+        'command': 'drain_sync_outbox',
+        'args': [],
+    },
+    'drain_sync_outbox_dry': {
+        'label': 'Preview: Outbox Drain',
+        'icon': 'fas fa-list-ol',
+        'color': 'info',
+        'description': 'Show pending outbox entries that would be replayed to Neon (no changes made).',
+        'category': 'test',
+        'command': 'drain_sync_outbox',
+        'args': ['--dry-run'],
+    },
+    'hydrate_local_cache': {
+        'label': 'Hydrate Local Cache',
+        'icon': 'fas fa-download',
+        'color': 'warning',
+        'description': 'Full pull from Neon → local_cache SQLite. Use after first setup or to fix drift.',
+        'category': 'sync',
+        'command': 'hydrate_local_cache',
+        'args': [],
+        'confirm': 'This will overwrite local_cache with all data from Neon. Continue?',
+    },
 }
 
 
@@ -922,6 +971,33 @@ def _gather_diagnostics():
                        Invoice.objects.filter(is_paid=True, grand_total_cogs=0).count()
     invoices_no_payment = Invoice.objects.filter(is_paid=True).exclude(payments__isnull=False).count()
 
+    # Sync outbox stats
+    try:
+        from sync.models import SyncOutbox, SyncOutboxStatus
+        outbox_pending = SyncOutbox.objects.using('local_cache').filter(
+            status=SyncOutboxStatus.PENDING
+        ).count()
+        outbox_failed = SyncOutbox.objects.using('local_cache').filter(
+            status=SyncOutboxStatus.FAILED
+        ).count()
+    except Exception:
+        outbox_pending = 0
+        outbox_failed = 0
+
+    # Neon health
+    try:
+        from inventory_system.db_router import is_neon_healthy
+        neon_online = is_neon_healthy()
+    except Exception:
+        neon_online = True
+
+    # Last background sync time
+    try:
+        from sync.startup_sync import get_last_sync_time
+        last_sync_time = get_last_sync_time()
+    except Exception:
+        last_sync_time = None
+
     return {
         'total_users': total_users,
         'users_with_roles': users_with_roles,
@@ -940,6 +1016,10 @@ def _gather_diagnostics():
         'invoices_total': invoices_total,
         'invoices_no_cogs': invoices_no_cogs,
         'invoices_no_payment': invoices_no_payment,
+        'outbox_pending': outbox_pending,
+        'outbox_failed': outbox_failed,
+        'neon_online': neon_online,
+        'last_sync_time': last_sync_time,
     }
 
 
@@ -977,7 +1057,334 @@ def run_sync_action(request):
     try:
         call_command(spec['command'], *spec['args'], stdout=buf, stderr=buf)
         output = buf.getvalue()
-        return JsonResponse({'ok': True, 'output': output})
+        response = {'ok': True, 'output': output}
+
+        # For resync_inventory actions, parse structured results
+        if action_key in ('resync_inventory', 'resync_inventory_dry', 'integrity_audit'):
+            response['resync_results'] = _parse_resync_output(output)
+
+        return JsonResponse(response)
     except Exception as exc:
         output = buf.getvalue()
-        return JsonResponse({'ok': False, 'output': output, 'error': str(exc)})
+        response = {'ok': False, 'output': output, 'error': str(exc)}
+
+        if action_key in ('resync_inventory', 'resync_inventory_dry', 'integrity_audit'):
+            response['resync_results'] = _parse_resync_output(output)
+
+        return JsonResponse(response)
+
+
+@login_required
+@admin_required
+def resync_detect_candidates(request):
+    """AJAX: run `resync_inventory --detect-only` and return the JSON catalog.
+
+    Used by the Tests & Syncs modal to preview what Phase 0 would delete so
+    the operator can approve/reject individual moves before they run the real
+    resync.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'POST required'}, status=405)
+
+    from django.core.management import call_command
+    buf = io.StringIO()
+    try:
+        call_command('resync_inventory', '--detect-only', stdout=buf, stderr=buf)
+    except Exception as exc:
+        return JsonResponse({
+            'ok': False,
+            'error': str(exc),
+            'output': buf.getvalue(),
+        })
+
+    output = buf.getvalue()
+    catalog = _extract_detect_json(output)
+    if catalog is None:
+        return JsonResponse({
+            'ok': False,
+            'error': 'Could not parse detection payload.',
+            'output': output,
+        })
+
+    return JsonResponse({'ok': True, 'catalog': catalog})
+
+
+@login_required
+@admin_required
+def resync_apply_with_selection(request):
+    """AJAX: run `resync_inventory --apply-fixes <tempfile>` using the supplied
+    selection, then return parsed results identical to run_sync_action.
+
+    POST body expected as JSON::
+
+        {
+          "orphan_move_ids": [...],
+          "duplicate_move_ids": [...],
+          "loose_duplicate_move_ids": [...],
+          "excess_move_ids": [...],
+          "dry_run": false  # optional
+        }
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'POST required'}, status=405)
+
+    try:
+        payload = _json.loads(request.body.decode('utf-8') or '{}')
+    except (ValueError, UnicodeDecodeError) as exc:
+        return JsonResponse({'ok': False, 'error': f'Invalid JSON body: {exc}'}, status=400)
+
+    dry_run = bool(payload.pop('dry_run', False))
+    approved = {
+        'orphan_move_ids': [int(x) for x in payload.get('orphan_move_ids') or [] if str(x).isdigit()],
+        'duplicate_move_ids': [int(x) for x in payload.get('duplicate_move_ids') or [] if str(x).isdigit()],
+        'loose_duplicate_move_ids': [
+            int(x) for x in payload.get('loose_duplicate_move_ids') or [] if str(x).isdigit()
+        ],
+        'excess_move_ids': [int(x) for x in payload.get('excess_move_ids') or [] if str(x).isdigit()],
+    }
+
+    import tempfile
+    import os as _os
+    tf = tempfile.NamedTemporaryFile(
+        mode='w', suffix='.json', prefix='resync_fixes_', delete=False, encoding='utf-8',
+    )
+    try:
+        _json.dump(approved, tf)
+        tf.close()
+
+        from django.core.management import call_command
+        buf = io.StringIO()
+        args = ['--apply-fixes', tf.name]
+        if dry_run:
+            args.append('--dry-run')
+        try:
+            call_command('resync_inventory', *args, stdout=buf, stderr=buf)
+            output = buf.getvalue()
+            return JsonResponse({
+                'ok': True,
+                'output': output,
+                'resync_results': _parse_resync_output(output),
+            })
+        except Exception as exc:
+            output = buf.getvalue()
+            return JsonResponse({
+                'ok': False,
+                'error': str(exc),
+                'output': output,
+                'resync_results': _parse_resync_output(output),
+            })
+    finally:
+        try:
+            _os.unlink(tf.name)
+        except OSError:
+            pass
+
+
+def _extract_detect_json(output):
+    """Pull the JSON catalog emitted between BEGIN_DETECT_JSON / END_DETECT_JSON."""
+    start = output.find('BEGIN_DETECT_JSON')
+    end = output.find('END_DETECT_JSON')
+    if start < 0 or end < 0 or end < start:
+        return None
+    payload = output[start + len('BEGIN_DETECT_JSON'):end].strip()
+    try:
+        return _json.loads(payload)
+    except ValueError:
+        return None
+        output = buf.getvalue()
+        response = {'ok': False, 'output': output, 'error': str(exc)}
+
+        if action_key in ('resync_inventory', 'resync_inventory_dry', 'integrity_audit'):
+            response['resync_results'] = _parse_resync_output(output)
+
+        return JsonResponse(response)
+
+
+def _parse_resync_output(output):
+    """Parse resync_inventory command output into structured results for the modal."""
+    import re
+
+    results = {
+        'phases': [],
+        'issues': [],
+        'summary': {},
+        'details': {
+            'negative_balances': [],      # [{item, location, qty}]
+            'invoices_no_cogs': [],       # [{invoice_number, date, total}]
+            'items_no_selling_unit': [],  # [{code, name}]
+            'missing_conversions': [],    # [{code, from_unit, to_unit}]
+        },
+    }
+
+    lines = output.split('\n')
+    current_phase = None
+    current_detail_key = None  # which details[...] list we're appending to
+
+    # Row parsers for each detail section
+    # NEG BALANCE rows look like: "item=CODE  loc=LOC  qty=N"  (codes can contain spaces)
+    neg_row_re = re.compile(r'item=(.+?)\s{2,}loc=(.+?)\s{2,}qty=(-?\d+(?:\.\d+)?)')
+    # NO COGS rows look like: "INV_NUM  date=YYYY-MM-DD  total=N"
+    cogs_row_re = re.compile(r'^(\S+)\s+date=(\S+)\s+total=([\d.]+)')
+    # NO SELLING rows look like: "CODE  NAME"  (at least two tokens, no = sign)
+    sell_row_re = re.compile(r'^(\S+)\s{2,}(.+)$')
+    # MISSING CONV rows look like: "CODE  (from <-> to)"
+    conv_row_re = re.compile(r'^(\S+)\s+\((\S+)\s*<->\s*(\S+)\)')
+    # "... and N more" terminator
+    more_re = re.compile(r'^\.\.\.\s+and\s+\d+\s+more')
+
+    for raw in lines:
+        stripped = raw.strip()
+
+        # Detect phase headers
+        phase_match = re.match(r'---\s*Phase\s+(\w+):\s*(.+?)\s*---', stripped)
+        if phase_match:
+            current_phase = {
+                'id': phase_match.group(1),
+                'title': phase_match.group(2),
+                'details': [],
+                'status': 'ok',
+            }
+            results['phases'].append(current_phase)
+            current_detail_key = None
+            continue
+
+        # Detect start of a detail section and set the capture key
+        if '[NEG BALANCE]' in stripped and 'none OK' not in stripped:
+            current_detail_key = 'negative_balances'
+        elif '[NO COGS]' in stripped and 'none OK' not in stripped:
+            current_detail_key = 'invoices_no_cogs'
+        elif '[NO SELLING]' in stripped and 'none OK' not in stripped:
+            current_detail_key = 'items_no_selling_unit'
+        elif '[MISSING CONV]' in stripped and 'none OK' not in stripped:
+            current_detail_key = 'missing_conversions'
+        elif stripped.startswith('[') or 'none OK' in stripped or more_re.match(stripped):
+            # End of a detail block (next tag or summary line). "... and N more" stays as-is.
+            if not more_re.match(stripped):
+                current_detail_key = None
+
+        # Capture detail rows (indented lines following a section header)
+        if current_detail_key and raw.startswith('    ') and '[' not in stripped and not more_re.match(stripped):
+            if current_detail_key == 'negative_balances':
+                m = neg_row_re.search(stripped)
+                if m:
+                    results['details']['negative_balances'].append({
+                        'item': m.group(1),
+                        'location': m.group(2).strip(),
+                        'qty': m.group(3),
+                    })
+            elif current_detail_key == 'invoices_no_cogs':
+                m = cogs_row_re.match(stripped)
+                if m:
+                    results['details']['invoices_no_cogs'].append({
+                        'invoice_number': m.group(1),
+                        'date': m.group(2),
+                        'total': m.group(3),
+                    })
+            elif current_detail_key == 'items_no_selling_unit':
+                m = sell_row_re.match(stripped)
+                if m:
+                    results['details']['items_no_selling_unit'].append({
+                        'code': m.group(1),
+                        'name': m.group(2).strip(),
+                    })
+                else:
+                    # Fall back: single-token code only
+                    results['details']['items_no_selling_unit'].append({
+                        'code': stripped,
+                        'name': '',
+                    })
+            elif current_detail_key == 'missing_conversions':
+                m = conv_row_re.match(stripped)
+                if m:
+                    results['details']['missing_conversions'].append({
+                        'code': m.group(1),
+                        'from_unit': m.group(2),
+                        'to_unit': m.group(3),
+                    })
+
+        # Detect summary line (e.g. "Deleted 5 orphaned move(s)")
+        if current_phase and stripped and not stripped.startswith('---') and not stripped.startswith('==='):
+            # Check for error/warning indicators
+            if '[ERROR]' in stripped or 'Error' in stripped:
+                current_phase['status'] = 'error'
+                results['issues'].append(stripped)
+            elif '[NEG BALANCE]' in stripped and 'none OK' not in stripped:
+                current_phase['status'] = 'warning'
+                results['issues'].append(stripped)
+            elif '[DUPE MOVES]' in stripped and 'none OK' not in stripped:
+                current_phase['status'] = 'warning'
+                results['issues'].append(stripped)
+            elif '[MISSING CONV]' in stripped and 'none OK' not in stripped:
+                current_phase['status'] = 'warning'
+                results['issues'].append(stripped)
+            elif '[NO COGS]' in stripped and 'none OK' not in stripped:
+                current_phase['status'] = 'warning'
+                results['issues'].append(stripped)
+            elif '[NO SELLING]' in stripped and 'none OK' not in stripped:
+                current_phase['status'] = 'warning'
+                results['issues'].append(stripped)
+            elif 'WARNING' in stripped:
+                current_phase['status'] = 'warning'
+
+            if stripped:
+                current_phase['details'].append(stripped)
+
+        # Extract numeric summaries
+        orphan_match = re.search(r'(\d+)\s+orphaned move', stripped)
+        if orphan_match:
+            results['summary']['orphaned_deleted'] = int(orphan_match.group(1))
+
+        dedup_match = re.search(r'(\d+)\s+duplicate move', stripped)
+        if dedup_match:
+            results['summary']['duplicates_removed'] = int(dedup_match.group(1))
+
+        excess_match = re.search(r'(\d+)\s+excess move', stripped)
+        if excess_match:
+            results['summary']['excess_deleted'] = int(excess_match.group(1))
+
+        backfill_match = re.search(r'backfilled:\s*(\d+)', stripped)
+        if backfill_match:
+            results['summary']['moves_backfilled'] = int(backfill_match.group(1))
+
+        balance_create_match = re.search(r'(\d+)\s+created', stripped)
+        balance_update_match = re.search(r'(\d+)\s+updated', stripped)
+        if 'Committed:' in stripped or 'Creates:' in stripped:
+            if balance_create_match:
+                results['summary']['balances_created'] = int(balance_create_match.group(1))
+            if balance_update_match:
+                results['summary']['balances_updated'] = int(balance_update_match.group(1))
+
+        financial_match = re.search(r'(\d+)\s+monthly financial', stripped)
+        if financial_match:
+            results['summary']['financial_recalculated'] = int(financial_match.group(1))
+
+        neg_match = re.search(r'\[NEG BALANCE\]\s*(\d+)\s+item', stripped)
+        if neg_match:
+            results['summary']['negative_balances'] = int(neg_match.group(1))
+
+        no_cogs_match = re.search(r'\[NO COGS\]\s*(\d+)\s+paid invoice', stripped)
+        if no_cogs_match:
+            results['summary']['invoices_no_cogs'] = int(no_cogs_match.group(1))
+        elif '[NO COGS]' in stripped and 'none OK' in stripped:
+            results['summary']['invoices_no_cogs'] = 0
+
+        no_selling_match = re.search(r'\[NO SELLING\]\s*(\d+)\s+catalog item', stripped)
+        if no_selling_match:
+            results['summary']['items_no_selling_unit'] = int(no_selling_match.group(1))
+        elif '[NO SELLING]' in stripped and 'none OK' in stripped:
+            results['summary']['items_no_selling_unit'] = 0
+
+        missing_conv_match = re.search(r'\[MISSING CONV\]\s*(\d+)\s+item', stripped)
+        if missing_conv_match:
+            results['summary']['missing_conversions'] = int(missing_conv_match.group(1))
+        elif '[MISSING CONV]' in stripped and 'none OK' in stripped:
+            results['summary']['missing_conversions'] = 0
+
+        integrity_match = re.search(r'Phase 3 total:\s*(\d+)\s+issue', stripped)
+        if integrity_match:
+            results['summary']['integrity_issues'] = int(integrity_match.group(1))
+
+        if 'all integrity checks passed' in stripped:
+            results['summary']['integrity_issues'] = 0
+
+    return results

@@ -1,22 +1,18 @@
 """
-sync/signals.py — Post-save hooks for event-driven cross-DB sync.
+sync/signals.py — Post-save/delete hooks for real-time sync with offline fallback.
 
-When any web-admin model save hits the default (SQLite) database:
-  1. A background thread asynchronously writes the same row to Neon so
-     mobile clients that read Neon directly can see the change.
-  2. A WebSocket broadcast is sent via Django Channels to all connected
-     clients (web + mobile) on the 'sync' group with TWO event types:
-       a) {"type": "table_changed", "tables": [<db_table_name>]}
-          — lightweight notification for clients that pull from Neon
-       b) {"type": "data_changed", "table": <db_table_name>,
-           "action": "upsert"|"delete", "rows": [...]}
-          — carries the actual row data so clients can apply changes
-            to their local DB instantly without a separate pull/query.
-  3. (Legacy) A Pusher event is also triggered if credentials are configured,
-     for any mobile clients still using the Pusher SDK.
+Architecture (Neon = primary, SQLite = fast cache):
+  Normal flow (Neon reachable):
+    1. Write lands on 'default' (Neon) via the router.
+    2. On commit: mirror to local_cache, broadcast via WS.
 
-The _NEON_WRITE_ACTIVE thread-local prevents re-entrancy if the async
-thread itself triggers a post_save (e.g. via bulk_create).
+  Fallback flow (Neon unreachable):
+    1. Router detects Neon failure → write goes to local_cache instead.
+    2. The operation is logged to SyncOutbox (pending replay).
+    3. Broadcast still fires so the web dashboard refreshes.
+    4. When Neon comes back, `drain_sync_outbox` replays pending writes.
+
+The _MIRROR_ACTIVE thread-local prevents re-entrancy.
 """
 
 import logging
@@ -25,20 +21,40 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from django.db import transaction as db_transaction
+from django.conf import settings
+from django.db import connections, transaction as db_transaction
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-_NEON_WRITE_ACTIVE = threading.local()
+_MIRROR_ACTIVE = threading.local()
+
+# Track whether we're currently in fallback mode (Neon unreachable).
+# This is a thread-local so concurrent requests don't interfere.
+_FALLBACK_ACTIVE = threading.local()
 
 SYNCED_APP_LABELS = {
     'core', 'accounts', 'catalog', 'partners', 'warehouses',
     'inventory', 'procurement', 'sales', 'audit', 'pricing',
     'pos', 'services', 'cashflow',
 }
+
+
+def _is_neon_primary() -> bool:
+    """True when Neon is the authoritative write target."""
+    return getattr(settings, 'SYNC_MODE', 'offline') == 'neon_primary'
+
+
+def is_fallback_active() -> bool:
+    """True when the current thread is writing to local_cache as fallback."""
+    return getattr(_FALLBACK_ACTIVE, 'value', False)
+
+
+def set_fallback_active(active: bool) -> None:
+    """Set fallback mode for the current thread."""
+    _FALLBACK_ACTIVE.value = active
 
 
 # ── JSON-safe serialisation helper ─────────────────────────────────────
@@ -68,7 +84,7 @@ def _instance_to_dict(instance) -> dict:
     """
     data = {}
     for field in instance._meta.concrete_fields:
-        col = field.column  # actual DB column name (e.g. 'category_id')
+        col = field.column
         raw = field.value_from_object(instance)
         data[col] = _make_json_safe(raw)
     return data
@@ -84,7 +100,6 @@ def _get_pusher():
     if _pusher_client is not None:
         return _pusher_client
     try:
-        from django.conf import settings
         import pusher
         app_id = getattr(settings, 'PUSHER_APP_ID', '')
         key    = getattr(settings, 'PUSHER_KEY',    '')
@@ -114,11 +129,7 @@ def _broadcast_pusher(tables: list[str]) -> None:
 
 # ── Django Channels WebSocket broadcast ────────────────────────────────
 def _broadcast_ws(tables: list[str]) -> None:
-    """
-    Send a table_changed event to every connected WebSocket client via
-    the Django Channels layer.  Works from synchronous code (signal handlers)
-    by using async_to_sync.
-    """
+    """Send a table_changed event to every connected WebSocket client."""
     try:
         from channels.layers import get_channel_layer
         from asgiref.sync import async_to_sync
@@ -127,10 +138,7 @@ def _broadcast_ws(tables: list[str]) -> None:
             return
         async_to_sync(channel_layer.group_send)(
             'sync',
-            {
-                'type': 'table_changed',
-                'tables': tables,
-            },
+            {'type': 'table_changed', 'tables': tables},
         )
         logger.debug('WS broadcast table-changed: %s', tables)
     except Exception as exc:
@@ -138,13 +146,7 @@ def _broadcast_ws(tables: list[str]) -> None:
 
 
 def _broadcast_ws_data(table: str, action: str, rows: list[dict]) -> None:
-    """
-    Send a data_changed event carrying the actual row data so clients
-    can apply changes to their local DB without a separate pull.
-
-    action: 'upsert' | 'delete'
-    rows:   list of dicts — full row for upsert, just {'id': pk} for delete.
-    """
+    """Send a data_changed event with actual row data."""
     try:
         from channels.layers import get_channel_layer
         from asgiref.sync import async_to_sync
@@ -167,132 +169,238 @@ def _broadcast_ws_data(table: str, action: str, rows: list[dict]) -> None:
 
 
 def broadcast_table_changed(tables: list[str]) -> None:
-    """
-    Broadcast a table-changed event to all real-time clients.
-    Sends via both Django Channels (primary) and Pusher (legacy fallback).
-    """
+    """Broadcast a table-changed event to all real-time clients."""
     _broadcast_ws(tables)
     _broadcast_pusher(tables)
 
 
 def broadcast_data_changed(table: str, action: str, rows: list[dict]) -> None:
-    """
-    Broadcast a data-changed event with the actual row data.
-    Also sends the lightweight table_changed for backward compatibility.
-    """
+    """Broadcast a data-changed event with actual row data."""
     _broadcast_ws_data(table, action, rows)
-    # Legacy Pusher gets the lightweight notification only
     _broadcast_pusher([table])
 
 
-# ── Neon write-through ─────────────────────────────────────────────────
-def _write_to_neon_async(sender, pk: int, table: str, row_data: dict) -> None:
-    """
-    Spawn a daemon thread that upserts the record identified by *pk* into the
-    'neon' database alias.  Broadcasts the event only after the write
-    succeeds so clients never receive a stale-read notification.
+# ── Outbox: queue operations for later replay to Neon ──────────────────
 
-    row_data is the pre-serialised dict captured at signal time so the
-    broadcast carries the actual data even if the background thread is slow.
+def _queue_to_outbox(action: str, table: str, app_label: str,
+                     model_name: str, pk: int, row_data: dict | None) -> None:
     """
-    if getattr(_NEON_WRITE_ACTIVE, 'value', False):
+    Log a pending operation to the SyncOutbox so it can be replayed
+    to Neon when connectivity is restored.
+
+    Uses local_cache DB directly (SQLite) since Neon is unreachable.
+    """
+    try:
+        from sync.models import SyncOutbox
+        SyncOutbox.objects.using('local_cache').create(
+            action=action,
+            db_table=table,
+            app_label=app_label,
+            model_name=model_name,
+            row_pk=pk,
+            row_data=row_data,
+        )
+        logger.info(
+            'Outbox queued: %s %s#%d (Neon offline)',
+            action, table, pk,
+        )
+    except Exception as exc:
+        logger.error(
+            'Failed to queue outbox entry (%s %s#%d): %s',
+            action, table, pk, exc,
+        )
+
+
+# ── Local cache mirror (Neon → SQLite) ─────────────────────────────────
+
+def _mirror_to_local_cache(sender, pk: int) -> None:
+    """
+    Copy a single row from default (Neon) → local_cache (SQLite).
+    Runs synchronously in the on_commit callback.
+    """
+    if not _is_neon_primary():
         return
 
-    def _worker():
-        _NEON_WRITE_ACTIVE.value = True
-        try:
-            from core.management.commands.db_sync import Command
-            Command._ensure_both_databases()
-            from django.db import connections
-            if 'neon' not in connections.databases:
-                return
-
-            obj = sender._default_manager.using('default').filter(pk=pk).first()
-            if obj is None:
-                return
-
-            concrete_fields = [
-                f for f in sender._meta.concrete_fields if not f.primary_key
-            ]
-            update_fields = [f.attname for f in concrete_fields]
-            if update_fields:
-                sender._default_manager.using('neon').bulk_create(
-                    [obj],
-                    update_conflicts=True,
-                    update_fields=update_fields,
-                    unique_fields=['id'],
-                )
-            else:
-                sender._default_manager.using('neon').bulk_create(
-                    [obj], ignore_conflicts=True,
-                )
-            # Notify clients with the actual row data after Neon has it
-            broadcast_data_changed(table, 'upsert', [row_data])
-        except Exception as exc:
-            logger.debug(
-                'Neon write-through skipped (%s pk=%s): %s', sender.__name__, pk, exc
-            )
-        finally:
-            _NEON_WRITE_ACTIVE.value = False
-
-    threading.Thread(target=_worker, daemon=True, name=f'neon-wt-{sender.__name__}').start()
-
-
-def _delete_from_neon_async(sender, pk: int, table: str) -> None:
-    """Propagate a hard delete to Neon. Fails silently if Neon is unavailable."""
-    if getattr(_NEON_WRITE_ACTIVE, 'value', False):
+    if getattr(_MIRROR_ACTIVE, 'value', False):
         return
 
-    def _worker():
-        _NEON_WRITE_ACTIVE.value = True
-        try:
-            from core.management.commands.db_sync import Command
-            Command._ensure_both_databases()
-            from django.db import connections
-            if 'neon' not in connections.databases:
-                return
-            sender._default_manager.using('neon').filter(pk=pk).delete()
-            broadcast_data_changed(table, 'delete', [{'id': pk}])
-        except Exception as exc:
-            logger.debug(
-                'Neon delete skipped (%s pk=%s): %s', sender.__name__, pk, exc
-            )
-        finally:
-            _NEON_WRITE_ACTIVE.value = False
+    _MIRROR_ACTIVE.value = True
+    try:
+        obj = sender._default_manager.using('default').filter(pk=pk).first()
+        if obj is None:
+            return
 
-    threading.Thread(target=_worker, daemon=True, name=f'neon-del-{sender.__name__}').start()
+        concrete_fields = [
+            f for f in sender._meta.concrete_fields if not f.primary_key
+        ]
+        update_fields = [f.attname for f in concrete_fields]
+
+        if update_fields:
+            sender._default_manager.using('local_cache').bulk_create(
+                [obj],
+                update_conflicts=True,
+                update_fields=update_fields,
+                unique_fields=['id'],
+            )
+        else:
+            sender._default_manager.using('local_cache').bulk_create(
+                [obj], ignore_conflicts=True,
+            )
+    except Exception as exc:
+        logger.warning(
+            'Local cache mirror failed (%s pk=%s): %s',
+            sender.__name__, pk, exc,
+        )
+    finally:
+        _MIRROR_ACTIVE.value = False
+
+
+def _mirror_delete_to_local_cache(sender, pk: int) -> None:
+    """Delete a row from local_cache after it was deleted from Neon."""
+    if not _is_neon_primary():
+        return
+
+    if getattr(_MIRROR_ACTIVE, 'value', False):
+        return
+
+    _MIRROR_ACTIVE.value = True
+    try:
+        sender._default_manager.using('local_cache').filter(pk=pk).delete()
+    except Exception as exc:
+        logger.warning(
+            'Local cache mirror-delete failed (%s pk=%s): %s',
+            sender.__name__, pk, exc,
+        )
+    finally:
+        _MIRROR_ACTIVE.value = False
+
+
+# ── On-commit orchestrator ─────────────────────────────────────────────
+
+def _on_commit_save(sender, pk, table, row_data):
+    """
+    Fired after a successful commit on default (Neon) or local_cache (fallback).
+    1. Mirror to local_cache (if Neon was the target).
+    2. Broadcast to all WS clients.
+    """
+    if not is_fallback_active():
+        # Normal path: Neon commit succeeded → mirror to local_cache
+        _mirror_to_local_cache(sender, pk)
+    # else: fallback path — already written to local_cache, outbox queued
+
+    broadcast_data_changed(table, 'upsert', [row_data])
+
+
+def _on_commit_delete(sender, pk, table):
+    """
+    Fired after a successful delete commit.
+    1. Mirror delete to local_cache (if Neon was the target).
+    2. Broadcast to all WS clients.
+    """
+    if not is_fallback_active():
+        _mirror_delete_to_local_cache(sender, pk)
+
+    broadcast_data_changed(table, 'delete', [{'id': pk}])
 
 
 # ── Signal receivers ───────────────────────────────────────────────────
+
 @receiver(post_save)
 def on_model_save(sender, instance, using, **kwargs):
-    if using != 'default':
-        return
+    """
+    Mirror saves and broadcast.
+
+    Handles two cases:
+      - using='default' (Neon): normal path, mirror to local_cache.
+      - using='local_cache' + fallback active: offline path, queue to outbox.
+    """
     if sender._meta.app_label not in SYNCED_APP_LABELS:
         return
-    if getattr(_NEON_WRITE_ACTIVE, 'value', False):
+    if getattr(_MIRROR_ACTIVE, 'value', False):
         return
 
-    # Capture the row data NOW while the instance is still in memory.
-    # The background thread may run later when the instance is stale.
-    pk, table = instance.pk, sender._meta.db_table
-    row_data = _instance_to_dict(instance)
+    # Normal Neon path
+    if using == 'default' and _is_neon_primary():
+        pk, table = instance.pk, sender._meta.db_table
+        row_data = _instance_to_dict(instance)
+        db_transaction.on_commit(
+            lambda: _on_commit_save(sender, pk, table, row_data),
+            using='default',
+        )
+        return
 
-    db_transaction.on_commit(
-        lambda: _write_to_neon_async(sender, pk, table, row_data)
-    )
+    # Fallback path: written to local_cache because Neon was down
+    if using == 'local_cache' and is_fallback_active():
+        pk, table = instance.pk, sender._meta.db_table
+        row_data = _instance_to_dict(instance)
+
+        # Queue to outbox for later replay
+        _queue_to_outbox(
+            action='upsert',
+            table=table,
+            app_label=sender._meta.app_label,
+            model_name=sender._meta.model_name,
+            pk=pk,
+            row_data=row_data,
+        )
+
+        # Still broadcast so the web dashboard refreshes
+        db_transaction.on_commit(
+            lambda: broadcast_data_changed(table, 'upsert', [row_data]),
+            using='local_cache',
+        )
+        return
+
+    # Offline mode (SYNC_MODE='offline'): default IS local_cache
+    if using == 'default' and not _is_neon_primary():
+        pk, table = instance.pk, sender._meta.db_table
+        row_data = _instance_to_dict(instance)
+        db_transaction.on_commit(
+            lambda: broadcast_data_changed(table, 'upsert', [row_data]),
+            using='default',
+        )
 
 
 @receiver(post_delete)
 def on_model_delete(sender, instance, using, **kwargs):
-    if using != 'default':
-        return
+    """Mirror deletes and broadcast, with offline fallback."""
     if sender._meta.app_label not in SYNCED_APP_LABELS:
         return
-    if getattr(_NEON_WRITE_ACTIVE, 'value', False):
+    if getattr(_MIRROR_ACTIVE, 'value', False):
         return
 
-    pk, table = instance.pk, sender._meta.db_table
-    db_transaction.on_commit(
-        lambda: _delete_from_neon_async(sender, pk, table)
-    )
+    # Normal Neon path
+    if using == 'default' and _is_neon_primary():
+        pk, table = instance.pk, sender._meta.db_table
+        db_transaction.on_commit(
+            lambda: _on_commit_delete(sender, pk, table),
+            using='default',
+        )
+        return
+
+    # Fallback path
+    if using == 'local_cache' and is_fallback_active():
+        pk, table = instance.pk, sender._meta.db_table
+
+        _queue_to_outbox(
+            action='delete',
+            table=table,
+            app_label=sender._meta.app_label,
+            model_name=sender._meta.model_name,
+            pk=pk,
+            row_data=None,
+        )
+
+        db_transaction.on_commit(
+            lambda: broadcast_data_changed(table, 'delete', [{'id': pk}]),
+            using='local_cache',
+        )
+        return
+
+    # Offline mode
+    if using == 'default' and not _is_neon_primary():
+        pk, table = instance.pk, sender._meta.db_table
+        db_transaction.on_commit(
+            lambda: broadcast_data_changed(table, 'delete', [{'id': pk}]),
+            using='default',
+        )

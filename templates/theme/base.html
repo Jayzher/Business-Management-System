@@ -143,6 +143,248 @@
     .dataTables_length select.form-select { max-width: 100px; }
     .dataTables_filter input.form-control { min-width: 220px; }
     .dt-buttons { display: inline-flex; align-items: center; gap: .4rem; margin-left: .5rem; }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       MOBILE RESPONSIVE FIXES
+       ═══════════════════════════════════════════════════════════════════ */
+
+    /* ── Small devices (phones, < 576px) ─────────────────────────────── */
+    @media (max-width: 575.98px) {
+      /* Content padding */
+      .content-wrapper .content-header { padding: .5rem; }
+      .content-wrapper .content-header .container-fluid { padding: 0 .5rem; }
+      .content-wrapper .content { padding: 0; }
+      .content-wrapper .content > .container-fluid { padding: 0 .5rem; }
+      .content-header h1 { font-size: 1.2rem; }
+
+      /* Breadcrumb: hide on very small screens */
+      .breadcrumb { font-size: .72rem; padding: 0; }
+      .breadcrumb-item + .breadcrumb-item::before { padding: 0 .3rem; }
+
+      /* Cards */
+      .card { border-radius: 8px; margin-bottom: .6rem; }
+      .card-header { padding: .5rem .75rem; }
+      .card-header .card-title { font-size: .82rem; }
+      .card-body { padding: .6rem .75rem; }
+      .card-footer { padding: .5rem .75rem; }
+
+      /* Small boxes (KPI) */
+      .small-box { margin-bottom: .6rem; border-radius: 8px; }
+      .small-box .inner h3 { font-size: 1.3rem; }
+      .small-box .inner p { font-size: .72rem; }
+      .small-box .icon > i.fas { font-size: 45px; }
+      .small-box-footer { font-size: .72rem; padding: .3rem; }
+
+      /* Tables */
+      .table { font-size: .78rem; }
+      .table th, .table td { padding: .3rem .4rem; }
+      .table-responsive { border-radius: 6px; }
+      /* Scroll hint for horizontal tables */
+      .table-responsive::after {
+        content: '';
+        position: absolute;
+        top: 0; right: 0; bottom: 0;
+        width: 20px;
+        background: linear-gradient(to right, transparent, rgba(0,0,0,.04));
+        pointer-events: none;
+        border-radius: 0 6px 6px 0;
+      }
+      .table-responsive { position: relative; }
+
+      /* DataTables mobile */
+      .dataTables_wrapper .row:first-child { flex-direction: column; gap: .4rem; }
+      .dataTables_wrapper .row:first-child .col-sm-6 { width: 100%; justify-content: flex-start !important; }
+      .dataTables_filter input.form-control { min-width: 0; width: 100%; }
+      .dataTables_length select.form-select { max-width: 80px; }
+      .dt-buttons .btn { font-size: .7rem; padding: .2rem .4rem; }
+      .dataTables_info { font-size: .7rem; }
+      .dataTables_paginate .paginate_button { font-size: .7rem; padding: .2rem .4rem !important; }
+
+      /* Buttons */
+      .btn { font-size: .8rem; }
+      .btn-sm { font-size: .72rem; padding: .2rem .5rem; }
+      .btn-lg { font-size: .9rem; padding: .5rem .8rem; }
+      .btn-block, .w-100 { font-size: .82rem; }
+
+      /* Navbar */
+      .main-header .navbar-nav .nav-link { padding: .4rem .5rem; font-size: .82rem; }
+      .main-header .navbar-nav .nav-link .d-none.d-md-inline { display: none !important; }
+
+      /* Modal */
+      #wis-modal-dialog { max-width: 98vw !important; width: auto !important; margin: .5rem; }
+      #wis-modal .modal-header { padding: .5rem .75rem; }
+      #wis-modal .modal-header .modal-title { font-size: .9rem; }
+      #wis-modal-body { padding: 0 !important; }
+      #wis-modal-body .p-3 { padding: .6rem !important; }
+      .modal-dialog { margin: .5rem; }
+      .modal-xl, .modal-lg { max-width: calc(100vw - 1rem); }
+
+      /* Formset card-based layout */
+      .formset-cards .card-body { padding: .5rem; }
+      .formset-cards .card-body .row.g-2 > [class*="col-"] { flex: 0 0 100%; max-width: 100%; }
+      .formset-cards .card-header { padding: .4rem .6rem; }
+
+      /* Formset table layout */
+      .formset-table { font-size: .75rem; }
+      .formset-table thead th { font-size: .68rem; padding: .3rem .4rem; }
+      .formset-table td { padding: .3rem .4rem; }
+      .formset-table td input,
+      .formset-table td select,
+      .formset-table td textarea { font-size: .78rem; }
+
+      /* Doc actions (detail pages) */
+      .doc-actions { flex-direction: column; gap: .5rem; align-items: stretch !important; }
+      .doc-actions > div { width: 100%; }
+      .doc-actions > div:last-child { display: flex; flex-wrap: wrap; gap: .4rem; }
+      .doc-actions .btn { flex: 1 1 auto; min-width: 0; font-size: .78rem; padding: .35rem .5rem; margin: 0 !important; }
+
+      /* Detail page tables */
+      .doc-detail-table th { width: 100px; font-size: .78rem; }
+      .doc-detail-table td { font-size: .8rem; }
+
+      /* Status workflow stepper */
+      .card-body .d-flex.align-items-center.justify-content-center.flex-wrap { gap: .15rem !important; }
+      .card-body .d-flex .badge { font-size: .7rem !important; padding: .25rem .5rem !important; }
+      .card-body .d-flex .fa-chevron-right { font-size: .55rem; margin: 0 .15rem; }
+
+      /* Select2 */
+      .select2-container { font-size: .82rem; }
+      .select2-container--bootstrap-5 .select2-selection { min-height: 32px; font-size: .82rem; }
+
+      /* Period toggle (dashboard) */
+      .period-toggle { flex-wrap: wrap; }
+      .period-toggle .btn { font-size: .68rem; padding: .2rem .4rem; }
+
+      /* Footer */
+      .main-footer { font-size: .75rem; padding: .5rem 1rem; }
+
+      /* Invoice detail two-column */
+      .col-lg-8, .col-lg-4 { flex: 0 0 100%; max-width: 100%; }
+
+      /* Resync modals */
+      .resync-summary-grid { grid-template-columns: repeat(2, 1fr); }
+      .rc-move-row { grid-template-columns: 24px 60px 1fr 1fr 70px; font-size: .65rem; }
+
+      /* Tests & Syncs */
+      .ts-stat .ts-num { font-size: 1.2rem; }
+      .ts-action-card .card-body { padding: .6rem .75rem; }
+      .ts-action-icon { width: 30px; height: 30px; font-size: .8rem; }
+      .ts-action-card .ts-action-title { font-size: .82rem; }
+      .ts-action-card .ts-action-desc { font-size: .72rem; }
+
+      /* Cashflow dashboard stat cards */
+      .stat-card { padding: 14px 12px; }
+      .stat-value { font-size: 1.3rem !important; }
+      .stat-label { font-size: 11px; }
+
+      /* Financial statement hero */
+      .fs-hero { padding: 1rem; border-radius: 8px; }
+      .fs-hero-metric { font-size: 1.4rem !important; }
+      .fs-kpi-card { padding: .5rem .4rem; }
+      .fs-kpi-value { font-size: .85rem; }
+      .fs-kpi-label { font-size: .62rem; }
+      .fs-flow-bar { height: 22px; }
+      .fs-flow-in, .fs-flow-out { font-size: .6rem; min-width: 30px; }
+
+      /* Audit log cards */
+      .log-card { padding: 8px 10px; }
+      .log-header { font-size: .78rem; }
+      .log-ts { font-size: .65rem; min-width: 40px; }
+      .ch-panel { padding: 6px 8px; font-size: .72rem; }
+
+      /* Item detail */
+      .item-cell { flex-direction: column; gap: 4px; }
+    }
+
+    /* ── Medium devices (tablets, 576px – 991.98px) ──────────────────── */
+    @media (min-width: 576px) and (max-width: 991.98px) {
+      .content-header h1 { font-size: 1.3rem; }
+
+      /* Cards */
+      .card-header .card-title { font-size: .85rem; }
+
+      /* Small boxes */
+      .small-box .inner h3 { font-size: 1.5rem; }
+      .small-box .icon > i.fas { font-size: 55px; }
+
+      /* Modal */
+      #wis-modal-dialog { max-width: 95vw !important; width: auto !important; }
+      .modal-xl { max-width: 95vw; }
+
+      /* DataTables */
+      .dataTables_filter input.form-control { min-width: 160px; }
+
+      /* Period toggle */
+      .period-toggle .btn { font-size: .72rem; padding: .22rem .5rem; }
+
+      /* Formset cards */
+      .formset-cards .card-body .row.g-2 > [class*="col-md-6"] { flex: 0 0 50%; max-width: 50%; }
+
+      /* Financial statement */
+      .fs-hero-metric { font-size: 1.8rem; }
+      .fs-kpi-value { font-size: 1rem; }
+
+      /* Cashflow */
+      .stat-value { font-size: 1.6rem !important; }
+
+      /* Tests & Syncs */
+      .ts-stat .ts-num { font-size: 1.3rem; }
+    }
+
+    /* ── Large screens (≥ 1200px) — ensure nothing overflows ─────────── */
+    @media (min-width: 1200px) {
+      #wis-modal-dialog { max-width: 1280px; }
+      .wis-form-card { max-width: 720px; }
+      .wis-form-card.wis-form-wide { max-width: 960px; }
+    }
+
+    /* ── Touch-friendly improvements (all mobile/tablet) ─────────────── */
+    @media (max-width: 991.98px) {
+      /* Larger tap targets */
+      .btn-xs { min-height: 28px; min-width: 28px; padding: .25rem .4rem; }
+      .nav-sidebar .nav-link { padding: .6rem 1rem; }
+      .nav-sidebar .nav-treeview > .nav-item > .nav-link { padding: .5rem 1rem .5rem 2rem; }
+
+      /* Prevent horizontal overflow */
+      body { overflow-x: hidden; }
+      .wrapper { overflow-x: hidden; }
+
+      /* Filter rows stack better */
+      .row.g-2.align-items-end > [class*="col-md-"] { margin-bottom: .4rem; }
+
+      /* Sidebar overlay behavior (AdminLTE handles this, but ensure z-index) */
+      .main-sidebar { z-index: 1038; }
+
+      /* Dropdown menus */
+      .dropdown-menu { font-size: .82rem; }
+
+      /* Toast positioning */
+      #wis-toast-container { max-width: calc(100vw - 1rem); right: .5rem !important; }
+      #wis-toast-container .toast { max-width: 100%; }
+
+      /* Image lightbox */
+      #wis-image-lightbox img { max-width: 95vw; max-height: 80vh; }
+
+      /* Quick stats (cashflow) */
+      .quick-stats { gap: 6px; }
+      .stat-item { min-width: 120px; padding: 8px 10px; }
+
+      /* Movement bar (cashflow) */
+      .movement-bar { padding: 10px 12px; }
+      .movement-item { min-width: 130px; }
+      .movement-value { font-size: 15px; }
+      .movement-label { font-size: 9px; }
+    }
+
+    /* ── Print-safe: hide mobile-only elements when printing ─────────── */
+    @media print {
+      .main-sidebar, .main-header, .main-footer,
+      .doc-actions, .btn, .toast-container,
+      .dataTables_wrapper .row:first-child,
+      .dataTables_paginate, .dataTables_info { display: none !important; }
+      .content-wrapper { margin-left: 0 !important; min-height: auto !important; }
+      .card { box-shadow: none !important; border: 1px solid #dee2e6; }
+    }
   </style>
 </head>
 <body class="hold-transition sidebar-mini layout-fixed">

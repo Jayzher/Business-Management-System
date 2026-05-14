@@ -68,7 +68,15 @@ class GoodsReceiptViewSet(viewsets.ModelViewSet):
         grn = self.get_object()
         try:
             post_goods_receipt(grn, request.user)
-            return Response({'status': 'posted', 'document_number': grn.document_number})
+            result = {'status': 'posted', 'document_number': grn.document_number}
+            skipped = getattr(grn, 'skipped_lines', [])
+            if skipped:
+                result['skipped_lines'] = skipped
+                result['warning'] = (
+                    f'{len(skipped)} line(s) skipped due to incompatible units. '
+                    f'Add the missing Unit Conversions under Catalog → Unit Conversions.'
+                )
+            return Response(result)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -119,7 +127,12 @@ def goods_receipt_post_view(request, pk):
     if request.method == 'POST':
         try:
             post_goods_receipt(grn, request.user)
-            messages.success(request, f'Goods Receipt {grn.document_number} posted. Stock updated.')
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(grn)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(request, f'Goods Receipt {grn.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('goods_receipt_detail', pk=pk)
@@ -253,17 +266,20 @@ def purchase_order_create_view(request):
     if request.method == 'POST':
         form = PurchaseOrderForm(request.POST)
         formset = PurchaseOrderLineFormSet(request.POST)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             po = form.save(commit=False)
             po.created_by = request.user
             if not po.document_number:
                 po.document_number = generate_document_number('PO', PurchaseOrder)
             po.save()
-            formset = PurchaseOrderLineFormSet(request.POST, instance=po)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Purchase Order {po.document_number} created.')
-                return redirect('purchase_order_detail', pk=po.pk)
+            formset.instance = po
+            formset.save()
+            messages.success(request, f'Purchase Order {po.document_number} created.')
+            return redirect('purchase_order_detail', pk=po.pk)
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = PurchaseOrderForm(initial={'document_number': generate_document_number('PO', PurchaseOrder)})
         formset = PurchaseOrderLineFormSet()
@@ -315,17 +331,20 @@ def goods_receipt_create_view(request):
     if request.method == 'POST':
         form = GoodsReceiptForm(request.POST)
         formset = GoodsReceiptLineFormSet(request.POST, request.FILES)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             grn = form.save(commit=False)
             grn.created_by = request.user
             if not grn.document_number:
                 grn.document_number = generate_document_number('GRN', GoodsReceipt)
             grn.save()
-            formset = GoodsReceiptLineFormSet(request.POST, request.FILES, instance=grn)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Goods Receipt {grn.document_number} created.')
-                return redirect('goods_receipt_detail', pk=grn.pk)
+            formset.instance = grn
+            formset.save()
+            messages.success(request, f'Goods Receipt {grn.document_number} created.')
+            return redirect('goods_receipt_detail', pk=grn.pk)
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = GoodsReceiptForm(initial={'document_number': generate_document_number('GRN', GoodsReceipt)})
         formset = GoodsReceiptLineFormSet()
@@ -396,24 +415,21 @@ def purchase_return_detail_view(request, pk):
 def purchase_return_create_view(request):
     if request.method == 'POST':
         form = PurchaseReturnForm(request.POST)
-        # Validate formset against a dummy (unbound instance) first so we can
-        # check both before persisting anything.
-        if form.is_valid():
+        formset = PurchaseReturnLineFormSet(request.POST)
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             pr = form.save(commit=False)
             pr.created_by = request.user
             if not pr.document_number:
                 pr.document_number = generate_document_number('PR', PurchaseReturn)
             pr.save()
-            formset = PurchaseReturnLineFormSet(request.POST, instance=pr)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Purchase Return {pr.document_number} created.')
-                return redirect('purchase_return_detail', pk=pr.pk)
-            # Formset invalid — roll back by raising inside atomic block
-            # The transaction decorator will revert the pr.save().
-            db_transaction.set_rollback(True)
+            formset.instance = pr
+            formset.save()
+            messages.success(request, f'Purchase Return {pr.document_number} created.')
+            return redirect('purchase_return_detail', pk=pr.pk)
         else:
-            formset = PurchaseReturnLineFormSet(request.POST)
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = PurchaseReturnForm(initial={'document_number': generate_document_number('PR', PurchaseReturn)})
         formset = PurchaseReturnLineFormSet()
@@ -455,7 +471,12 @@ def purchase_return_post_view(request, pk):
         try:
             from inventory.services import post_purchase_return
             post_purchase_return(pr, request.user)
-            messages.success(request, f'Purchase Return {pr.document_number} posted. Stock updated.')
+            from inventory.services import format_skipped_lines_message
+            warning = format_skipped_lines_message(pr)
+            if warning:
+                messages.warning(request, warning)
+            else:
+                messages.success(request, f'Purchase Return {pr.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('purchase_return_detail', pk=pk)
@@ -488,6 +509,90 @@ def purchase_return_delete_view(request, pk):
 
 
 # ── Supplier Catalog ───────────────────────────────────────────────────────
+
+
+def _update_item_cost_from_supplier_catalog(item_ids=None):
+    """
+    After a Supplier Catalog sync (PO or GRN), update each Item.cost_price
+    to the HIGHEST price across its SupplierCatalogEntry rows.
+
+    Multi-supplier items typically have several prices; the most conservative
+    posture for COGS and inventory valuation is to use the maximum — so we
+    never under-state cost of goods sold when reporting.
+
+    Prices stored in a unit other than the Item.default_unit are converted
+    using catalog.utils.convert_price_for_unit so cross-unit entries are
+    compared on an apples-to-apples basis.
+
+    Args:
+        item_ids: Optional iterable of Item pks to limit the update scope.
+                  If None, every item with at least one catalog entry is
+                  processed.
+
+    Returns:
+        dict with keys:
+            updated_count  – items whose cost_price changed
+            unchanged_count – items whose highest price already equals cost_price
+            skipped_count  – items with catalog entries we could not price
+                              (e.g., zero-only entries, all conversions failed)
+    """
+    from decimal import Decimal
+    from catalog.models import Item
+    from catalog.utils import convert_price_for_unit, _lookup_conversion_record
+
+    qs = SupplierCatalogEntry.objects.select_related('item', 'item__default_unit', 'unit')
+    if item_ids is not None:
+        qs = qs.filter(item_id__in=list(item_ids))
+
+    # Bucket entries by item
+    per_item = {}
+    for entry in qs:
+        per_item.setdefault(entry.item_id, (entry.item, []))[1].append(entry)
+
+    updated_count = 0
+    unchanged_count = 0
+    skipped_count = 0
+
+    for item_id, (item, entries) in per_item.items():
+        base_unit = item.default_unit
+        best_price = None
+        for e in entries:
+            if not e.unit_price or e.unit_price <= 0:
+                continue
+            if e.unit_id == base_unit.pk:
+                price_in_base = Decimal(str(e.unit_price))
+            else:
+                # Only accept cross-unit entries when a real conversion record exists
+                conv, _is_rev = _lookup_conversion_record(e.unit, base_unit, item)
+                if conv is None:
+                    continue
+                price_in_base = convert_price_for_unit(
+                    e.unit_price, e.unit, base_unit,
+                    item=item, use_conversion_price=False,
+                )
+
+            if best_price is None or price_in_base > best_price:
+                best_price = price_in_base
+
+        if best_price is None:
+            skipped_count += 1
+            continue
+
+        current = item.cost_price or Decimal('0')
+        best_price_q = best_price.quantize(Decimal('0.0001'))
+        if current.quantize(Decimal('0.0001')) == best_price_q:
+            unchanged_count += 1
+            continue
+
+        Item.objects.filter(pk=item.pk).update(cost_price=best_price_q)
+        updated_count += 1
+
+    return {
+        'updated_count': updated_count,
+        'unchanged_count': unchanged_count,
+        'skipped_count': skipped_count,
+    }
+
 
 @login_required
 @procurement_access
@@ -667,6 +772,8 @@ def supplier_catalog_sync_view(request):
     """
     Sync supplier catalog from past PO data.
     For each POSTED or APPROVED PO line, upsert the latest unit_price into SupplierCatalogEntry.
+    After syncing, each affected Item's cost_price is updated to the highest
+    supplier price on record (converted to the item's default unit).
     """
     if request.method == 'POST':
         from decimal import Decimal
@@ -681,6 +788,7 @@ def supplier_catalog_sync_view(request):
 
         created_count = 0
         updated_count = 0
+        touched_items = set()
 
         for line in po_lines:
             if not line.unit_price or line.unit_price <= 0:
@@ -702,11 +810,20 @@ def supplier_catalog_sync_view(request):
                 created_count += 1
             else:
                 updated_count += 1
+            touched_items.add(line.item_id)
+
+        # ── Update Item.cost_price to the highest supplier price ──
+        cost_stats = _update_item_cost_from_supplier_catalog(
+            item_ids=touched_items or None
+        )
 
         messages.success(
             request,
             f'Sync complete: {created_count} new entries created, '
-            f'{updated_count} entries updated from past PO data.',
+            f'{updated_count} entries updated from past PO data. '
+            f'Item costs updated: {cost_stats["updated_count"]} '
+            f'(unchanged: {cost_stats["unchanged_count"]}, '
+            f'skipped: {cost_stats["skipped_count"]}).',
         )
         return redirect('supplier_catalog_list')
 
@@ -737,6 +854,8 @@ def supplier_catalog_sync_grn_view(request):
     """
     Sync supplier catalog from GRN data (posted GRNs linked to POs).
     Always keeps the latest price based on receipt_date.
+    After syncing, each affected Item's cost_price is updated to the highest
+    supplier price on record (converted to the item's default unit).
     """
     if request.method == 'POST':
         # Get all posted GRN lines that have an associated PO
@@ -756,6 +875,7 @@ def supplier_catalog_sync_grn_view(request):
 
         created_count = 0
         updated_count = 0
+        touched_items = set()
 
         for grn_line in grn_lines:
             grn = grn_line.goods_receipt
@@ -797,11 +917,20 @@ def supplier_catalog_sync_grn_view(request):
                 created_count += 1
             else:
                 updated_count += 1
+            touched_items.add(grn_line.item_id)
+
+        # ── Update Item.cost_price to the highest supplier price ──
+        cost_stats = _update_item_cost_from_supplier_catalog(
+            item_ids=touched_items or None
+        )
 
         messages.success(
             request,
             f'GRN Sync complete: {created_count} new entries created, '
-            f'{updated_count} entries updated from Goods Receipts.',
+            f'{updated_count} entries updated from Goods Receipts. '
+            f'Item costs updated: {cost_stats["updated_count"]} '
+            f'(unchanged: {cost_stats["unchanged_count"]}, '
+            f'skipped: {cost_stats["skipped_count"]}).',
         )
         return redirect('supplier_catalog_list')
 

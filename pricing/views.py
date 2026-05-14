@@ -162,13 +162,16 @@ def price_list_create_view(request):
     if request.method == 'POST':
         form = PriceListForm(request.POST)
         formset = PriceListItemFormSet(request.POST)
-        if form.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             obj = form.save()
-            formset = PriceListItemFormSet(request.POST, instance=obj)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Price List "{obj.name}" created.')
-                return redirect('price_list_list')
+            formset.instance = obj
+            formset.save()
+            messages.success(request, f'Price List "{obj.name}" created.')
+            return redirect('price_list_list')
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = PriceListForm()
         formset = PriceListItemFormSet()
@@ -340,13 +343,16 @@ def customer_catalog_create_view(request):
     if request.method == 'POST':
         form = CustomerPriceCatalogForm(request.POST)
         formset = CustomerPriceCatalogItemFormSet(request.POST)
-        if form.is_valid() and formset.is_valid():
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        if form_valid and formset_valid:
             obj = form.save()
-            formset = CustomerPriceCatalogItemFormSet(request.POST, instance=obj)
-            if formset.is_valid():
-                formset.save()
-                messages.success(request, f'Customer Catalog "{obj.name}" created.')
-                return redirect('customer_catalog_list')
+            formset.instance = obj
+            formset.save()
+            messages.success(request, f'Customer Catalog "{obj.name}" created.')
+            return redirect('customer_catalog_list')
+        else:
+            messages.error(request, 'Please correct the errors below.')
     else:
         form = CustomerPriceCatalogForm()
         formset = CustomerPriceCatalogItemFormSet()

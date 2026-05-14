@@ -37,6 +37,24 @@
   #bundle-cart-section thead { background: #e8f4fd; }
   .bundle-row td { background: #f0f8ff; }
   .bundle-badge { font-size: .7rem; vertical-align: middle; }
+  /* ── POS Terminal Mobile ─────────────────────────────────────── */
+  @media (max-width: 575.98px) {
+    #product-search { font-size: .95rem; padding: .45rem .7rem; }
+    #cart-table { font-size: .78rem; }
+    #cart-table th, #cart-table td { padding: .3rem .4rem; }
+    .cart-qty { width: 55px; }
+    .qty-control .btn { padding: 0 .3rem; font-size: .75rem; }
+    .qty-control .qty-val { min-width: 28px; font-size: .82rem; }
+    .totals-row th, .totals-row td { font-size: .9rem; }
+    .grand-total { font-size: 1.1rem; }
+    #btn-checkout { font-size: .9rem; padding: .5rem .8rem; }
+    .kbd-hint { display: none; }
+    #search-dropdown .search-item { padding: .4rem .6rem; font-size: .82rem; }
+  }
+  @media (min-width: 576px) and (max-width: 991.98px) {
+    #product-search { font-size: 1rem; padding: .5rem .8rem; }
+    .grand-total { font-size: 1.2rem; }
+  }
 </style>
 {% endblock %}
 

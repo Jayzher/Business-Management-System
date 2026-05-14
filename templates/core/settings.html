@@ -149,6 +149,26 @@ document.addEventListener('DOMContentLoaded', function () {
   </div>
 
   <div class="col-lg-4">
+    {% if request.user.is_superuser or 'Admin' in user_roles %}
+    <div class="card settings-card mb-3">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-user-shield me-2 text-danger"></i> Superadmin</h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="checklist-item d-flex align-items-center gap-3">
+          <div class="checklist-icon bg-danger text-white m-2"><i class="fas fa-users-cog"></i></div>
+          <div class="flex-grow-1"><span class="fw-semibold" style="font-size:.88rem;">User Management</span><br><small class="text-muted">Accounts, roles &amp; permissions</small></div>
+          <a href="{% url 'user_list' %}" class="btn btn-sm btn-outline-danger">Manage</a>
+        </div>
+        <div class="checklist-item d-flex align-items-center gap-3">
+          <div class="checklist-icon bg-dark text-white m-2"><i class="fas fa-user-tag"></i></div>
+          <div class="flex-grow-1"><span class="fw-semibold" style="font-size:.88rem;">Roles</span><br><small class="text-muted">Review &amp; edit role definitions</small></div>
+          <a href="{% url 'role_list' %}" class="btn btn-sm btn-outline-dark">Manage</a>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="card settings-card mb-3">
       <div class="card-header">
         <h3 class="card-title"><i class="fas fa-clipboard-check me-2 text-warning"></i> Setup Checklist</h3>

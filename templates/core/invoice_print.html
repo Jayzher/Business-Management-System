@@ -240,6 +240,12 @@
   </table>
 
   <div class="total-section">
+    {% if invoice.delivery_charge %}
+    <div class="total-line" style="font-size: 11px; color: #666; margin-bottom: 6px;">
+      <span class="label">Delivery Charge</span>
+      <span class="amount">{{ invoice.delivery_charge|floatformat:2|intcomma }}</span>
+    </div>
+    {% endif %}
     <div class="total-line">
       <span class="label">TOTAL ({{ profile.currency }})</span>
       <span class="amount">{{ invoice.grand_total|floatformat:2|intcomma }}</span>

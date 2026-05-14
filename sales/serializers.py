@@ -31,7 +31,8 @@ class SalesOrderSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'document_number', 'status',
             'customer', 'customer_name', 'warehouse', 'warehouse_name',
-            'order_date', 'delivery_date', 'shipping_address', 'notes',
+            'order_date', 'delivery_date', 'shipping_address',
+            'delivery_charge', 'notes',
             'created_by', 'created_by_name',
             'approved_by', 'approved_at', 'posted_by', 'posted_at',
             'created_at', 'lines',

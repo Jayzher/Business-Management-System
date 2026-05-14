@@ -95,6 +95,22 @@ class ConversionError:
 _conversion_errors: list[ConversionError] = []
 
 
+def _all_manager(model):
+    """Return the unfiltered manager for a model.
+
+    Models that inherit from SoftDeleteModel have an ``all_objects`` manager
+    that bypasses the ``is_active=True`` filter.  The resync command must use
+    this manager so that soft-deleted but POSTED documents are still counted
+    — otherwise Phase 0 would delete their StockMoves as "orphaned" and
+    Phase 2 would omit their quantities, leading to incorrect (often
+    negative) balances.
+
+    Models without soft-delete (POSSale, POSRefund, CustomerService) just
+    use the default ``objects`` manager.
+    """
+    return getattr(model, 'all_objects', model.objects)
+
+
 def _safe_convert(qty, from_unit, to_unit, label, warn_fn, item=None):
     """Convert qty between units.  Raises on failure instead of falling back.
 
@@ -131,6 +147,10 @@ def _deduplicate_moves(dry_run, warn_fn):
     item_id, from_location_id, to_location_id) tuple appears more than once.
     For each group keep the move with qty closest to the converted source-doc
     qty; when undecidable keep the oldest (lowest pk) and delete the rest.
+    Also removes "phantom" duplicates — a past bug in the backfill created
+    moves with NULL from/to locations alongside real moves with concrete
+    locations for the same (ref_type, ref_id, item). The NULL-location ghost
+    is deleted so real inventory impact is preserved.
     Returns (removed_count, groups_count).
     """
     from django.db.models import Count
@@ -177,7 +197,63 @@ def _deduplicate_moves(dry_run, warn_fn):
                 m.delete()
             removed += 1
 
-    return removed, len(dupes)
+    # ── Phantom NULL-location cleanup ───────────────────────────────────────
+    # Groups keyed only on (ref_type, ref_id, item_id). When one move in the
+    # group has both from_location and to_location NULL AND another move has a
+    # concrete location, the NULL move is a backfill phantom produced by the
+    # pre-fix bug.  Delete the phantom, keep the real ones.
+    phantom_removed, phantom_groups = _remove_phantom_null_location_moves(dry_run, warn_fn)
+    return removed + phantom_removed, len(dupes) + phantom_groups
+
+
+def _remove_phantom_null_location_moves(dry_run, warn_fn):
+    """Delete moves with NULL from/to location when a concrete-location move
+    exists for the same (ref_type, ref_id, item).  Returns (removed, groups)."""
+    from django.db.models import Count, Q
+
+    loose_keys = list(
+        StockMove.objects
+        .filter(status=MoveStatus.POSTED)
+        .exclude(reference_number__startswith='REV-')
+        .exclude(reference_number__startswith='VOID-')
+        .values('reference_type', 'reference_id', 'item_id')
+        .annotate(cnt=Count('id'))
+        .filter(cnt__gt=1)
+    )
+
+    removed = 0
+    groups = 0
+    for key in loose_keys:
+        moves = list(
+            StockMove.objects.filter(
+                reference_type=key['reference_type'],
+                reference_id=key['reference_id'],
+                item_id=key['item_id'],
+                status=MoveStatus.POSTED,
+            )
+            .exclude(reference_number__startswith='REV-')
+            .exclude(reference_number__startswith='VOID-')
+            .order_by('id')
+            .select_related('item')
+        )
+        if len(moves) < 2:
+            continue
+        null_loc = [m for m in moves if m.from_location_id is None and m.to_location_id is None]
+        has_loc = [m for m in moves if m.from_location_id is not None or m.to_location_id is not None]
+        if not null_loc or not has_loc:
+            continue
+        groups += 1
+        for m in null_loc:
+            warn_fn(
+                f'    [PHANTOM] Removing NULL-location Move#{m.pk} '
+                f'ref={m.reference_type}#{m.reference_id} '
+                f'item={m.item.code} qty={m.qty} '
+                f'(real move exists with concrete location)'
+            )
+            if not dry_run:
+                m.delete()
+            removed += 1
+    return removed, groups
 
 
 def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
@@ -242,8 +318,11 @@ def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
             continue
 
         # Find which of those IDs actually still exist in the source model
+        # Use all_objects (via _all_manager) to include soft-deleted records —
+        # a soft-deleted POSTED document is NOT orphaned; its moves are valid.
+        mgr = _all_manager(Model)
         existing_ids = set(
-            Model.objects.filter(pk__in=move_ref_ids).values_list('pk', flat=True)
+            mgr.filter(pk__in=move_ref_ids).values_list('pk', flat=True)
         )
         orphaned_ids = move_ref_ids - existing_ids
 
@@ -381,10 +460,38 @@ def _line_move_type(ref_type):
     }[ref_type]
 
 
+def _service_default_location_id(doc):
+    """Return the default pickable-location id for a CustomerService.
+
+    Mirrors the real-time fallback used by ``services.views.service_complete``:
+    when a ServiceLine has no location, the warehouse's lowest-coded pickable
+    Location is used to post the StockMove.  The backfill and balance rebuild
+    must apply the same fallback; otherwise they key off ``from_location=None``
+    while the real move uses the concrete location, creating phantom duplicate
+    moves on every resync run.
+    """
+    from warehouses.models import Location as _Location
+    if not getattr(doc, 'warehouse_id', None):
+        return None
+    return (
+        _Location.objects
+        .filter(warehouse_id=doc.warehouse_id, is_pickable=True)
+        .order_by('code')
+        .values_list('id', flat=True)
+        .first()
+    )
+
+
 def _line_locations(ref_type, doc, line, qty):
     if ref_type == 'GoodsReceipt':
         return None, line.location_id
-    if ref_type in ('DeliveryNote', 'SalesPickup', 'DamagedReport', 'PurchaseReturn', 'InventoryToSupplyTransfer', 'CustomerService'):
+    if ref_type == 'CustomerService':
+        # ServiceLine.location is nullable — real-time posting falls back to the
+        # warehouse's default pickable location. Keep parity here so backfilled
+        # moves match the real move's from_location and don't get duplicated.
+        loc_id = line.location_id or _service_default_location_id(doc)
+        return loc_id, None
+    if ref_type in ('DeliveryNote', 'SalesPickup', 'DamagedReport', 'PurchaseReturn', 'InventoryToSupplyTransfer'):
         return line.location_id, None
     if ref_type == 'StockTransfer':
         return line.from_location_id, line.to_location_id
@@ -421,7 +528,7 @@ def _ensure_grn_purchase_orders(warn_fn, dry_run, info_fn):
     from inventory.services import generate_document_number
 
     created = 0
-    grns = GoodsReceipt.objects.filter(
+    grns = _all_manager(GoodsReceipt).filter(
         status=DocumentStatus.POSTED,
         purchase_order__isnull=True,
     ).prefetch_related('lines__item', 'lines__unit')
@@ -467,17 +574,17 @@ def _iter_expected_moves(warn_fn):
     from services.models import CustomerService, ServiceStatus
 
     doc_specs = [
-        ('GoodsReceipt', GoodsReceipt.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('DeliveryNote', DeliveryNote.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('SalesPickup', SalesPickup.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('StockTransfer', StockTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__from_location', 'lines__to_location')),
-        ('StockAdjustment', StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('DamagedReport', DamagedReport.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('GoodsReceipt', _all_manager(GoodsReceipt).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('DeliveryNote', _all_manager(DeliveryNote).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('SalesPickup', _all_manager(SalesPickup).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('StockTransfer', _all_manager(StockTransfer).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__from_location', 'lines__to_location')),
+        ('StockAdjustment', _all_manager(StockAdjustment).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('DamagedReport', _all_manager(DamagedReport).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('POSSale', POSSale.objects.filter(status=SaleStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('location')),
         ('POSRefund', POSRefund.objects.filter(status=RefundStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('InventoryToSupplyTransfer', InventoryToSupplyTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('PurchaseReturn', PurchaseReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('SalesReturn', SalesReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('InventoryToSupplyTransfer', _all_manager(InventoryToSupplyTransfer).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('PurchaseReturn', _all_manager(PurchaseReturn).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('SalesReturn', _all_manager(SalesReturn).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
         ('CustomerService', CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('warehouse')),
     ]
 
@@ -624,6 +731,24 @@ def _backfill_missing_moves(warn_fn, dry_run, info_fn):
         )
     )
 
+    # Safety net against duplicate backfills: any move that already exists for
+    # the same (ref_type, ref_id, item, batch, serial) with a CONCRETE
+    # from/to location is treated as "already there."  Real-time posting is
+    # the source of truth for the move's actual location (it applies warehouse
+    # default-location fallbacks that the document lines don't record); the
+    # backfill must never create a second move in a different location slot.
+    # Phantom moves with NULL from/to location do NOT block backfill — those
+    # are handled by Phase 0b cleanup after the real move is created.
+    existing_loose_keys = set(
+        StockMove.objects.filter(status=MoveStatus.POSTED)
+        .exclude(reference_number__startswith='REV-')
+        .exclude(reference_number__startswith='VOID-')
+        .exclude(from_location_id__isnull=True, to_location_id__isnull=True)
+        .values_list(
+            'reference_type', 'reference_id', 'item_id', 'batch_number', 'serial_number'
+        )
+    )
+
     created = 0
     for payload in _iter_expected_moves(warn_fn):
         key = (
@@ -635,7 +760,14 @@ def _backfill_missing_moves(warn_fn, dry_run, info_fn):
             payload['batch_number'],
             payload['serial_number'],
         )
-        if key in existing_keys:
+        loose_key = (
+            payload['reference_type'],
+            payload['reference_id'],
+            payload['item_id'],
+            payload['batch_number'],
+            payload['serial_number'],
+        )
+        if key in existing_keys or loose_key in existing_loose_keys:
             continue
 
         info_fn(
@@ -661,6 +793,7 @@ def _backfill_missing_moves(warn_fn, dry_run, info_fn):
                 posted_at=payload['posted_at'],
             )
         existing_keys.add(key)
+        existing_loose_keys.add(loose_key)
         created += 1
 
     return created
@@ -924,38 +1057,38 @@ def _build_balance_from_documents(warn_fn):
         return getattr(doc, 'posted_at', None) or getattr(doc, 'created_at', None) or timezone.now()
     
     # ── GoodsReceipt ────────────────────────────────────────────────────────
-    for grn in GoodsReceipt.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for grn in _all_manager(GoodsReceipt).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('GoodsReceipt', grn, _doc_date(grn)))
 
     # ── DeliveryNote ────────────────────────────────────────────────────────
-    for dn in DeliveryNote.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for dn in _all_manager(DeliveryNote).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('DeliveryNote', dn, _doc_date(dn)))
 
     # ── SalesPickup ─────────────────────────────────────────────────────────
-    for sp in SalesPickup.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for sp in _all_manager(SalesPickup).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('SalesPickup', sp, _doc_date(sp)))
 
     # ── StockTransfer ────────────────────────────────────────────────────────
-    for tr in StockTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for tr in _all_manager(StockTransfer).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit',
         'lines__from_location', 'lines__to_location'
     ):
         all_documents.append(('StockTransfer', tr, _doc_date(tr)))
 
     # ── StockAdjustment ──────────────────────────────────────────────────────
-    for adj in StockAdjustment.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for adj in _all_manager(StockAdjustment).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('StockAdjustment', adj, _doc_date(adj)))
 
     # ── DamagedReport ────────────────────────────────────────────────────────
-    for dr in DamagedReport.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for dr in _all_manager(DamagedReport).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('DamagedReport', dr, _doc_date(dr)))
@@ -977,19 +1110,19 @@ def _build_balance_from_documents(warn_fn):
         all_documents.append(('POSRefund', refund, _doc_date(refund)))
 
     # ── InventoryToSupplyTransfer ────────────────────────────────────────────
-    for ist in InventoryToSupplyTransfer.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for ist in _all_manager(InventoryToSupplyTransfer).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('InventoryToSupplyTransfer', ist, _doc_date(ist)))
 
     # ── PurchaseReturn ───────────────────────────────────────────────────────
-    for pr in PurchaseReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for pr in _all_manager(PurchaseReturn).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('PurchaseReturn', pr, _doc_date(pr)))
 
     # ── SalesReturn ──────────────────────────────────────────────────────────
-    for sr in SalesReturn.objects.filter(status=DocumentStatus.POSTED).prefetch_related(
+    for sr in _all_manager(SalesReturn).filter(status=DocumentStatus.POSTED).prefetch_related(
         'lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location'
     ):
         all_documents.append(('SalesReturn', sr, _doc_date(sr)))
@@ -1155,10 +1288,20 @@ def _build_balance_from_documents(warn_fn):
         
         elif doc_type == 'CustomerService':
             # Product lines (skip scrap)
+            svc_default_loc = None
             for line in doc.lines.all():
                 if getattr(line, 'is_scrap', False):
                     continue
-                if line.location_id is None:
+                # Match real-time posting's NULL-location fallback
+                # (services.views.service_complete uses the warehouse's default
+                # pickable location when line.location is not set).
+                loc_id = line.location_id
+                if loc_id is None:
+                    if svc_default_loc is None:
+                        svc_default_loc = _service_default_location_id(doc)
+                    loc_id = svc_default_loc
+                if loc_id is None:
+                    # Truly unresolvable: no warehouse or no pickable location.
                     continue
                 target_unit = _inventory_unit(line.item)
                 try:
@@ -1166,7 +1309,7 @@ def _build_balance_from_documents(warn_fn):
                                       f"Service#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
                 except (ValueError, Exception):
                     continue
-                _accumulate(bal, line.item_id, line.location_id, -q)
+                _accumulate(bal, line.item_id, loc_id, -q)
             
             # Bundle component deductions
             if doc.warehouse_id:
@@ -1232,6 +1375,23 @@ class Command(BaseCommand):
             default=False,
             help='Suppress per-document output; only show summary.',
         )
+        parser.add_argument(
+            '--detect-only',
+            action='store_true',
+            default=False,
+            help=(
+                'Scan for Phase 0 auto-fix candidates (orphans, duplicates, excess) '
+                'and emit a JSON catalog to stdout. No changes are written.'
+            ),
+        )
+        parser.add_argument(
+            '--apply-fixes',
+            default=None,
+            help=(
+                'Path to a JSON file listing approved Phase 0 fix IDs. '
+                'Only the listed move IDs are deleted; then phases 1-5 run as usual.'
+            ),
+        )
 
     # ── internal output helpers ──────────────────────────────────────────────
 
@@ -1259,9 +1419,38 @@ class Command(BaseCommand):
         self._quiet = options['quiet']
         dry_run = options['dry_run']
         phase = options['phase']
+        detect_only = options.get('detect_only', False)
+        apply_fixes_path = options.get('apply_fixes')
 
         # Reset the global error collector at the start of each run.
         _conversion_errors.clear()
+
+        # ── Detect-only short path ────────────────────────────────────────
+        if detect_only:
+            self._emit_detect_json()
+            return
+
+        # ── Load approved selection (if any) ──────────────────────────────
+        self._approved_selection = None
+        if apply_fixes_path:
+            import json as _json
+            try:
+                with open(apply_fixes_path, 'r', encoding='utf-8') as f:
+                    raw = _json.load(f)
+                self._approved_selection = {
+                    'orphan_move_ids': set(int(x) for x in raw.get('orphan_move_ids') or []),
+                    'duplicate_move_ids': set(int(x) for x in raw.get('duplicate_move_ids') or []),
+                    'excess_move_ids': set(int(x) for x in raw.get('excess_move_ids') or []),
+                }
+                # Loose duplicates use the same deletion path as strict duplicates.
+                self._approved_selection['duplicate_move_ids'] |= set(
+                    int(x) for x in raw.get('loose_duplicate_move_ids') or []
+                )
+            except Exception as exc:
+                self.stdout.write(self.style.ERROR(
+                    f'Could not read --apply-fixes file {apply_fixes_path}: {exc}'
+                ))
+                return
 
         # Track what was changed for the audit log
         self._resync_summary = {
@@ -1389,6 +1578,12 @@ class Command(BaseCommand):
                 parts.append(f"{changes['balances_created']} balances created")
             if changes.get('financial_months_recalculated'):
                 parts.append(f"{changes['financial_months_recalculated']} financial months recalculated")
+            if changes.get('negative_balances'):
+                parts.append(f"{changes['negative_balances']} negative balance(s) detected")
+            if changes.get('invoices_no_cogs'):
+                parts.append(f"{changes['invoices_no_cogs']} invoice(s) missing COGS")
+            if changes.get('items_no_selling_unit'):
+                parts.append(f"{changes['items_no_selling_unit']} item(s) missing selling unit")
 
             if not parts:
                 parts.append('No changes needed — data was already consistent')
@@ -1441,6 +1636,11 @@ class Command(BaseCommand):
     # ── Phase 0: clean up StockMoves ─────────────────────────────────────────
 
     def _run_phase0(self, dry_run):
+        # If a selection was supplied via --apply-fixes, delete only those IDs.
+        if self._approved_selection is not None:
+            self._run_phase0_selective(dry_run)
+            return
+
         # Step 0a: remove orphaned moves (document deleted, move not cleaned up)
         self.stdout.write('\n--- Phase 0a: Removing orphaned StockMoves ---')
         deleted, orph_groups = _delete_orphaned_moves(dry_run, self._warn, self._info)
@@ -1476,6 +1676,325 @@ class Command(BaseCommand):
         self._resync_summary['changes']['orphaned_deleted'] = deleted
         self._resync_summary['changes']['duplicates_removed'] = removed
         self._resync_summary['changes']['excess_deleted'] = excess
+
+    # ── Phase 0 (selective): delete only approved move IDs ───────────────────
+
+    def _run_phase0_selective(self, dry_run):
+        """Phase 0 variant that deletes only the move IDs the user approved
+        via --apply-fixes. Unchecked candidates are preserved."""
+        sel = self._approved_selection or {}
+        orphan_ids = sel.get('orphan_move_ids') or set()
+        dupe_ids = sel.get('duplicate_move_ids') or set()
+        excess_ids = sel.get('excess_move_ids') or set()
+
+        self.stdout.write('\n--- Phase 0a: Removing orphaned StockMoves (selective) ---')
+        deleted_orph = self._delete_moves_by_ids(orphan_ids, dry_run, 'ORPHAN')
+        mode = '(dry-run) would delete' if dry_run else 'Deleted'
+        self.stdout.write(self.style.SUCCESS(
+            f'  {mode} {deleted_orph} orphaned move(s) (user-approved).'
+        ))
+
+        self.stdout.write('\n--- Phase 0b: Deduplicating StockMoves (selective) ---')
+        deleted_dupe = self._delete_moves_by_ids(dupe_ids, dry_run, 'DEDUP')
+        self.stdout.write(self.style.SUCCESS(
+            f'  {mode} {deleted_dupe} duplicate move(s) (user-approved).'
+        ))
+
+        self.stdout.write('\n--- Phase 0c: Removing excess moves (selective) ---')
+        deleted_excess = self._delete_moves_by_ids(excess_ids, dry_run, 'EXCESS')
+        self.stdout.write(self.style.SUCCESS(
+            f'  {mode} {deleted_excess} excess move(s) (user-approved).'
+        ))
+
+        self._resync_summary['changes']['orphaned_deleted'] = deleted_orph
+        self._resync_summary['changes']['duplicates_removed'] = deleted_dupe
+        self._resync_summary['changes']['excess_deleted'] = deleted_excess
+
+    def _delete_moves_by_ids(self, move_ids, dry_run, tag):
+        """Delete StockMoves with ids in ``move_ids`` (iterable of int).
+
+        Returns the number of moves deleted (or that would be deleted).
+        """
+        if not move_ids:
+            return 0
+        qs = StockMove.objects.filter(pk__in=move_ids).select_related('item')
+        count = 0
+        for m in qs:
+            self._info(
+                f'    [{tag}] Move#{m.pk} ref={m.reference_type}#{m.reference_id} '
+                f'item={m.item.code} qty={m.qty}'
+            )
+            if not dry_run:
+                m.delete()
+            count += 1
+        return count
+
+    # ── Detection (called with --detect-only) ────────────────────────────────
+
+    def _emit_detect_json(self):
+        """Scan for Phase 0 auto-fix candidates and print a JSON catalog.
+
+        Output is wrapped between BEGIN_DETECT_JSON / END_DETECT_JSON markers so
+        the caller can extract it reliably from stdout.
+        """
+        import json as _json
+
+        catalog = {
+            'orphans': self._detect_orphan_moves(),
+            'duplicates': self._detect_duplicate_moves(),
+            'loose_duplicates': self._detect_loose_duplicate_moves(),
+            'excess': self._detect_excess_moves(),
+        }
+        catalog['totals'] = {
+            'orphans': len(catalog['orphans']),
+            'duplicates': sum(len(g['moves']) - 1 for g in catalog['duplicates']),
+            'duplicate_groups': len(catalog['duplicates']),
+            'loose_duplicates': sum(len(g['moves']) - 1 for g in catalog['loose_duplicates']),
+            'loose_duplicate_groups': len(catalog['loose_duplicates']),
+            'excess': len(catalog['excess']),
+        }
+
+        # Emit markers so the view can find the payload regardless of other noise
+        self.stdout.write('BEGIN_DETECT_JSON')
+        self.stdout.write(_json.dumps(catalog, default=str))
+        self.stdout.write('END_DETECT_JSON')
+
+    def _detect_orphan_moves(self):
+        """Return a list of orphan-move records (document no longer exists)."""
+        from procurement.models import GoodsReceipt, PurchaseReturn
+        from sales.models import DeliveryNote, SalesPickup, SalesReturn
+        from inventory.models import (
+            StockTransfer, StockAdjustment, DamagedReport, InventoryToSupplyTransfer,
+        )
+        from pos.models import POSSale, POSRefund
+        from services.models import CustomerService
+
+        model_map = {
+            'GoodsReceipt': GoodsReceipt,
+            'DeliveryNote': DeliveryNote,
+            'SalesPickup': SalesPickup,
+            'StockTransfer': StockTransfer,
+            'StockAdjustment': StockAdjustment,
+            'DamagedReport': DamagedReport,
+            'POSSale': POSSale,
+            'POSRefund': POSRefund,
+            'InventoryToSupplyTransfer': InventoryToSupplyTransfer,
+            'PurchaseReturn': PurchaseReturn,
+            'SalesReturn': SalesReturn,
+            'CustomerService': CustomerService,
+        }
+
+        records = []
+        for ref_type, Model in model_map.items():
+            move_ref_ids = set(
+                StockMove.objects
+                .filter(status=MoveStatus.POSTED, reference_type=ref_type)
+                .exclude(reference_id__isnull=True)
+                .values_list('reference_id', flat=True)
+                .distinct()
+            )
+            if not move_ref_ids:
+                continue
+            mgr = _all_manager(Model)
+            existing_ids = set(
+                mgr.filter(pk__in=move_ref_ids).values_list('pk', flat=True)
+            )
+            orphaned_ids = move_ref_ids - existing_ids
+            if not orphaned_ids:
+                continue
+            moves = (
+                StockMove.objects
+                .filter(status=MoveStatus.POSTED, reference_type=ref_type,
+                        reference_id__in=orphaned_ids)
+                .select_related('item', 'unit')
+                .order_by('id')
+            )
+            for m in moves:
+                records.append({
+                    'move_id': m.pk,
+                    'reference_type': ref_type,
+                    'reference_id': m.reference_id,
+                    'reference_number': m.reference_number,
+                    'item_code': m.item.code,
+                    'item_name': m.item.name,
+                    'qty': str(m.qty),
+                    'unit': getattr(m.unit, 'abbreviation', ''),
+                    'posted_at': m.posted_at.isoformat() if m.posted_at else None,
+                })
+        return records
+
+    def _detect_duplicate_moves(self):
+        """Return duplicate-move groups.
+
+        A group is keyed by (reference_type, reference_id, item_id,
+        from_location_id, to_location_id, batch_number, serial_number).
+        Each group lists every move in the group; the "keep" hint is the
+        lowest pk (same rule Phase 0b uses when deleting).
+        """
+        from django.db.models import Count
+
+        dup_keys = list(
+            StockMove.objects
+            .filter(status=MoveStatus.POSTED)
+            .exclude(reference_number__startswith='REV-')
+            .exclude(reference_number__startswith='VOID-')
+            .values('reference_type', 'reference_id', 'item_id',
+                    'from_location_id', 'to_location_id',
+                    'batch_number', 'serial_number')
+            .annotate(cnt=Count('id'))
+            .filter(cnt__gt=1)
+        )
+
+        groups = []
+        for key in dup_keys:
+            moves = list(
+                StockMove.objects.filter(
+                    reference_type=key['reference_type'],
+                    reference_id=key['reference_id'],
+                    item_id=key['item_id'],
+                    from_location_id=key['from_location_id'],
+                    to_location_id=key['to_location_id'],
+                    batch_number=key['batch_number'],
+                    serial_number=key['serial_number'],
+                    status=MoveStatus.POSTED,
+                )
+                .exclude(reference_number__startswith='REV-')
+                .exclude(reference_number__startswith='VOID-')
+                .order_by('id')
+                .select_related('item', 'unit', 'from_location', 'to_location')
+            )
+            if len(moves) < 2:
+                continue
+            keep = moves[0].pk
+            group_payload = {
+                'reference_type': key['reference_type'],
+                'reference_id': key['reference_id'],
+                'reference_number': moves[0].reference_number,
+                'item_code': moves[0].item.code,
+                'item_name': moves[0].item.name,
+                'keep_move_id': keep,
+                'moves': [],
+            }
+            for m in moves:
+                group_payload['moves'].append({
+                    'move_id': m.pk,
+                    'qty': str(m.qty),
+                    'unit': getattr(m.unit, 'abbreviation', ''),
+                    'from_location': str(m.from_location) if m.from_location_id else None,
+                    'to_location': str(m.to_location) if m.to_location_id else None,
+                    'batch': m.batch_number or '',
+                    'serial': m.serial_number or '',
+                    'posted_at': m.posted_at.isoformat() if m.posted_at else None,
+                    'is_keep': m.pk == keep,
+                })
+            groups.append(group_payload)
+        return groups
+
+    def _detect_loose_duplicate_moves(self):
+        """Return "loose" duplicate groups keyed only by (ref_type, ref_id, item_id).
+
+        These are moves that share the same source document + item but differ in
+        from_location / to_location / batch / serial. Phase 0b does NOT delete
+        these automatically because each NULL vs concrete location is treated as
+        distinct. They are surfaced for operator review (pattern: service lines
+        with NULL location producing a duplicate move alongside a real one on
+        the warehouse default location).
+        """
+        from django.db.models import Count
+
+        loose_keys = list(
+            StockMove.objects
+            .filter(status=MoveStatus.POSTED)
+            .exclude(reference_number__startswith='REV-')
+            .exclude(reference_number__startswith='VOID-')
+            .values('reference_type', 'reference_id', 'item_id')
+            .annotate(cnt=Count('id'))
+            .filter(cnt__gt=1)
+        )
+
+        # Subtract strict duplicates so the same move isn't listed twice
+        strict_move_ids = set()
+        for g in self._detect_duplicate_moves():
+            for m in g['moves']:
+                strict_move_ids.add(m['move_id'])
+
+        groups = []
+        for key in loose_keys:
+            moves = list(
+                StockMove.objects.filter(
+                    reference_type=key['reference_type'],
+                    reference_id=key['reference_id'],
+                    item_id=key['item_id'],
+                    status=MoveStatus.POSTED,
+                )
+                .exclude(reference_number__startswith='REV-')
+                .exclude(reference_number__startswith='VOID-')
+                .order_by('id')
+                .select_related('item', 'unit', 'from_location', 'to_location')
+            )
+            if len(moves) < 2:
+                continue
+            if all(m.pk in strict_move_ids for m in moves):
+                continue
+
+            # Prefer keeping the move with a concrete from/to location; drop the
+            # NULL-location phantom so real inventory impact is preserved.
+            def _has_loc(m):
+                return m.from_location_id is not None or m.to_location_id is not None
+            with_loc = [m for m in moves if _has_loc(m)]
+            keep_id = (with_loc or moves)[0].pk
+
+            group_payload = {
+                'reference_type': key['reference_type'],
+                'reference_id': key['reference_id'],
+                'reference_number': moves[0].reference_number,
+                'item_code': moves[0].item.code,
+                'item_name': moves[0].item.name,
+                'keep_move_id': keep_id,
+                'moves': [],
+            }
+            for m in moves:
+                group_payload['moves'].append({
+                    'move_id': m.pk,
+                    'qty': str(m.qty),
+                    'unit': getattr(m.unit, 'abbreviation', ''),
+                    'from_location': str(m.from_location) if m.from_location_id else None,
+                    'to_location': str(m.to_location) if m.to_location_id else None,
+                    'batch': m.batch_number or '',
+                    'serial': m.serial_number or '',
+                    'posted_at': m.posted_at.isoformat() if m.posted_at else None,
+                    'is_keep': m.pk == keep_id,
+                })
+            groups.append(group_payload)
+        return groups
+
+    def _detect_excess_moves(self):
+        """Return moves whose source document exists but the line is gone."""
+        records = []
+        for ref_type, lookup_factory in REFERENCE_TYPE_LOOKUPS.items():
+            moves = (
+                StockMove.objects
+                .filter(reference_type=ref_type, status=MoveStatus.POSTED)
+                .exclude(reference_number__startswith='REV-')
+                .exclude(reference_number__startswith='VOID-')
+                .select_related('item', 'unit')
+            )
+            lookup_fn = lookup_factory()
+            for move in moves:
+                line = lookup_fn(move)
+                if line is None:
+                    records.append({
+                        'move_id': move.pk,
+                        'reference_type': ref_type,
+                        'reference_id': move.reference_id,
+                        'reference_number': move.reference_number,
+                        'item_code': move.item.code,
+                        'item_name': move.item.name,
+                        'qty': str(move.qty),
+                        'unit': getattr(move.unit, 'abbreviation', ''),
+                        'posted_at': move.posted_at.isoformat() if move.posted_at else None,
+                    })
+        return records
 
     def _delete_excess_moves(self, dry_run):
         """
@@ -1670,6 +2189,7 @@ class Command(BaseCommand):
         self.stdout.write('\n--- Phase 3: Data Integrity Audit ---')
         from django.db.models import Count, Q, F
         from catalog.models import Item, UnitConversion, UnitCategory
+        from core.models import Invoice
 
         issues = 0
 
@@ -1679,13 +2199,18 @@ class Command(BaseCommand):
         if neg:
             self.stdout.write(self.style.ERROR(
                 f'\n  [NEG BALANCE] {len(neg)} item/location(s) have negative stock:'))
-            for b in neg:
+            for b in neg[:30]:
                 self.stdout.write(self.style.ERROR(
                     f'    item={b.item.code}  loc={b.location}  '
                     f'qty={b.qty_on_hand}'))
+            if len(neg) > 30:
+                self.stdout.write(self.style.ERROR(
+                    f'    ... and {len(neg) - 30} more'))
             issues += len(neg)
+            self._resync_summary['changes']['negative_balances'] = len(neg)
         else:
             self.stdout.write(self.style.SUCCESS('  [NEG BALANCE]  none OK'))
+            self._resync_summary['changes']['negative_balances'] = 0
 
         # 3b: Duplicate StockMoves for same (reference_type, reference_id, item)
         dupes = (
@@ -1776,6 +2301,56 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.SUCCESS(
                 f'\n  [MISSING CONV] none OK'))
+
+        # 3f: Paid invoices missing COGS (grand_total_cogs null or zero)
+        no_cogs_qs = (
+            Invoice.objects
+            .filter(is_paid=True)
+            .filter(Q(grand_total_cogs__isnull=True) | Q(grand_total_cogs=0))
+            .exclude(is_void=True)
+            .order_by('-date')
+        )
+        no_cogs_count = no_cogs_qs.count()
+        if no_cogs_count:
+            self.stdout.write(self.style.WARNING(
+                f'\n  [NO COGS] {no_cogs_count} paid invoice(s) have no COGS computed:'))
+            for inv in no_cogs_qs.only('invoice_number', 'date', 'grand_total')[:30]:
+                self.stdout.write(self.style.WARNING(
+                    f'    {inv.invoice_number}  date={inv.date}  '
+                    f'total={inv.grand_total}'))
+            if no_cogs_count > 30:
+                self.stdout.write(self.style.WARNING(
+                    f'    ... and {no_cogs_count - 30} more'))
+            issues += no_cogs_count
+            self._resync_summary['changes']['invoices_no_cogs'] = no_cogs_count
+        else:
+            self.stdout.write(self.style.SUCCESS('  [NO COGS]      none OK'))
+            self._resync_summary['changes']['invoices_no_cogs'] = 0
+
+        # 3g: Catalog items missing selling_unit
+        no_selling_qs = (
+            Item.objects
+            .filter(selling_unit__isnull=True)
+            .order_by('code')
+        )
+        no_selling_count = no_selling_qs.count()
+        if no_selling_count:
+            self.stdout.write(self.style.WARNING(
+                f'\n  [NO SELLING] {no_selling_count} catalog item(s) have no selling_unit:'))
+            for it in no_selling_qs.only('code', 'name')[:30]:
+                self.stdout.write(self.style.WARNING(
+                    f'    {it.code}  {it.name}'))
+            if no_selling_count > 30:
+                self.stdout.write(self.style.WARNING(
+                    f'    ... and {no_selling_count - 30} more'))
+            issues += no_selling_count
+            self._resync_summary['changes']['items_no_selling_unit'] = no_selling_count
+        else:
+            self.stdout.write(self.style.SUCCESS('  [NO SELLING]   none OK'))
+            self._resync_summary['changes']['items_no_selling_unit'] = 0
+
+        # Record cumulative integrity issues
+        self._resync_summary['changes']['integrity_issues'] = issues
 
         # Summary
         if issues:
