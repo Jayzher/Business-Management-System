@@ -17,6 +17,8 @@ _thread_local = threading.local()
 def get_current_db() -> str:
     """Return the active write DB alias for the current thread."""
     return getattr(_thread_local, 'db', 'default')
+    """Return the active write DB alias for the current thread."""
+    return getattr(_thread_local, 'db', 'default')
 
 
 def set_current_db(alias: str) -> None:

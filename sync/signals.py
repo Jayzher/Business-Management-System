@@ -23,6 +23,8 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import connections, transaction as db_transaction
+from django.conf import settings
+from django.db import connections, transaction as db_transaction
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -253,6 +255,29 @@ def _mirror_to_local_cache(sender, pk: int) -> None:
         )
     finally:
         _MIRROR_ACTIVE.value = False
+        concrete_fields = [
+            f for f in sender._meta.concrete_fields if not f.primary_key
+        ]
+        update_fields = [f.attname for f in concrete_fields]
+
+        if update_fields:
+            sender._default_manager.using('local_cache').bulk_create(
+                [obj],
+                update_conflicts=True,
+                update_fields=update_fields,
+                unique_fields=['id'],
+            )
+        else:
+            sender._default_manager.using('local_cache').bulk_create(
+                [obj], ignore_conflicts=True,
+            )
+    except Exception as exc:
+        logger.warning(
+            'Local cache mirror failed (%s pk=%s): %s',
+            sender.__name__, pk, exc,
+        )
+    finally:
+        _MIRROR_ACTIVE.value = False
 
 
 def _mirror_delete_to_local_cache(sender, pk: int) -> None:
@@ -263,6 +288,16 @@ def _mirror_delete_to_local_cache(sender, pk: int) -> None:
     if getattr(_MIRROR_ACTIVE, 'value', False):
         return
 
+    _MIRROR_ACTIVE.value = True
+    try:
+        sender._default_manager.using('local_cache').filter(pk=pk).delete()
+    except Exception as exc:
+        logger.warning(
+            'Local cache mirror-delete failed (%s pk=%s): %s',
+            sender.__name__, pk, exc,
+        )
+    finally:
+        _MIRROR_ACTIVE.value = False
     _MIRROR_ACTIVE.value = True
     try:
         sender._default_manager.using('local_cache').filter(pk=pk).delete()
@@ -304,6 +339,7 @@ def _on_commit_delete(sender, pk, table):
 
 
 # ── Signal receivers ───────────────────────────────────────────────────
+
 
 @receiver(post_save)
 def on_model_save(sender, instance, using, **kwargs):
