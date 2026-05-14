@@ -452,3 +452,126 @@ def ws_info(request):
             'tables': ['catalog_item', 'inventory_stockbalance'],
         },
     })
+
+
+# ── Catch-up endpoint for web clients ──────────────────────────────────
+# When the WS reconnects after being offline, the client calls this to
+# discover which tables changed while it was disconnected.
+
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_GET
+
+
+@require_GET
+@login_required
+def sync_catchup(request):
+    """
+    Lightweight catch-up check for web clients after WS reconnection.
+
+    Query params:
+      since_ms — millisecond timestamp of the last event the client received.
+                 If omitted, returns has_changes=True (force refresh).
+
+    Response:
+      {
+        "has_changes": true/false,
+        "changed_tables": ["catalog_item", "inventory_stockbalance", ...],
+        "server_time_ms": 1715000000000,
+        "outbox_pending": 0
+      }
+
+    The client uses this to decide whether to refresh the page content.
+    This is much cheaper than a full sync_pull — it just checks updated_at
+    timestamps across the synced models.
+    """
+    since_ms = request.GET.get('since_ms')
+    now_ms = int(time.time() * 1000)
+
+    # If no timestamp provided, assume everything is stale
+    if not since_ms:
+        return JsonResponse({
+            'has_changes': True,
+            'changed_tables': ['*'],
+            'server_time_ms': now_ms,
+            'outbox_pending': _get_outbox_pending(),
+        })
+
+    try:
+        since_dt = timezone.datetime.fromtimestamp(
+            int(since_ms) / 1000, tz=timezone.utc
+        )
+    except (ValueError, TypeError, OSError):
+        return JsonResponse({
+            'has_changes': True,
+            'changed_tables': ['*'],
+            'server_time_ms': now_ms,
+            'outbox_pending': _get_outbox_pending(),
+        })
+
+    # Check each synced model for rows updated after since_dt.
+    # We only need to know IF there are changes, not what they are.
+    changed_tables = []
+
+    _CATCHUP_MODELS = _get_catchup_models()
+
+    for db_table, model in _CATCHUP_MODELS:
+        try:
+            if hasattr(model, 'updated_at'):
+                if model.objects.using('default').filter(updated_at__gt=since_dt).exists():
+                    changed_tables.append(db_table)
+            elif hasattr(model, 'created_at'):
+                if model.objects.using('default').filter(created_at__gt=since_dt).exists():
+                    changed_tables.append(db_table)
+        except Exception:
+            # If a model query fails, include it as potentially changed
+            changed_tables.append(db_table)
+
+    return JsonResponse({
+        'has_changes': len(changed_tables) > 0,
+        'changed_tables': changed_tables,
+        'server_time_ms': now_ms,
+        'outbox_pending': _get_outbox_pending(),
+        'last_server_sync_ms': _get_last_server_sync_ms(),
+    })
+
+
+def _get_outbox_pending() -> int:
+    """Return count of pending outbox entries."""
+    try:
+        from sync.models import SyncOutbox, SyncOutboxStatus
+        return SyncOutbox.objects.using('local_cache').filter(
+            status=SyncOutboxStatus.PENDING
+        ).count()
+    except Exception:
+        return 0
+
+
+def _get_catchup_models():
+    """
+    Return a list of (db_table, model_class) for all synced models.
+    Cached after first call.
+    """
+    if not hasattr(_get_catchup_models, '_cache'):
+        from django.apps import apps
+        from sync.signals import SYNCED_APP_LABELS
+
+        result = []
+        for model in apps.get_models():
+            if model._meta.app_label in SYNCED_APP_LABELS:
+                result.append((model._meta.db_table, model))
+        _get_catchup_models._cache = result
+
+    return _get_catchup_models._cache
+
+
+def _get_last_server_sync_ms() -> int | None:
+    """Return the last time the server synced Neon → local_cache (ms timestamp)."""
+    try:
+        from sync.startup_sync import get_last_sync_time
+        dt = get_last_sync_time()
+        if dt:
+            return int(dt.timestamp() * 1000)
+    except Exception:
+        pass
+    return None

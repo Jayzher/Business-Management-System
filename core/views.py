@@ -910,6 +910,34 @@ _SYNC_ACTIONS = {
         'command': 'db_sync',
         'args': ['--direction', 'neon_to_local', '--dry-run'],
     },
+    'drain_sync_outbox': {
+        'label': 'Drain Sync Outbox',
+        'icon': 'fas fa-redo-alt',
+        'color': 'success',
+        'description': 'Replay pending offline writes from local_cache to Neon. Run this after connectivity is restored.',
+        'category': 'sync',
+        'command': 'drain_sync_outbox',
+        'args': [],
+    },
+    'drain_sync_outbox_dry': {
+        'label': 'Preview: Outbox Drain',
+        'icon': 'fas fa-list-ol',
+        'color': 'info',
+        'description': 'Show pending outbox entries that would be replayed to Neon (no changes made).',
+        'category': 'test',
+        'command': 'drain_sync_outbox',
+        'args': ['--dry-run'],
+    },
+    'hydrate_local_cache': {
+        'label': 'Hydrate Local Cache',
+        'icon': 'fas fa-download',
+        'color': 'warning',
+        'description': 'Full pull from Neon → local_cache SQLite. Use after first setup or to fix drift.',
+        'category': 'sync',
+        'command': 'hydrate_local_cache',
+        'args': [],
+        'confirm': 'This will overwrite local_cache with all data from Neon. Continue?',
+    },
 }
 
 
@@ -943,6 +971,33 @@ def _gather_diagnostics():
                        Invoice.objects.filter(is_paid=True, grand_total_cogs=0).count()
     invoices_no_payment = Invoice.objects.filter(is_paid=True).exclude(payments__isnull=False).count()
 
+    # Sync outbox stats
+    try:
+        from sync.models import SyncOutbox, SyncOutboxStatus
+        outbox_pending = SyncOutbox.objects.using('local_cache').filter(
+            status=SyncOutboxStatus.PENDING
+        ).count()
+        outbox_failed = SyncOutbox.objects.using('local_cache').filter(
+            status=SyncOutboxStatus.FAILED
+        ).count()
+    except Exception:
+        outbox_pending = 0
+        outbox_failed = 0
+
+    # Neon health
+    try:
+        from inventory_system.db_router import is_neon_healthy
+        neon_online = is_neon_healthy()
+    except Exception:
+        neon_online = True
+
+    # Last background sync time
+    try:
+        from sync.startup_sync import get_last_sync_time
+        last_sync_time = get_last_sync_time()
+    except Exception:
+        last_sync_time = None
+
     return {
         'total_users': total_users,
         'users_with_roles': users_with_roles,
@@ -961,6 +1016,10 @@ def _gather_diagnostics():
         'invoices_total': invoices_total,
         'invoices_no_cogs': invoices_no_cogs,
         'invoices_no_payment': invoices_no_payment,
+        'outbox_pending': outbox_pending,
+        'outbox_failed': outbox_failed,
+        'neon_online': neon_online,
+        'last_sync_time': last_sync_time,
     }
 
 

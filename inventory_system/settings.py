@@ -171,7 +171,7 @@ PUSHER_CLUSTER = os.environ.get('PUSHER_CLUSTER', 'ap1')
 
 # Run a full Neon→SQLite sync once when the Django server process starts.
 # Set NEON_INITIAL_SYNC=true to enable (pulls Neon → local_cache on boot).
-NEON_INITIAL_SYNC = os.environ.get('NEON_INITIAL_SYNC', 'false').lower() in ('true', '1', 'yes')
+NEON_INITIAL_SYNC = os.environ.get('NEON_INITIAL_SYNC', 'true').lower() in ('true', '1', 'yes')
 
 # Timer-based interval sync (seconds). 0 = disabled (event-driven only).
 NEON_SYNC_INTERVAL = int(os.environ.get('NEON_SYNC_INTERVAL', '0'))
