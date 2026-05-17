@@ -1070,6 +1070,7 @@ def generate_document_number(prefix, model_class):
     than using MAX(id) because IDs can have gaps from deletions.
     """
     import re
+
     pattern = re.compile(rf'^{re.escape(prefix)}-(\d+)$')
     max_num = 0
     # Use all_objects to include soft-deleted records
@@ -1081,3 +1082,29 @@ def generate_document_number(prefix, model_class):
                 if num > max_num:
                     max_num = num
     return f"{prefix}-{max_num + 1:06d}"
+
+
+def save_with_document_number(instance, prefix, model_class, max_retries=5):
+    """
+    Save a TransactionalDocument instance with automatic document number
+    generation and retry logic for handling unique constraint violations.
+
+    Always regenerates the document number at save time to avoid stale
+    numbers from form pre-fill. Retries up to max_retries times on collision.
+
+    Returns the saved instance.
+    """
+    from django.db import IntegrityError
+
+    instance.document_number = generate_document_number(prefix, model_class)
+    for attempt in range(max_retries):
+        try:
+            instance.save()
+            return instance
+        except IntegrityError as e:
+            if 'document_number' in str(e) and attempt < max_retries - 1:
+                instance.document_number = generate_document_number(prefix, model_class)
+                instance.pk = None  # Reset PK so Django treats it as a new insert
+            else:
+                raise
+    return instance

@@ -13,15 +13,13 @@ from inventory.models import (
 class StockTransferForm(forms.ModelForm):
     class Meta:
         model = StockTransfer
-        fields = ['document_number', 'from_warehouse', 'to_warehouse', 'notes']
+        fields = ['from_warehouse', 'to_warehouse', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'from_warehouse': forms.Select(attrs={'class': 'form-control'}),
             'to_warehouse': forms.Select(attrs={'class': 'form-control'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
         help_texts = {
-            'document_number': 'Unique transfer document number.',
             'from_warehouse': 'Source warehouse shipping the stock out.',
             'to_warehouse': 'Destination warehouse receiving the stock. Can be the same warehouse for bin-to-bin moves.',
             'notes': 'Reason for transfer or special instructions.',
@@ -54,15 +52,13 @@ StockTransferLineFormSet = inlineformset_factory(
 class StockAdjustmentForm(forms.ModelForm):
     class Meta:
         model = StockAdjustment
-        fields = ['document_number', 'warehouse', 'reason', 'notes']
+        fields = ['warehouse', 'reason', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
             'reason': forms.TextInput(attrs={'class': 'form-control'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
         help_texts = {
-            'document_number': 'Unique adjustment document number.',
             'warehouse': 'Warehouse where the physical count was performed.',
             'reason': 'Brief reason for the adjustment (e.g. Cycle Count, Audit).',
             'notes': 'Additional details or approver remarks.',
@@ -136,14 +132,12 @@ StockAdjustmentLineFormSet = inlineformset_factory(
 class DamagedReportForm(forms.ModelForm):
     class Meta:
         model = DamagedReport
-        fields = ['document_number', 'warehouse', 'notes']
+        fields = ['warehouse', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
         help_texts = {
-            'document_number': 'Unique damaged report number.',
             'warehouse': 'Warehouse where damage was discovered.',
             'notes': 'Summary of damage incident.',
         }
@@ -175,16 +169,14 @@ DamagedReportLineFormSet = inlineformset_factory(
 class InventoryToSupplyTransferForm(forms.ModelForm):
     class Meta:
         model = InventoryToSupplyTransfer
-        fields = ['document_number', 'warehouse', 'transfer_date', 'reason', 'notes']
+        fields = ['warehouse', 'transfer_date', 'reason', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
             'transfer_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'reason': forms.TextInput(attrs={'class': 'form-control'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
         help_texts = {
-            'document_number': 'Unique IST document number (auto-generated if blank).',
             'warehouse': 'Warehouse where inventory stock is being taken from.',
             'transfer_date': 'Date of the transfer.',
             'reason': 'Brief reason for moving items to supply (e.g. Production use).',

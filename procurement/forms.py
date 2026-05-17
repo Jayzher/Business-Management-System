@@ -14,9 +14,8 @@ class MultipleFileInput(forms.ClearableFileInput):
 class PurchaseOrderForm(forms.ModelForm):
     class Meta:
         model = PurchaseOrder
-        fields = ['document_number', 'supplier', 'warehouse', 'order_date', 'expected_date', 'notes']
+        fields = ['supplier', 'warehouse', 'order_date', 'expected_date', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'supplier': forms.Select(attrs={'class': 'form-control'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
             'order_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
@@ -24,7 +23,6 @@ class PurchaseOrderForm(forms.ModelForm):
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
         help_texts = {
-            'document_number': 'Unique PO number (e.g. PO-000001). Auto-generated if left blank.',
             'supplier': 'Vendor you are ordering from.',
             'warehouse': 'Destination warehouse for received goods.',
             'order_date': 'Date the order was placed.',
@@ -70,9 +68,8 @@ PurchaseOrderLineFormSet = inlineformset_factory(
 class GoodsReceiptForm(forms.ModelForm):
     class Meta:
         model = GoodsReceipt
-        fields = ['document_number', 'purchase_order', 'supplier', 'warehouse', 'receipt_date', 'delivery_charge', 'notes']
+        fields = ['purchase_order', 'supplier', 'warehouse', 'receipt_date', 'delivery_charge', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
             'purchase_order': forms.Select(attrs={'class': 'form-control'}),
             'supplier': forms.Select(attrs={'class': 'form-control'}),
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
@@ -81,7 +78,6 @@ class GoodsReceiptForm(forms.ModelForm):
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
         help_texts = {
-            'document_number': 'Unique GRN number. Auto-generated if left blank.',
             'purchase_order': 'Link to a PO. Leave blank for direct receipts without a PO.',
             'supplier': 'Vendor delivering the goods.',
             'warehouse': 'Warehouse where goods are being received.',
@@ -144,9 +140,8 @@ class GoodsReceiptAttachmentForm(forms.ModelForm):
 class PurchaseReturnForm(forms.ModelForm):
     class Meta:
         model = PurchaseReturn
-        fields = ['document_number', 'goods_receipt', 'supplier', 'warehouse', 'return_date', 'reason', 'notes']
+        fields = ['goods_receipt', 'supplier', 'warehouse', 'return_date', 'reason', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'goods_receipt': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'supplier': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'warehouse': forms.Select(attrs={'class': 'form-control form-control-sm'}),

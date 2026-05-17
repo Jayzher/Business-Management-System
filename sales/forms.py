@@ -25,11 +25,10 @@ class SalesOrderForm(forms.ModelForm):
 
     class Meta:
         model = SalesOrder
-        fields = ['document_number', 'customer', 'warehouse', 'order_date', 'delivery_date',
+        fields = ['customer', 'warehouse', 'order_date', 'delivery_date',
                   'fulfillment_type', 'shipping_address', 'currency', 'exchange_rate',
                   'payment_status', 'sales_channel', 'receipt_no', 'delivery_charge', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'customer': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select customer'}),
             'warehouse': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select warehouse'}),
             'order_date': forms.DateInput(attrs={'class': 'form-control form-control-sm', 'type': 'date'}),
@@ -44,7 +43,6 @@ class SalesOrderForm(forms.ModelForm):
             'notes': forms.Textarea(attrs={'class': 'form-control form-control-sm', 'rows': 3, 'placeholder': 'Internal notes or instructions'}),
         }
         help_texts = {
-            'document_number': 'Unique SO number (e.g. SO-000001).',
             'customer': 'Customer placing this order.',
             'warehouse': 'Warehouse that will fulfill the order.',
             'order_date': 'Date the customer placed the order.',
@@ -175,10 +173,9 @@ SalesOrderPriceListLineFormSet = inlineformset_factory(
 class DeliveryNoteForm(forms.ModelForm):
     class Meta:
         model = DeliveryNote
-        fields = ['document_number', 'sales_order', 'customer', 'warehouse', 'delivery_date',
+        fields = ['sales_order', 'customer', 'warehouse', 'delivery_date',
                   'shipping_address', 'driver_name', 'vehicle_number', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'sales_order': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Optional: link to SO'}),
             'customer': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select customer'}),
             'warehouse': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select warehouse'}),
@@ -189,7 +186,6 @@ class DeliveryNoteForm(forms.ModelForm):
             'notes': forms.Textarea(attrs={'class': 'form-control form-control-sm', 'rows': 3, 'placeholder': 'Special handling instructions'}),
         }
         help_texts = {
-            'document_number': 'Unique delivery note number.',
             'sales_order': 'Link to an SO. Leave blank for direct deliveries.',
             'customer': 'Customer receiving the delivery.',
             'warehouse': 'Warehouse shipping the goods. Stock is deducted on posting.',
@@ -246,11 +242,10 @@ class SalesPickupForm(forms.ModelForm):
     class Meta:
         model = SalesPickup
         fields = [
-            'document_number', 'sales_order', 'customer', 'warehouse',
+            'sales_order', 'customer', 'warehouse',
             'pickup_date', 'pickup_by', 'notes',
         ]
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'sales_order': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Optional: link to SO'}),
             'customer': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select customer'}),
             'warehouse': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select warehouse'}),
@@ -259,7 +254,6 @@ class SalesPickupForm(forms.ModelForm):
             'notes': forms.Textarea(attrs={'class': 'form-control form-control-sm', 'rows': 3, 'placeholder': 'Pickup notes or instructions'}),
         }
         help_texts = {
-            'document_number': 'Unique pickup document number.',
             'sales_order': 'Link to an SO. Leave blank for ad-hoc pickups.',
             'customer': 'Customer receiving the items.',
             'warehouse': 'Warehouse where pickup will be prepared.',
@@ -313,9 +307,8 @@ SalesPickupLineFormSet = inlineformset_factory(
 class SalesReturnForm(forms.ModelForm):
     class Meta:
         model = SalesReturn
-        fields = ['document_number', 'sales_order', 'delivery_note', 'customer', 'warehouse', 'return_date', 'reason', 'notes']
+        fields = ['sales_order', 'delivery_note', 'customer', 'warehouse', 'return_date', 'reason', 'notes']
         widgets = {
-            'document_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'readonly': 'readonly'}),
             'sales_order': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'delivery_note': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'customer': forms.Select(attrs={'class': 'form-control form-control-sm'}),
