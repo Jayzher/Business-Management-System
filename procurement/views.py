@@ -406,7 +406,6 @@ def purchase_return_detail_view(request, pk):
 
 @login_required
 @procurement_access
-@db_transaction.atomic
 @write_denied_for_viewer
 def purchase_return_create_view(request):
     if request.method == 'POST':

@@ -1065,22 +1065,33 @@ def generate_document_number(prefix, model_class):
     """
     Generate sequential document numbers like PO-000001, GRN-000001, etc.
 
-    Scans existing document_number values to find the highest numeric suffix
-    matching the given prefix, then increments by 1. This is more reliable
-    than using MAX(id) because IDs can have gaps from deletions.
+    Uses a raw SQL query directly against PostgreSQL to find the highest
+    numeric suffix matching the given prefix, then increments by 1.
+    This bypasses ORM caching and ensures we read the latest committed data.
     """
-    import re
+    from django.db import connection
 
-    pattern = re.compile(rf'^{re.escape(prefix)}-(\d+)$')
-    max_num = 0
-    # Use all_objects to include soft-deleted records
-    for doc_num in model_class.all_objects.values_list('document_number', flat=True):
-        if doc_num:
-            m = pattern.match(doc_num)
-            if m:
-                num = int(m.group(1))
-                if num > max_num:
-                    max_num = num
+    # Get the actual database table name from the model
+    table_name = model_class._meta.db_table
+
+    # Use a raw SQL query with regex to extract the max number directly from PostgreSQL
+    # This ensures we see ALL rows regardless of soft-delete managers or ORM state
+    sql = f"""
+        SELECT COALESCE(MAX(
+            CAST(SUBSTRING(document_number FROM %s) AS INTEGER)
+        ), 0)
+        FROM {table_name}
+        WHERE document_number ~ %s
+    """
+    # Pattern to extract the numeric part after the prefix
+    extract_pattern = rf'{prefix}-(\d+)'
+    match_pattern = rf'^{prefix}-\d+$'
+
+    with connection.cursor() as cursor:
+        cursor.execute(sql, [extract_pattern, match_pattern])
+        row = cursor.fetchone()
+        max_num = row[0] if row and row[0] else 0
+
     return f"{prefix}-{max_num + 1:06d}"
 
 
@@ -1097,16 +1108,23 @@ def save_with_document_number(instance, prefix, model_class, max_retries=5):
     Returns the saved instance.
     """
     from django.db import IntegrityError, transaction
+    import time
+    import logging
+
+    logger = logging.getLogger(__name__)
 
     for attempt in range(max_retries):
         instance.document_number = generate_document_number(prefix, model_class)
+        logger.info(f"[save_with_document_number] Attempt {attempt+1}: trying {instance.document_number}")
         try:
             with transaction.atomic():
                 instance.save()
             return instance
         except IntegrityError as e:
+            logger.warning(f"[save_with_document_number] Attempt {attempt+1} failed: {e}")
             if 'document_number' in str(e) and attempt < max_retries - 1:
                 instance.pk = None  # Reset PK so Django treats it as a new insert
+                time.sleep(0.1)  # Brief pause to let concurrent transactions commit
                 continue
             else:
                 raise
