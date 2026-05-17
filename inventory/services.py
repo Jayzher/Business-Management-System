@@ -1092,19 +1092,22 @@ def save_with_document_number(instance, prefix, model_class, max_retries=5):
     Always regenerates the document number at save time to avoid stale
     numbers from form pre-fill. Retries up to max_retries times on collision.
 
+    Uses savepoints so that a failed INSERT doesn't abort the outer transaction.
+
     Returns the saved instance.
     """
-    from django.db import IntegrityError
+    from django.db import IntegrityError, transaction
 
-    instance.document_number = generate_document_number(prefix, model_class)
     for attempt in range(max_retries):
+        instance.document_number = generate_document_number(prefix, model_class)
         try:
-            instance.save()
+            with transaction.atomic():
+                instance.save()
             return instance
         except IntegrityError as e:
             if 'document_number' in str(e) and attempt < max_retries - 1:
-                instance.document_number = generate_document_number(prefix, model_class)
                 instance.pk = None  # Reset PK so Django treats it as a new insert
+                continue
             else:
                 raise
     return instance
