@@ -218,33 +218,48 @@ def _sync_model(model, since_dt) -> int:
     objs = list(qs.iterator(chunk_size=BATCH_SIZE))
 
     concrete_fields = [
-        f for f in model._meta.concrete_fields if not f.primary_key
+        f for f in sender._meta.concrete_fields if not f.primary_key
     ]
     update_fields = [f.attname for f in concrete_fields]
 
-    for i in range(0, len(objs), BATCH_SIZE):
-        batch = objs[i:i + BATCH_SIZE]
-        for obj in batch:
-            obj._state.adding = True
-            obj._state.db = 'local_cache'
+    # Temporarily disable auto_now/auto_now_add to preserve timestamps
+    auto_fields = []
+    for field in model._meta.get_fields():
+        if hasattr(field, 'auto_now') and field.auto_now:
+            field.auto_now = False
+            auto_fields.append(('auto_now', field))
+        if hasattr(field, 'auto_now_add') and field.auto_now_add:
+            field.auto_now_add = False
+            auto_fields.append(('auto_now_add', field))
 
-        try:
-            if update_fields:
-                model._default_manager.using('local_cache').bulk_create(
-                    batch,
-                    batch_size=BATCH_SIZE,
-                    update_conflicts=True,
-                    update_fields=update_fields,
-                    unique_fields=['id'],
-                )
-            else:
-                model._default_manager.using('local_cache').bulk_create(
-                    batch,
-                    batch_size=BATCH_SIZE,
-                    ignore_conflicts=True,
-                )
-        except Exception as exc:
-            logger.debug('Batch insert failed for %s: %s', model._meta.db_table, exc)
+    try:
+        for i in range(0, len(objs), BATCH_SIZE):
+            batch = objs[i:i + BATCH_SIZE]
+            for obj in batch:
+                obj._state.adding = True
+                obj._state.db = 'local_cache'
+
+            try:
+                if update_fields:
+                    model._default_manager.using('local_cache').bulk_create(
+                        batch,
+                        batch_size=BATCH_SIZE,
+                        update_conflicts=True,
+                        update_fields=update_fields,
+                        unique_fields=['id'],
+                    )
+                else:
+                    model._default_manager.using('local_cache').bulk_create(
+                        batch,
+                        batch_size=BATCH_SIZE,
+                        ignore_conflicts=True,
+                    )
+            except Exception as exc:
+                logger.debug('Batch insert failed for %s: %s', model._meta.db_table, exc)
+    finally:
+        # Restore auto_now / auto_now_add
+        for attr, field in auto_fields:
+            setattr(field, attr, True)
 
     return len(objs)
 

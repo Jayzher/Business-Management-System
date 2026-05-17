@@ -115,17 +115,47 @@ class Command(BaseCommand):
                 with connections['local_cache'].cursor() as cursor:
                     cursor.execute(f'DELETE FROM "{table}";')
 
-                # Copy in batches
-                objs = list(model._default_manager.using('default').all())
-                for obj in objs:
-                    obj._state.adding = True
-                    obj._state.db = 'local_cache'
+                # Temporarily disable auto_now and auto_now_add so timestamps
+                # are preserved from the source (Neon) during the copy.
+                auto_fields = []
+                for field in model._meta.get_fields():
+                    if hasattr(field, 'auto_now') and field.auto_now:
+                        field.auto_now = False
+                        auto_fields.append(('auto_now', field))
+                    if hasattr(field, 'auto_now_add') and field.auto_now_add:
+                        field.auto_now_add = False
+                        auto_fields.append(('auto_now_add', field))
 
-                for i in range(0, len(objs), BATCH_SIZE):
-                    batch = objs[i:i + BATCH_SIZE]
-                    model._default_manager.using('local_cache').bulk_create(
-                        batch, batch_size=BATCH_SIZE, ignore_conflicts=True,
-                    )
+                try:
+                    # Copy in batches
+                    objs = list(model._default_manager.using('default').all())
+                    for obj in objs:
+                        obj._state.adding = True
+                        obj._state.db = 'local_cache'
+
+                    # Get all concrete field names for upsert
+                    concrete_fields = [
+                        f for f in model._meta.concrete_fields if not f.primary_key
+                    ]
+                    update_fields = [f.attname for f in concrete_fields]
+
+                    for i in range(0, len(objs), BATCH_SIZE):
+                        batch = objs[i:i + BATCH_SIZE]
+                        if update_fields:
+                            model._default_manager.using('local_cache').bulk_create(
+                                batch, batch_size=BATCH_SIZE,
+                                update_conflicts=True,
+                                update_fields=update_fields,
+                                unique_fields=['id'],
+                            )
+                        else:
+                            model._default_manager.using('local_cache').bulk_create(
+                                batch, batch_size=BATCH_SIZE, ignore_conflicts=True,
+                            )
+                finally:
+                    # Restore auto_now / auto_now_add
+                    for attr, field in auto_fields:
+                        setattr(field, attr, True)
 
                 total_copied += count
                 self.stdout.write(f'  OK    {name}: {count} rows')

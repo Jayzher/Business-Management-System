@@ -114,28 +114,14 @@ if _REDIS_URL:
         },
     }
 else:
-    # In-memory layer works for local dev with a single server process.
     CHANNEL_LAYERS = {
         'default': {
             'BACKEND': 'channels.layers.InMemoryChannelLayer',
         },
     }
 
-
 # ---------------------------------------------------------------------------
-# Database
-#
-# Default: local SQLite for fast page loads.
-# Neon PostgreSQL is configured as a secondary alias ('neon') so the
-# db_sync management command can pull live data from Neon → SQLite at
-# a configurable interval (NEON_SYNC_INTERVAL seconds, default 5 min).
-#
-# Override options (via DATABASE_URL env var):
-#   DATABASE_URL=sqlite          → explicit local SQLite (same as default)
-#   DATABASE_URL=<postgres-url>  → any PostgreSQL instance as primary
-#
-# Render/production sets DATABASE_URL automatically to its internal
-# PostgreSQL URL, which takes priority and uses Neon directly.
+# Neon PostgreSQL connection string
 # ---------------------------------------------------------------------------
 NEON_URL = (
     'postgresql://neondb_owner:npg_KhjsX3uB0mil'
@@ -145,8 +131,6 @@ NEON_URL = (
 
 # ---------------------------------------------------------------------------
 # Pusher Channels — free hosted pub/sub for real-time sync events.
-# Get credentials at https://pusher.com (free tier: 100 conns, 200k msgs/day).
-# Set these four env vars in your .env / shell before starting the server.
 # ---------------------------------------------------------------------------
 PUSHER_APP_ID  = os.environ.get('PUSHER_APP_ID',  '2138689')
 PUSHER_KEY     = os.environ.get('PUSHER_KEY',     'f2314ae2921907f1b2f7')
@@ -169,35 +153,13 @@ PUSHER_CLUSTER = os.environ.get('PUSHER_CLUSTER', 'ap1')
 # Signals mirror every write to local_cache synchronously after commit.
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Database Architecture
-# ---------------------------------------------------------------------------
-#
-# Neon PostgreSQL = authoritative source of truth (all writes go here).
-# Local SQLite    = fast read cache for page rendering.
-#
-# Modes (controlled by DATABASE_URL env var):
-#   DATABASE_URL=sqlite          → Offline dev mode: SQLite-only, no Neon.
-#   DATABASE_URL=<postgres-url>  → Production: Neon is default, SQLite is cache.
-#   (unset)                      → Hybrid: Neon is default, SQLite is cache.
-#
-# The DB router sends reads to 'local_cache' and writes to 'default'.
-# Signals mirror every write to local_cache synchronously after commit.
-# ---------------------------------------------------------------------------
-
 # Run a full Neon→SQLite sync once when the Django server process starts.
-# Set NEON_INITIAL_SYNC=true to enable (pulls Neon → local_cache on boot).
+# Set NEON_INITIAL_SYNC=false to disable (e.g. CI, fast restarts).
 NEON_INITIAL_SYNC = os.environ.get('NEON_INITIAL_SYNC', 'true').lower() in ('true', '1', 'yes')
 
 # Timer-based interval sync (seconds). 0 = disabled (event-driven only).
-# Timer-based interval sync (seconds). 0 = disabled (event-driven only).
 NEON_SYNC_INTERVAL = int(os.environ.get('NEON_SYNC_INTERVAL', '0'))
 
-_DATABASE_URL = os.environ.get('DATABASE_URL', '')
-_OFFLINE_MODE = _DATABASE_URL == 'sqlite'
-
-if _OFFLINE_MODE:
-    # ── Offline dev: SQLite-only, no Neon dependency ──────────────────────
 _DATABASE_URL = os.environ.get('DATABASE_URL', '')
 _OFFLINE_MODE = _DATABASE_URL == 'sqlite'
 
@@ -213,15 +175,6 @@ if _OFFLINE_MODE:
             'NAME': str(BASE_DIR / 'db.sqlite3'),
         },
     }
-    # In offline mode, default IS the local cache (same file).
-    SYNC_MODE = 'offline'
-        },
-        'local_cache': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': str(BASE_DIR / 'db.sqlite3'),
-        },
-    }
-    # In offline mode, default IS the local cache (same file).
     SYNC_MODE = 'offline'
 else:
     # ── Normal mode: Neon = default (writes), SQLite = local_cache (reads) ─
@@ -236,27 +189,12 @@ else:
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': str(BASE_DIR / 'db.sqlite3'),
         },
-    # ── Normal mode: Neon = default (writes), SQLite = local_cache (reads) ─
-    _neon_config = dj_database_url.parse(
-        _DATABASE_URL or NEON_URL,
-        conn_max_age=600,
-        ssl_require=True,
-    )
-    DATABASES = {
-        'default': _neon_config,
-        'local_cache': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': str(BASE_DIR / 'db.sqlite3'),
-        },
     }
-    SYNC_MODE = 'neon_primary'
     SYNC_MODE = 'neon_primary'
 
 # ---------------------------------------------------------------------------
 # Test environment database
 # Set TEST_DATABASE_URL env var to enable the environment toggle.
-# Example: TEST_DATABASE_URL=postgresql://user:pass@host/db?sslmode=require
-# NEVER hardcode credentials here — use environment variables.
 # ---------------------------------------------------------------------------
 _TEST_DATABASE_URL = os.environ.get('TEST_DATABASE_URL', '')
 if _TEST_DATABASE_URL:
@@ -314,7 +252,7 @@ SIMPLE_JWT = {
 # ---------------------------------------------------------------------------
 # CORS — allow mobile app connections
 # ---------------------------------------------------------------------------
-CORS_ALLOW_ALL_ORIGINS = True  # Mobile apps don't have a fixed origin
+CORS_ALLOW_ALL_ORIGINS = True
 
 # ---------------------------------------------------------------------------
 # CSRF

@@ -53,7 +53,7 @@ class SalesOrder(TransactionalDocument):
     )
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ['-order_date', '-id']
 
     @property
     def total_qty(self):
