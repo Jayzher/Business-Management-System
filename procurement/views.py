@@ -545,6 +545,7 @@ def _update_item_cost_from_supplier_catalog(item_ids=None):
     updated_count = 0
     unchanged_count = 0
     skipped_count = 0
+    _updated_pks = []  # Track PKs for sync (QuerySet.update bypasses signals)
 
     for item_id, (item, entries) in per_item.items():
         base_unit = item.default_unit
@@ -578,7 +579,14 @@ def _update_item_cost_from_supplier_catalog(item_ids=None):
             continue
 
         Item.objects.filter(pk=item.pk).update(cost_price=best_price_q)
+        _updated_pks.append(item.pk)
         updated_count += 1
+
+    # Sync updated items to changelog + local_cache
+    # (QuerySet.update() bypasses Django signals — must sync explicitly)
+    if _updated_pks:
+        from sync.signals import bulk_sync_upsert
+        bulk_sync_upsert(Item, _updated_pks)
 
     return {
         'updated_count': updated_count,

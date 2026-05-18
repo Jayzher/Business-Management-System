@@ -100,9 +100,16 @@ class AppEnvironmentRouter:
     """
     Routes reads to local_cache (SQLite) for speed, writes to default (Neon).
     Falls back to local_cache for writes when Neon is unreachable.
+
+    Special handling for NeonChangeLog: always reads/writes to 'default' (Neon)
+    since it's the cross-device sync source of truth.
     """
 
     def db_for_read(self, model, **hints):
+        # NeonChangeLog always lives on Neon
+        if model._meta.app_label == 'sync' and model._meta.model_name == 'neonchangelog':
+            return 'default'
+
         if model._meta.app_label in _ROUTED_APP_LABELS:
             if _is_neon_primary():
                 # After a save, Django may re-read the instance — route to
@@ -118,6 +125,10 @@ class AppEnvironmentRouter:
         return None
 
     def db_for_write(self, model, **hints):
+        # NeonChangeLog always writes to Neon
+        if model._meta.app_label == 'sync' and model._meta.model_name == 'neonchangelog':
+            return 'default'
+
         if model._meta.app_label in _ROUTED_APP_LABELS:
             if _is_neon_primary():
                 # Check Neon health — fall back to local_cache if unreachable

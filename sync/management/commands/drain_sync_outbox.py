@@ -142,6 +142,21 @@ class Command(BaseCommand):
                 [obj], ignore_conflicts=True,
             )
 
+        # Log to NeonChangeLog so other devices can catch up
+        from sync.signals import _log_to_neon_changelog, _instance_to_dict
+        row_data = _instance_to_dict(obj)
+        _log_to_neon_changelog(
+            'upsert', entry.db_table, entry.app_label,
+            entry.model_name, entry.row_pk, row_data,
+        )
+
     def _replay_delete(self, model, entry):
         """Replay a delete from local_cache → Neon (default)."""
         model._default_manager.using('default').filter(pk=entry.row_pk).delete()
+
+        # Log to NeonChangeLog so other devices can catch up
+        from sync.signals import _log_to_neon_changelog
+        _log_to_neon_changelog(
+            'delete', entry.db_table, entry.app_label,
+            entry.model_name, entry.row_pk, None,
+        )

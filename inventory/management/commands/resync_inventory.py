@@ -2173,6 +2173,17 @@ class Command(BaseCommand):
                 if to_update:
                     StockBalance.objects.bulk_update(to_update, ['qty_on_hand'])
 
+            # Sync to changelog + local_cache (bulk ops bypass signals)
+            try:
+                from sync.signals import bulk_sync_upsert
+                all_pks = [b.pk for b in to_create] + [b.pk for b in to_update]
+                if all_pks:
+                    bulk_sync_upsert(StockBalance, all_pks, source='resync_inventory')
+            except Exception as exc:
+                self.stdout.write(self.style.WARNING(
+                    f'  Sync to changelog failed (non-fatal): {exc}'
+                ))
+
             self.stdout.write(self.style.SUCCESS(
                 f'  Committed: {len(to_create)} created, {len(to_update)} updated.'
             ))

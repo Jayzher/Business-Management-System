@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import SyncOutbox
+from .models import SyncOutbox, NeonChangeLog
 
 
 @admin.register(SyncOutbox)
@@ -12,6 +12,27 @@ class SyncOutboxAdmin(admin.ModelAdmin):
 
     # Read from local_cache since that's where outbox entries live
     using = 'local_cache'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).using(self.using)
+
+    def save_model(self, request, obj, form, change):
+        obj.save(using=self.using)
+
+    def delete_model(self, request, obj):
+        obj.delete(using=self.using)
+
+
+@admin.register(NeonChangeLog)
+class NeonChangeLogAdmin(admin.ModelAdmin):
+    list_display = ('id', 'action', 'db_table', 'row_pk', 'source_device', 'created_at')
+    list_filter = ('action', 'db_table', 'source_device')
+    search_fields = ('db_table', 'row_pk', 'source_device')
+    readonly_fields = ('row_data', 'created_at')
+    ordering = ('-id',)
+
+    # NeonChangeLog lives on Neon (default)
+    using = 'default'
 
     def get_queryset(self, request):
         return super().get_queryset(request).using(self.using)

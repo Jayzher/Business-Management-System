@@ -7,6 +7,7 @@ class SyncConfig(AppConfig):
 
     def ready(self):
         import sync.signals  # noqa — registers post_save handlers
+        import sync.save_guard  # noqa — registers pre_save duplicate guard
 
         # Start background sync on server boot (Neon → local_cache).
         # Only runs in the main process (not in management commands or migrations).

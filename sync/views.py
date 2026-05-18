@@ -533,6 +533,7 @@ def sync_catchup(request):
         'server_time_ms': now_ms,
         'outbox_pending': _get_outbox_pending(),
         'last_server_sync_ms': _get_last_server_sync_ms(),
+        'changelog_synced_id': _get_changelog_synced_id(),
     })
 
 
@@ -575,3 +576,12 @@ def _get_last_server_sync_ms() -> int | None:
     except Exception:
         pass
     return None
+
+
+def _get_changelog_synced_id() -> int | None:
+    """Return the last-synced NeonChangeLog ID from local_cache."""
+    try:
+        from sync.startup_sync import get_last_synced_log_id
+        return get_last_synced_log_id()
+    except Exception:
+        return None
