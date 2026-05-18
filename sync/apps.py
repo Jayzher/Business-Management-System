@@ -6,8 +6,7 @@ class SyncConfig(AppConfig):
     name = 'sync'
 
     def ready(self):
-        import sync.signals  # noqa — registers post_save handlers
-        import sync.save_guard  # noqa — registers pre_save duplicate guard
+        import sync.signals  # noqa — registers post_save/post_delete handlers
 
         # Start background sync worker + startup sync on server boot.
         # Only runs in the main process (not in management commands or migrations).

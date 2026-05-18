@@ -11,29 +11,6 @@ class TimeStampedModel(models.Model):
     class Meta:
         abstract = True
 
-    def delete(self, using=None, keep_parents=False):
-        """Override delete to use local-first pattern in neon_primary mode.
-
-        Deletes from local_cache immediately (instant UI), then queues
-        the Neon delete in the background worker.
-        """
-        from django.conf import settings as _settings
-        sync_mode = getattr(_settings, 'SYNC_MODE', 'offline')
-
-        # Only use local-first for neon_primary mode and when no explicit DB is specified
-        if sync_mode == 'neon_primary' and using is None:
-            if self._meta.app_label in (
-                'core', 'accounts', 'catalog', 'partners', 'warehouses',
-                'inventory', 'procurement', 'sales', 'audit', 'pricing',
-                'pos', 'services', 'cashflow',
-            ):
-                from sync.local_first import local_first_hard_delete
-                local_first_hard_delete(self)
-                return
-
-        # Fallback to normal Django delete
-        super().delete(using=using, keep_parents=keep_parents)
-
 
 class SoftDeleteManager(models.Manager):
     def get_queryset(self):
@@ -48,25 +25,13 @@ class SoftDeleteModel(TimeStampedModel):
     all_objects = models.Manager()
 
     def soft_delete(self):
-        """Soft-delete: local_cache first (instant), then Neon in background.
+        """Soft-delete: sets is_active=False.
 
-        In neon_primary mode:
-          1. Immediately sets is_active=False on local_cache (user sees it gone)
-          2. Queues the same update to Neon via background worker
-          3. Returns instantly — no waiting for Neon round-trip
-
-        In offline mode:
-          Falls back to normal save (both DBs are the same).
+        In local-first mode, this writes to local_cache (instant) and the
+        background worker pushes to Neon asynchronously.
         """
-        from django.conf import settings as _settings
-        sync_mode = getattr(_settings, 'SYNC_MODE', 'offline')
-
-        if sync_mode == 'neon_primary':
-            from sync.local_first import local_first_soft_delete
-            local_first_soft_delete(self)
-        else:
-            self.is_active = False
-            self.save(update_fields=['is_active', 'updated_at'])
+        self.is_active = False
+        self.save(update_fields=['is_active', 'updated_at'])
 
     def restore(self):
         self.is_active = True

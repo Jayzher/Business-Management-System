@@ -145,7 +145,7 @@ def _process_batch(batch: list):
     neon_soft_deletes = [t for t in batch if t['type'] == 'neon_soft_delete']
     neon_hard_deletes = [t for t in batch if t['type'] == 'neon_hard_delete']
 
-    # ── Process saves ──────────────────────────────────────────────────
+    # ── Process saves (push local_cache writes to Neon) ──────────────────
     if saves:
         # Deduplicate: if the same (table, pk) appears multiple times,
         # only process the LAST one (most recent state)
@@ -157,9 +157,8 @@ def _process_batch(batch: list):
 
         for task in unique_saves:
             try:
-                # 1. Mirror to local_cache
-                if not is_fallback_active() and not _SYNC_IN_PROGRESS.is_set():
-                    _mirror_to_local_cache(task['sender'], task['pk'])
+                # 1. Push to Neon (upsert)
+                _push_upsert_to_neon(task)
 
                 # 2. Log to NeonChangeLog
                 _log_to_neon_changelog(
@@ -172,13 +171,16 @@ def _process_batch(batch: list):
 
             except Exception as exc:
                 logger.debug(
-                    'BG save failed (%s pk=%s): %s',
+                    'BG push to Neon failed (%s pk=%s): %s — queuing to outbox',
                     task['table'], task['pk'], exc,
                 )
+                # Queue to outbox for retry when Neon is back
+                _queue_failed_to_outbox(task, 'upsert', exc)
+                # Still broadcast locally so connected clients see the change
+                broadcast_data_changed(task['table'], 'upsert', [task['row_data']])
 
-    # ── Process deletes (post-commit mirror from Neon signals) ─────────
+    # ── Process deletes (push local_cache deletes to Neon) ─────────────
     if deletes:
-        # Deduplicate deletes too
         seen = {}
         for task in deletes:
             key = (task['table'], task['pk'])
@@ -187,9 +189,8 @@ def _process_batch(batch: list):
 
         for task in unique_deletes:
             try:
-                # 1. Mirror delete to local_cache
-                if not is_fallback_active() and not _SYNC_IN_PROGRESS.is_set():
-                    _mirror_delete_to_local_cache(task['sender'], task['pk'])
+                # 1. Delete from Neon
+                _push_delete_to_neon(task)
 
                 # 2. Log to NeonChangeLog
                 _log_to_neon_changelog(
@@ -204,19 +205,22 @@ def _process_batch(batch: list):
 
             except Exception as exc:
                 logger.debug(
-                    'BG delete failed (%s pk=%s): %s',
+                    'BG delete push to Neon failed (%s pk=%s): %s — queuing to outbox',
                     task['table'], task['pk'], exc,
                 )
+                _queue_failed_to_outbox(task, 'delete', exc)
+                broadcast_data_changed(
+                    task['table'], 'delete', [{'id': task['pk']}],
+                )
 
-    # ── Process local-first soft deletes (apply to Neon) ───────────────
+    # ── Process local-first soft deletes (legacy — kept for compatibility) ─
     if neon_soft_deletes:
         seen = {}
         for task in neon_soft_deletes:
             key = (task['table'], task['pk'])
             seen[key] = task
-        unique_neon_soft = list(seen.values())
 
-        for task in unique_neon_soft:
+        for task in seen.values():
             try:
                 _apply_neon_soft_delete(task)
             except Exception as exc:
@@ -224,18 +228,16 @@ def _process_batch(batch: list):
                     'BG neon_soft_delete failed (%s pk=%s): %s',
                     task['table'], task['pk'], exc,
                 )
-                # Queue to outbox for retry if Neon is unreachable
-                _queue_failed_delete_to_outbox(task, 'upsert', exc)
+                _queue_failed_to_outbox(task, 'upsert', exc)
 
-    # ── Process local-first hard deletes (apply to Neon) ───────────────
+    # ── Process local-first hard deletes (legacy — kept for compatibility) ─
     if neon_hard_deletes:
         seen = {}
         for task in neon_hard_deletes:
             key = (task['table'], task['pk'])
             seen[key] = task
-        unique_neon_hard = list(seen.values())
 
-        for task in unique_neon_hard:
+        for task in seen.values():
             try:
                 _apply_neon_hard_delete(task)
             except Exception as exc:
@@ -243,8 +245,62 @@ def _process_batch(batch: list):
                     'BG neon_hard_delete failed (%s pk=%s): %s',
                     task['table'], task['pk'], exc,
                 )
-                # Queue to outbox for retry
-                _queue_failed_delete_to_outbox(task, 'delete', exc)
+                _queue_failed_to_outbox(task, 'delete', exc)
+
+
+def _push_upsert_to_neon(task):
+    """Push a row from local_cache to Neon (upsert)."""
+    sender = task['sender']
+    pk = task['pk']
+
+    # Read the current state from local_cache
+    obj = sender._default_manager.using('local_cache').filter(pk=pk).first()
+    if obj is None:
+        # Row was deleted locally after the save was queued — skip
+        return
+
+    concrete_fields = [
+        f for f in sender._meta.concrete_fields if not f.primary_key
+    ]
+    update_fields = [f.attname for f in concrete_fields]
+
+    # Temporarily disable auto_now/auto_now_add to preserve timestamps
+    auto_fields = []
+    for field in sender._meta.get_fields():
+        if hasattr(field, 'auto_now') and field.auto_now:
+            field.auto_now = False
+            auto_fields.append(('auto_now', field))
+        if hasattr(field, 'auto_now_add') and field.auto_now_add:
+            field.auto_now_add = False
+            auto_fields.append(('auto_now_add', field))
+
+    try:
+        obj._state.adding = True
+        obj._state.db = 'default'
+
+        if update_fields:
+            sender._default_manager.using('default').bulk_create(
+                [obj],
+                update_conflicts=True,
+                update_fields=update_fields,
+                unique_fields=['id'],
+            )
+        else:
+            sender._default_manager.using('default').bulk_create(
+                [obj], ignore_conflicts=True,
+            )
+    finally:
+        for attr, field in auto_fields:
+            setattr(field, attr, True)
+
+
+def _push_delete_to_neon(task):
+    """Delete a row from Neon."""
+    sender = task['sender']
+    pk = task['pk']
+    # Use all_objects to bypass soft-delete manager
+    mgr = getattr(sender, 'all_objects', sender._default_manager)
+    mgr.using('default').filter(pk=pk).delete()
 
 
 def _apply_neon_soft_delete(task):
@@ -288,8 +344,8 @@ def _apply_neon_hard_delete(task):
     )
 
 
-def _queue_failed_delete_to_outbox(task, action, exc):
-    """If the Neon delete fails, queue it to SyncOutbox for later retry."""
+def _queue_failed_to_outbox(task, action, exc):
+    """If the Neon push fails, queue it to SyncOutbox for later retry."""
     try:
         from sync.models import SyncOutbox
         SyncOutbox.objects.using('local_cache').create(
@@ -298,9 +354,10 @@ def _queue_failed_delete_to_outbox(task, action, exc):
             app_label=task['app_label'],
             model_name=task['model_name'],
             row_pk=task['pk'],
-            row_data=None,
+            row_data=task.get('row_data'),
         )
-        logger.info('Queued failed delete to outbox: %s#%d', task['table'], task['pk'])
+        logger.info('Queued failed Neon push to outbox: %s %s#%d',
+                    action, task['table'], task['pk'])
     except Exception as outbox_exc:
-        logger.error('Failed to queue delete to outbox (%s#%d): %s',
-                     task['table'], task['pk'], outbox_exc)
+        logger.error('Failed to queue to outbox (%s %s#%d): %s',
+                     action, task['table'], task['pk'], outbox_exc)

@@ -3,14 +3,25 @@ AppEnvironmentRouter
 ====================
 Routes Django ORM queries to the correct database alias.
 
-Architecture (SYNC_MODE = 'neon_primary'):
-  - Writes → 'default' (Neon PostgreSQL, authoritative)
-  - Reads  → 'local_cache' (SQLite, fast rendering)
-  - Fallback: if Neon is unreachable, writes go to 'local_cache' and
-    are queued in SyncOutbox for later replay.
+Architecture (SYNC_MODE = 'neon_primary' — LOCAL-FIRST):
+  - Reads  → 'local_cache' (SQLite, instant)
+  - Writes → 'local_cache' (SQLite, instant)
+  - Background worker pushes writes to 'default' (Neon) asynchronously
+  - Neon is the cross-device sync source of truth, but local_cache is
+    what the user interacts with for maximum speed.
+
+  Flow:
+    1. User action → write lands on local_cache (SQLite) instantly
+    2. post_save/post_delete signal fires → enqueues background task
+    3. Background worker: pushes to Neon + logs to NeonChangeLog
+    4. If Neon is unreachable → queued in SyncOutbox for retry
 
 Architecture (SYNC_MODE = 'offline'):
   - Both reads and writes → 'default' (SQLite, same as local_cache)
+
+Special cases:
+  - NeonChangeLog: always reads/writes to 'default' (Neon) directly
+  - SyncOutbox: always reads/writes to 'local_cache'
 
 Migration behaviour:
   - ``allow_migrate`` returns ``True`` for ``default``, ``local_cache``,
@@ -34,21 +45,15 @@ _ROUTED_APP_LABELS = {
 }
 
 # ── Neon health tracking ───────────────────────────────────────────────
-# We cache the Neon health status for a short period to avoid hammering
-# the connection on every single ORM call.
-
 _neon_health_lock = threading.Lock()
 _neon_healthy = True
 _neon_last_check = 0.0
-_HEALTH_CHECK_INTERVAL = 10.0  # seconds between re-checks when unhealthy
-_HEALTH_CHECK_INTERVAL_HEALTHY = 60.0  # seconds between checks when healthy
+_HEALTH_CHECK_INTERVAL = 10.0
+_HEALTH_CHECK_INTERVAL_HEALTHY = 60.0
 
 
 def _check_neon_health() -> bool:
-    """
-    Quick connectivity check to Neon.  Returns True if reachable.
-    Caches the result to avoid per-query overhead.
-    """
+    """Quick connectivity check to Neon. Returns True if reachable."""
     global _neon_healthy, _neon_last_check
 
     now = time.time()
@@ -58,7 +63,6 @@ def _check_neon_health() -> bool:
         return _neon_healthy
 
     with _neon_health_lock:
-        # Double-check after acquiring lock
         if (time.time() - _neon_last_check) < interval:
             return _neon_healthy
 
@@ -68,8 +72,7 @@ def _check_neon_health() -> bool:
             _neon_healthy = True
         except Exception as exc:
             if _neon_healthy:
-                # Transition from healthy → unhealthy
-                logger.warning('Neon unreachable, activating fallback mode: %s', exc)
+                logger.warning('Neon unreachable: %s', exc)
             _neon_healthy = False
 
         _neon_last_check = time.time()
@@ -80,12 +83,12 @@ def _check_neon_health() -> bool:
 def is_neon_healthy() -> bool:
     """Public API: check if Neon is currently reachable."""
     if not _is_neon_primary():
-        return True  # In offline mode, "Neon" is local — always healthy
+        return True
     return _check_neon_health()
 
 
 def force_neon_recheck() -> bool:
-    """Force an immediate health check (used after drain_outbox succeeds)."""
+    """Force an immediate health check."""
     global _neon_last_check
     _neon_last_check = 0.0
     return _check_neon_health()
@@ -98,47 +101,35 @@ def _is_neon_primary():
 
 class AppEnvironmentRouter:
     """
-    Routes reads to local_cache (SQLite) for speed, writes to default (Neon).
-    Falls back to local_cache for writes when Neon is unreachable.
+    LOCAL-FIRST router:
+      - ALL reads → local_cache (SQLite, instant)
+      - ALL writes → local_cache (SQLite, instant)
+      - Background worker handles Neon sync
 
-    Special handling for NeonChangeLog: always reads/writes to 'default' (Neon)
-    since it's the cross-device sync source of truth.
+    This means the user NEVER waits for Neon. Every create, update, delete
+    is instant because it only touches the local SQLite file.
     """
 
     def db_for_read(self, model, **hints):
-        # NeonChangeLog always lives on Neon
+        # NeonChangeLog always reads from Neon (it's the cross-device log)
         if model._meta.app_label == 'sync' and model._meta.model_name == 'neonchangelog':
             return 'default'
 
         if model._meta.app_label in _ROUTED_APP_LABELS:
             if _is_neon_primary():
-                # After a save, Django may re-read the instance — route to
-                # the DB it was written to for read-your-own-writes.
-                if hints.get('instance') and getattr(
-                    hints.get('instance'), '_state', None
-                ):
-                    instance = hints['instance']
-                    if getattr(instance._state, 'db', None) == 'default':
-                        return 'default'
                 return 'local_cache'
             return 'default'
         return None
 
     def db_for_write(self, model, **hints):
-        # NeonChangeLog always writes to Neon
+        # NeonChangeLog always writes to Neon directly
         if model._meta.app_label == 'sync' and model._meta.model_name == 'neonchangelog':
             return 'default'
 
         if model._meta.app_label in _ROUTED_APP_LABELS:
             if _is_neon_primary():
-                # Check Neon health — fall back to local_cache if unreachable
-                if _check_neon_health():
-                    return 'default'
-                else:
-                    # Activate fallback mode so signals know to queue to outbox
-                    from sync.signals import set_fallback_active
-                    set_fallback_active(True)
-                    return 'local_cache'
+                # ALL writes go to local_cache — background worker syncs to Neon
+                return 'local_cache'
             return 'default'
         return None
 
@@ -154,7 +145,6 @@ class AppEnvironmentRouter:
         _MIGRATABLE_ALIASES = {'default', 'local_cache', 'sqlite', 'neon'}
         if app_label in _ROUTED_APP_LABELS:
             return db in _MIGRATABLE_ALIASES
-        # sync app (SyncOutbox) should migrate on local_cache too
         if app_label == 'sync':
             return db in _MIGRATABLE_ALIASES
         return None

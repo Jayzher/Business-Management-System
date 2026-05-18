@@ -348,18 +348,17 @@ def _mirror_delete_to_local_cache(sender, pk: int) -> None:
 # ── On-commit orchestrator ─────────────────────────────────────────────
 
 def _on_commit_save(sender, pk, table, app_label, model_name, row_data):
-    """Enqueue post-commit sync work to the background worker.
+    """Enqueue background push to Neon after local_cache write commits.
 
-    This returns immediately (~0ms) — the actual mirror/changelog/broadcast
-    happens asynchronously in the background thread.  The user's HTTP
-    response is not blocked.
+    The write already landed on local_cache (instant for the user).
+    This just queues the async push to Neon + changelog + WS broadcast.
     """
     from sync.background_sync import enqueue_save
     enqueue_save(sender, pk, table, app_label, model_name, row_data)
 
 
 def _on_commit_delete(sender, pk, table, app_label, model_name):
-    """Enqueue post-commit delete sync work to the background worker."""
+    """Enqueue background push of delete to Neon."""
     from sync.background_sync import enqueue_delete
     enqueue_delete(sender, pk, table, app_label, model_name)
 
@@ -372,37 +371,22 @@ def on_model_save(sender, instance, using, **kwargs):
         return
     if getattr(_MIRROR_ACTIVE, 'value', False):
         return
+    # Skip if the startup sync is writing to local_cache (avoid re-entrancy)
+    if _SYNC_IN_PROGRESS.is_set():
+        return
 
-    # Normal Neon path
-    if using == 'default' and _is_neon_primary():
+    # LOCAL-FIRST: writes go to local_cache, then background pushes to Neon
+    if using == 'local_cache' and _is_neon_primary():
         pk, table = instance.pk, sender._meta.db_table
         app_label, model_name = sender._meta.app_label, sender._meta.model_name
         row_data = _instance_to_dict(instance)
         db_transaction.on_commit(
             lambda: _on_commit_save(sender, pk, table, app_label, model_name, row_data),
-            using='default',
-        )
-        return
-
-    # Fallback path: written to local_cache because Neon was down
-    if using == 'local_cache' and is_fallback_active():
-        pk, table = instance.pk, sender._meta.db_table
-        row_data = _instance_to_dict(instance)
-        _queue_to_outbox(
-            action='upsert',
-            table=table,
-            app_label=sender._meta.app_label,
-            model_name=sender._meta.model_name,
-            pk=pk,
-            row_data=row_data,
-        )
-        db_transaction.on_commit(
-            lambda: broadcast_data_changed(table, 'upsert', [row_data]),
             using='local_cache',
         )
         return
 
-    # Offline mode (SYNC_MODE='offline'): default IS local_cache
+    # Offline mode (SYNC_MODE='offline'): just broadcast
     if using == 'default' and not _is_neon_primary():
         pk, table = instance.pk, sender._meta.db_table
         row_data = _instance_to_dict(instance)
@@ -418,30 +402,15 @@ def on_model_delete(sender, instance, using, **kwargs):
         return
     if getattr(_MIRROR_ACTIVE, 'value', False):
         return
+    if _SYNC_IN_PROGRESS.is_set():
+        return
 
-    # Normal Neon path
-    if using == 'default' and _is_neon_primary():
+    # LOCAL-FIRST: delete happened on local_cache, push to Neon in background
+    if using == 'local_cache' and _is_neon_primary():
         pk, table = instance.pk, sender._meta.db_table
         app_label, model_name = sender._meta.app_label, sender._meta.model_name
         db_transaction.on_commit(
             lambda: _on_commit_delete(sender, pk, table, app_label, model_name),
-            using='default',
-        )
-        return
-
-    # Fallback path
-    if using == 'local_cache' and is_fallback_active():
-        pk, table = instance.pk, sender._meta.db_table
-        _queue_to_outbox(
-            action='delete',
-            table=table,
-            app_label=sender._meta.app_label,
-            model_name=sender._meta.model_name,
-            pk=pk,
-            row_data=None,
-        )
-        db_transaction.on_commit(
-            lambda: broadcast_data_changed(table, 'delete', [{'id': pk}]),
             using='local_cache',
         )
         return
