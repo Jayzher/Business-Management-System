@@ -32,6 +32,7 @@
     .wis-tour-popover .driver-popover-footer button { font-size: .82rem; padding: .3rem .7rem; border-radius: 4px; }
     /* Skeleton loading */
     @keyframes wis-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+    @keyframes wis-pop-in { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
     .wis-skeleton { background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 800px 100%; animation: wis-shimmer 1.5s infinite ease-in-out; border-radius: 4px; }
     .wis-skeleton-text { height: 14px; margin-bottom: 8px; width: 80%; }
     .wis-skeleton-title { height: 22px; margin-bottom: 12px; width: 50%; }
@@ -427,6 +428,20 @@
 
 <!-- Toast Container -->
 <div class="toast-container position-fixed top-0 end-0 p-3" id="wis-toast-container" style="z-index:9999;"></div>
+
+<!-- Global Loading Overlay (shown during form submissions) -->
+<div id="wis-loading-overlay" style="display:none; position:fixed; inset:0; background:rgba(255,255,255,0.85); z-index:10000; align-items:center; justify-content:center; flex-direction:column; gap:16px; backdrop-filter:blur(2px);">
+  <div id="wis-loading-spinner" style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+    <div class="spinner-border text-primary" style="width:3rem; height:3rem;" role="status"></div>
+    <span style="font-size:.95rem; font-weight:600; color:#374151;">Processing...</span>
+  </div>
+  <div id="wis-loading-success" style="display:none; flex-direction:column; align-items:center; gap:8px; animation:wis-pop-in .3s ease;">
+    <div style="width:56px; height:56px; border-radius:50%; background:#d1fae5; display:flex; align-items:center; justify-content:center;">
+      <i class="fas fa-check" style="font-size:1.5rem; color:#065f46;"></i>
+    </div>
+    <span style="font-size:.95rem; font-weight:600; color:#065f46;">Done!</span>
+  </div>
+</div>
 
 <!-- Reusable Modal Shell -->
 <div class="modal fade" id="wis-modal" tabindex="-1" aria-hidden="true">
@@ -2492,6 +2507,102 @@ $(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
 });
 </script>
 {% block extra_js %}{% endblock %}
+<!-- Global Form Loading Overlay -->
+<script>
+(function(){
+  var overlay = document.getElementById('wis-loading-overlay');
+  var spinner = document.getElementById('wis-loading-spinner');
+  var success = document.getElementById('wis-loading-success');
+
+  /* Show loading overlay */
+  window.WIS = window.WIS || {};
+  WIS.showLoading = function(message) {
+    spinner.querySelector('span').textContent = message || 'Processing...';
+    spinner.style.display = 'flex';
+    success.style.display = 'none';
+    overlay.style.display = 'flex';
+  };
+
+  /* Show success state briefly then hide */
+  WIS.showSuccess = function(message) {
+    spinner.style.display = 'none';
+    success.querySelector('span').textContent = message || 'Done!';
+    success.style.display = 'flex';
+    overlay.style.display = 'flex';
+    setTimeout(function(){ overlay.style.display = 'none'; }, 1200);
+  };
+
+  /* Hide overlay */
+  WIS.hideLoading = function() {
+    overlay.style.display = 'none';
+  };
+
+  /* ── Intercept all non-modal, non-AJAX form submissions ──────────── */
+  document.addEventListener('submit', function(e) {
+    var form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+
+    /* Skip if already handled by wisHandleFormSubmit (modal AJAX forms) */
+    if (e.defaultPrevented) return;
+
+    /* Skip forms that explicitly opt out */
+    if (form.dataset.noLoading === '1') return;
+
+    /* Skip search/filter forms (GET method) */
+    if ((form.method || 'GET').toUpperCase() === 'GET') return;
+
+    /* Skip forms inside the modal (handled by AJAX) */
+    if (form.closest('#wis-modal')) return;
+
+    /* This is a normal POST form submission (page will reload) — show overlay */
+    WIS.showLoading('Saving...');
+
+    /* Disable submit button to prevent double-clicks */
+    var btn = form.querySelector('[type="submit"]');
+    if (btn && !btn.disabled) {
+      btn.disabled = true;
+      btn.dataset.wisOrigHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Saving...';
+    }
+  }, true);
+
+  /* ── On page load: show success if redirected after a successful save ── */
+  /* Django messages framework signals success via ?saved=1 or messages */
+  var urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('saved') === '1') {
+    WIS.showSuccess('Saved successfully!');
+    /* Clean up the URL */
+    var cleanUrl = window.location.pathname + window.location.hash;
+    window.history.replaceState({}, '', cleanUrl);
+  }
+
+  /* Also trigger success overlay briefly for Django messages with 'success' tag */
+  {% if messages %}{% for message in messages %}{% if 'success' in message.tags %}
+  (function(){
+    /* Show the success overlay briefly, then let the toast handle the message */
+    spinner.style.display = 'none';
+    success.querySelector('span').textContent = 'Done!';
+    success.style.display = 'flex';
+    overlay.style.display = 'flex';
+    setTimeout(function(){ overlay.style.display = 'none'; }, 800);
+  })();
+  {% endif %}{% endfor %}{% endif %}
+
+  /* ── Safety: hide overlay if page loads without redirect (back button, error) ── */
+  window.addEventListener('pageshow', function(e) {
+    if (e.persisted) {
+      /* Page was restored from bfcache (back button) — hide any stale overlay */
+      WIS.hideLoading();
+      /* Re-enable any disabled buttons */
+      document.querySelectorAll('[data-wis-orig-html]').forEach(function(btn) {
+        btn.disabled = false;
+        btn.innerHTML = btn.dataset.wisOrigHtml;
+        delete btn.dataset.wisOrigHtml;
+      });
+    }
+  });
+})();
+</script>
 <!-- WebSocket real-time sync -->
 <script src="{% static 'js/ws-sync.js' %}"></script>
 </body>
