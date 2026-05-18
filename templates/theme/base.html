@@ -505,7 +505,7 @@ $(function(){
     var dt = $t.DataTable({
       pageLength: initialLen,
       lengthMenu: [lengths, lengths],
-      order: [],
+      order: [[0, 'desc']],
       language: {
         search: '',
         searchPlaceholder: 'Search…',
@@ -722,7 +722,7 @@ WIS.refreshContent = function() {
         var dt = $t.DataTable({
           pageLength: initialLen,
           lengthMenu: [lengths, lengths],
-          order: [],
+          order: [[0, 'desc']],
           language: {
             search: '',
             searchPlaceholder: 'Search…',
