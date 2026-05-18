@@ -77,6 +77,7 @@ class UnitConversion(SoftDeleteModel):
     )
 
     class Meta:
+        ordering = ['-created_at']
         constraints = [
             models.UniqueConstraint(
                 fields=['from_unit', 'to_unit'],
@@ -184,7 +185,7 @@ class Item(SoftDeleteModel):
     image = models.ImageField(upload_to='items/', blank=True, null=True)
 
     class Meta:
-        ordering = ['code']
+        ordering = ['-created_at', 'code']
 
     @property
     def stock_unit(self):

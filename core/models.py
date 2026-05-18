@@ -338,7 +338,7 @@ class SupplyItem(SoftDeleteModel):
     notes = models.TextField(blank=True, default='')
 
     class Meta:
-        ordering = ['name']
+        ordering = ['-created_at']
 
     def __str__(self):
         return f"[{self.code}] {self.name}"
