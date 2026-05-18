@@ -938,6 +938,81 @@ _SYNC_ACTIONS = {
         'args': [],
         'confirm': 'This will overwrite local_cache with all data from Neon. Continue?',
     },
+    'sync_from_changelog': {
+        'label': 'Sync from Changelog',
+        'icon': 'fas fa-stream',
+        'color': 'success',
+        'description': 'Pull only new changes from Neon\'s NeonChangeLog (delta sync). Fast — only syncs what changed since last checkpoint.',
+        'category': 'sync',
+        'command': 'sync_from_changelog',
+        'args': [],
+    },
+    'sync_from_changelog_status': {
+        'label': 'Changelog Sync Status',
+        'icon': 'fas fa-info-circle',
+        'color': 'info',
+        'description': 'Show current sync checkpoint, pending changes count, and whether local_cache is up to date.',
+        'category': 'test',
+        'command': 'sync_from_changelog',
+        'args': ['--status'],
+    },
+    'sync_from_changelog_reset': {
+        'label': 'Reset Changelog & Full Hydrate',
+        'icon': 'fas fa-undo-alt',
+        'color': 'danger',
+        'description': 'Clear the sync checkpoint and do a full hydration from Neon. Use when local_cache is corrupted.',
+        'category': 'sync',
+        'command': 'sync_from_changelog',
+        'args': ['--reset'],
+        'confirm': 'This will clear the sync checkpoint and re-download ALL data from Neon. Continue?',
+    },
+    'reconcile_local_cache': {
+        'label': 'Reconcile Local Cache',
+        'icon': 'fas fa-balance-scale',
+        'color': 'warning',
+        'description': 'Row-by-row comparison of Neon vs local_cache. Fixes inserts, updates, and deletes any orphans. Use after deploying new sync system or to fix drift.',
+        'category': 'sync',
+        'command': 'reconcile_local_cache',
+        'args': [],
+        'confirm': 'This will compare every row between Neon and local_cache and fix discrepancies. Continue?',
+    },
+    'reconcile_local_cache_dry': {
+        'label': 'Preview: Reconcile Local Cache',
+        'icon': 'fas fa-eye',
+        'color': 'info',
+        'description': 'Preview what the reconciliation would change without writing (shows inserts, updates, deletes).',
+        'category': 'test',
+        'command': 'reconcile_local_cache',
+        'args': ['--dry-run'],
+    },
+    'reconcile_backfill_changelog': {
+        'label': 'Reconcile + Backfill Changelog',
+        'icon': 'fas fa-history',
+        'color': 'danger',
+        'description': 'Reconcile local_cache AND backfill NeonChangeLog with all current Neon data. Run ONCE after deploying the changelog system.',
+        'category': 'sync',
+        'command': 'reconcile_local_cache',
+        'args': ['--backfill-changelog'],
+        'confirm': 'This will reconcile local_cache AND write a changelog entry for every row on Neon. This is a one-time operation. Continue?',
+    },
+    'prune_changelog': {
+        'label': 'Prune Old Changelog',
+        'icon': 'fas fa-broom',
+        'color': 'secondary',
+        'description': 'Delete NeonChangeLog entries older than 7 days. Safe to run periodically — servers that haven\'t synced in 7 days will auto-hydrate.',
+        'category': 'sync',
+        'command': 'prune_changelog',
+        'args': [],
+    },
+    'prune_changelog_dry': {
+        'label': 'Preview: Prune Changelog',
+        'icon': 'fas fa-eye',
+        'color': 'info',
+        'description': 'Show how many old changelog entries would be deleted (no changes made).',
+        'category': 'test',
+        'command': 'prune_changelog',
+        'args': ['--dry-run'],
+    },
 }
 
 
@@ -993,10 +1068,26 @@ def _gather_diagnostics():
 
     # Last background sync time
     try:
-        from sync.startup_sync import get_last_sync_time
+        from sync.startup_sync import get_last_sync_time, get_last_synced_log_id
         last_sync_time = get_last_sync_time()
+        last_synced_log_id = get_last_synced_log_id()
     except Exception:
         last_sync_time = None
+        last_synced_log_id = None
+
+    # Changelog pending count
+    try:
+        from sync.models import NeonChangeLog
+        if last_synced_log_id is not None:
+            changelog_pending = NeonChangeLog.objects.using('default').filter(
+                id__gt=last_synced_log_id
+            ).count()
+        else:
+            changelog_pending = NeonChangeLog.objects.using('default').count()
+        changelog_total = NeonChangeLog.objects.using('default').count()
+    except Exception:
+        changelog_pending = 0
+        changelog_total = 0
 
     return {
         'total_users': total_users,
@@ -1020,6 +1111,9 @@ def _gather_diagnostics():
         'outbox_failed': outbox_failed,
         'neon_online': neon_online,
         'last_sync_time': last_sync_time,
+        'last_synced_log_id': last_synced_log_id,
+        'changelog_pending': changelog_pending,
+        'changelog_total': changelog_total,
     }
 
 

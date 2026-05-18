@@ -240,6 +240,85 @@
   </div>
 </div>
 
+<!-- ── Sync Status Row ──────────────────────────────────────────────────── -->
+<div class="row mb-3">
+  <div class="col-lg-6 col-sm-12 mb-3">
+    <div class="card ts-card h-100">
+      <div class="card-header bg-white"><h3 class="card-title"><i class="fas fa-satellite-dish me-2 text-primary"></i>Neon Sync Status</h3></div>
+      <div class="card-body p-2">
+        <div class="row text-center">
+          <div class="col-3 ts-stat">
+            <div class="ts-num {% if diag.neon_online %}text-success{% else %}text-danger{% endif %}">
+              <i class="fas {% if diag.neon_online %}fa-check-circle{% else %}fa-times-circle{% endif %}"></i>
+            </div>
+            <div class="ts-label">Neon</div>
+          </div>
+          <div class="col-3 ts-stat">
+            <div class="ts-num {% if diag.changelog_pending > 0 %}text-warning{% else %}text-success{% endif %}">{{ diag.changelog_pending }}</div>
+            <div class="ts-label">Pending</div>
+          </div>
+          <div class="col-3 ts-stat">
+            <div class="ts-num text-secondary">{{ diag.changelog_total }}</div>
+            <div class="ts-label">Log Total</div>
+          </div>
+          <div class="col-3 ts-stat">
+            <div class="ts-num {% if diag.outbox_pending > 0 %}text-warning{% else %}text-muted{% endif %}">{{ diag.outbox_pending }}</div>
+            <div class="ts-label">Outbox</div>
+          </div>
+        </div>
+        <div class="px-2 pb-1">
+          {% if diag.changelog_pending > 0 %}
+            <span class="badge ts-badge-warn"><i class="fas fa-exclamation-triangle me-1"></i>{{ diag.changelog_pending }} change(s) pending sync</span>
+          {% elif not diag.neon_online %}
+            <span class="badge ts-badge-err"><i class="fas fa-wifi me-1"></i>Neon offline — writes queued to outbox</span>
+          {% else %}
+            <span class="badge ts-badge-ok"><i class="fas fa-check me-1"></i>Local cache up to date</span>
+          {% endif %}
+          {% if diag.last_sync_time %}
+            <small class="text-muted d-block mt-1">Last sync: {{ diag.last_sync_time|timesince }} ago</small>
+          {% endif %}
+          {% if diag.last_synced_log_id is not None %}
+            <small class="text-muted d-block">Checkpoint: #{{ diag.last_synced_log_id }}</small>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6 col-sm-12 mb-3">
+    <div class="card ts-card h-100">
+      <div class="card-header bg-white"><h3 class="card-title"><i class="fas fa-exchange-alt me-2 text-info"></i>Sync Outbox</h3></div>
+      <div class="card-body p-2">
+        <div class="row text-center">
+          <div class="col-4 ts-stat">
+            <div class="ts-num {% if diag.outbox_pending > 0 %}text-warning{% else %}text-muted{% endif %}">{{ diag.outbox_pending }}</div>
+            <div class="ts-label">Pending</div>
+          </div>
+          <div class="col-4 ts-stat">
+            <div class="ts-num {% if diag.outbox_failed > 0 %}text-danger{% else %}text-muted{% endif %}">{{ diag.outbox_failed }}</div>
+            <div class="ts-label">Failed</div>
+          </div>
+          <div class="col-4 ts-stat">
+            <div class="ts-num {% if diag.neon_online %}text-success{% else %}text-danger{% endif %}">
+              {% if diag.neon_online %}Online{% else %}Offline{% endif %}
+            </div>
+            <div class="ts-label">Neon DB</div>
+          </div>
+        </div>
+        <div class="px-2 pb-1">
+          {% if diag.outbox_pending > 0 %}
+            <span class="badge ts-badge-warn"><i class="fas fa-clock me-1"></i>{{ diag.outbox_pending }} write(s) waiting to replay to Neon</span>
+          {% elif diag.outbox_failed > 0 %}
+            <span class="badge ts-badge-err"><i class="fas fa-times me-1"></i>{{ diag.outbox_failed }} write(s) failed — check logs</span>
+          {% else %}
+            <span class="badge ts-badge-ok"><i class="fas fa-check me-1"></i>Outbox empty — all writes synced</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Actions ──────────────────────────────────────────────────────────── -->
 <div class="row">
   <!-- Tests Column -->

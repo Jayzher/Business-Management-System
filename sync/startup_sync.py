@@ -114,6 +114,24 @@ def _run_changelog_sync():
             # Safety check: if the checkpoint references a log_id that was pruned,
             # we need to fall back to full hydration.
             from sync.models import NeonChangeLog
+
+            changelog_count = NeonChangeLog.objects.using('default').count()
+
+            # TRANSITION SCENARIO: checkpoint is 0 and changelog is empty.
+            # This means the changelog system was just deployed but no changes
+            # have been logged yet.  Pre-existing Neon data may not be in
+            # local_cache.  Do a full hydration to catch up.
+            if last_log_id == 0 and changelog_count == 0:
+                logger.info(
+                    'Checkpoint is 0 and changelog is empty — this is likely '
+                    'the first boot after deploying the changelog system. '
+                    'Running full hydration to catch pre-existing changes...'
+                )
+                _run_full_hydration()
+                _set_checkpoint_to_latest()
+                _set_last_sync_time(sync_start)
+                return
+
             oldest_entry = (
                 NeonChangeLog.objects.using('default')
                 .order_by('id')
