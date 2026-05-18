@@ -348,19 +348,20 @@ def _mirror_delete_to_local_cache(sender, pk: int) -> None:
 # ── On-commit orchestrator ─────────────────────────────────────────────
 
 def _on_commit_save(sender, pk, table, app_label, model_name, row_data):
-    if not is_fallback_active():
-        _mirror_to_local_cache(sender, pk)
-    # Log to NeonChangeLog so other devices can catch up on next startup
-    _log_to_neon_changelog('upsert', table, app_label, model_name, pk, row_data)
-    broadcast_data_changed(table, 'upsert', [row_data])
+    """Enqueue post-commit sync work to the background worker.
+
+    This returns immediately (~0ms) — the actual mirror/changelog/broadcast
+    happens asynchronously in the background thread.  The user's HTTP
+    response is not blocked.
+    """
+    from sync.background_sync import enqueue_save
+    enqueue_save(sender, pk, table, app_label, model_name, row_data)
 
 
 def _on_commit_delete(sender, pk, table, app_label, model_name):
-    if not is_fallback_active():
-        _mirror_delete_to_local_cache(sender, pk)
-    # Log to NeonChangeLog so other devices can catch up on next startup
-    _log_to_neon_changelog('delete', table, app_label, model_name, pk, None)
-    broadcast_data_changed(table, 'delete', [{'id': pk}])
+    """Enqueue post-commit delete sync work to the background worker."""
+    from sync.background_sync import enqueue_delete
+    enqueue_delete(sender, pk, table, app_label, model_name)
 
 
 # ── Signal receivers ───────────────────────────────────────────────────

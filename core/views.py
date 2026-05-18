@@ -1089,6 +1089,13 @@ def _gather_diagnostics():
         changelog_pending = 0
         changelog_total = 0
 
+    # Background sync queue size
+    try:
+        from sync.background_sync import get_queue_size
+        bg_queue_size = get_queue_size()
+    except Exception:
+        bg_queue_size = 0
+
     return {
         'total_users': total_users,
         'users_with_roles': users_with_roles,
@@ -1114,6 +1121,7 @@ def _gather_diagnostics():
         'last_synced_log_id': last_synced_log_id,
         'changelog_pending': changelog_pending,
         'changelog_total': changelog_total,
+        'bg_queue_size': bg_queue_size,
     }
 
 
