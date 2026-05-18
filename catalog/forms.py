@@ -44,6 +44,39 @@ class UnitConversionForm(forms.ModelForm):
             self.fields['factor'].initial = None
             self.fields['conversion_price'].initial = None
 
+    def clean(self):
+        cleaned_data = super().clean()
+        from_unit = cleaned_data.get('from_unit')
+        to_unit = cleaned_data.get('to_unit')
+        item = cleaned_data.get('item')
+        
+        # Skip validation if either unit is missing (will be caught by required field validation)
+        if not from_unit or not to_unit:
+            return cleaned_data
+        
+        # Check if units are the same
+        if from_unit.pk == to_unit.pk:
+            raise forms.ValidationError('A unit cannot be converted to itself.')
+        
+        # For GLOBAL conversions (item is None), enforce same-category rule
+        if not item:
+            if from_unit.category != to_unit.category:
+                raise forms.ValidationError(
+                    f'Global conversions require units from the same category. '
+                    f'{from_unit.name} is in category "{from_unit.get_category_display()}" '
+                    f'while {to_unit.name} is in category "{to_unit.get_category_display()}". '
+                    f'To convert between different categories, create an item-specific conversion instead.'
+                )
+        else:
+            # For ITEM-SPECIFIC conversions, allow cross-category but enforce from_unit = default_unit
+            if from_unit.pk != item.default_unit.pk:
+                raise forms.ValidationError(
+                    f'For item-specific conversions, the source unit must be the item\'s default unit ({item.default_unit}). '
+                    f'You selected {from_unit}.'
+                )
+        
+        return cleaned_data
+
     class Meta:
         model = UnitConversion
         fields = ['from_unit', 'to_unit', 'factor', 'conversion_price', 'item']
@@ -60,13 +93,13 @@ class UnitConversionForm(forms.ModelForm):
             'item': forms.Select(attrs={'class': 'form-control select2'}),
         }
         help_texts = {
-            'from_unit': 'Source unit (e.g. Roll).',
-            'to_unit': 'Target unit (e.g. ft).',
+            'from_unit': 'Source unit. For item-specific conversions, must be the item\'s default unit.',
+            'to_unit': 'Target unit. For global conversions, must be in the same category as source unit.',
             'factor': 'How many target units equal 1 source unit (e.g. 1 Roll = 5 ft → factor = 5).',
             'conversion_price': 'Optional explicit selling price per 1 to_unit. '
                                 'If set, overrides factor-based price for selling (not COGS). '
-                                'Example: leave item selling_price=100/Roll but charge 30/ft.',
-            'item': 'Leave blank for a global conversion. Select a product to override for that specific item only.',
+                                'Recommended for cross-category item conversions.',
+            'item': 'Leave blank for a global conversion (same-category only). Select an item to allow cross-category conversions.',
         }
 
 
@@ -77,6 +110,85 @@ class ItemUnitConversionForm(forms.ModelForm):
             self.fields['factor'].initial = None
             self.fields['conversion_price'].initial = None
 
+    def full_clean(self):
+        """Override to handle unique constraint validation issues."""
+        super().full_clean()
+        
+        # Remove unique constraint errors for new instances
+        # The database will properly validate on save
+        if not self.instance.pk and hasattr(self, '_errors') and self._errors:
+            if '__all__' in self._errors:
+                # Filter out unique constraint errors
+                filtered_errors = []
+                for error in self._errors['__all__']:
+                    error_str = str(error)
+                    if 'unique' not in error_str.lower() and 'constraint' not in error_str.lower():
+                        filtered_errors.append(error)
+                
+                if filtered_errors:
+                    self._errors['__all__'] = filtered_errors
+                else:
+                    del self._errors['__all__']
+
+    def clean_from_unit(self):
+        """Ensure from_unit is always the item's default_unit for item-specific conversions."""
+        from_unit = self.cleaned_data.get('from_unit')
+        
+        # Skip validation if from_unit is not provided
+        if not from_unit:
+            return from_unit
+        
+        # Get the item from the formset's parent instance
+        if hasattr(self, 'instance') and self.instance and hasattr(self.instance, 'item'):
+            item = self.instance.item
+            
+            # For existing items, validate against the saved default_unit
+            if item and item.pk and hasattr(item, 'default_unit') and item.default_unit:
+                if from_unit.pk != item.default_unit.pk:
+                    raise forms.ValidationError(
+                        f'The source unit must be the item\'s default unit ({item.default_unit}). '
+                        f'You selected {from_unit}. Item conversions always convert FROM the base unit.'
+                    )
+            
+            # For new items, try to get default_unit from the parent form data
+            elif item and not item.pk:
+                # Try to get default_unit from the form data
+                # The parent form should have 'default_unit' in the POST data
+                if hasattr(self, 'data') and self.data:
+                    default_unit_id = self.data.get('default_unit')
+                    if default_unit_id:
+                        try:
+                            from catalog.models import Unit
+                            default_unit = Unit.objects.get(pk=int(default_unit_id))
+                            if from_unit.pk != default_unit.pk:
+                                raise forms.ValidationError(
+                                    f'The source unit must match the item\'s default unit ({default_unit}). '
+                                    f'You selected {from_unit}. Item conversions always convert FROM the base unit.'
+                                )
+                        except (ValueError, Unit.DoesNotExist):
+                            pass  # Let the parent form handle invalid default_unit
+        
+        return from_unit
+
+    def clean(self):
+        cleaned_data = super().clean()
+        from_unit = cleaned_data.get('from_unit')
+        to_unit = cleaned_data.get('to_unit')
+        
+        # Skip validation if either unit is missing (will be caught by required field validation)
+        if not from_unit or not to_unit:
+            return cleaned_data
+        
+        # Check if units are the same
+        if from_unit.pk == to_unit.pk:
+            raise forms.ValidationError('A unit cannot be converted to itself.')
+        
+        # Allow cross-category conversions for item-specific conversions (for selling purposes)
+        # This enables scenarios like selling aluminum profiles (pieces) by length (feet)
+        # No category validation needed here
+        
+        return cleaned_data
+
     class Meta:
         model = UnitConversion
         fields = ['from_unit', 'to_unit', 'factor', 'conversion_price']
@@ -84,39 +196,51 @@ class ItemUnitConversionForm(forms.ModelForm):
             'from_unit': forms.Select(attrs={'class': 'form-control'}),
             'to_unit': forms.Select(attrs={'class': 'form-control'}),
             'factor': forms.NumberInput(attrs={
-                'class': 'form-control', 'step': '0.000001', 'min': '0', 'placeholder': 'e.g., 5'
+                'class': 'form-control', 'step': '0.000001', 'min': '0', 'placeholder': 'e.g., 21'
             }),
             'conversion_price': forms.NumberInput(attrs={
                 'class': 'form-control', 'step': '0.01', 'min': '0',
-                'placeholder': 'e.g., 30.00 (optional)',
+                'placeholder': 'e.g., 36.00 (optional)',
             }),
         }
         help_texts = {
-            'from_unit': 'Source unit for this item-specific conversion.',
-            'to_unit': 'Target unit for this item-specific conversion.',
-            'factor': 'How many target units equal 1 source unit.',
-            'conversion_price': 'Optional explicit price per to_unit for selling. Leave blank to derive from item selling_price.',
+            'from_unit': 'Must be the item\'s default unit. Item conversions always start from the base unit.',
+            'to_unit': 'Target selling unit. Can be any unit, even from a different category.',
+            'factor': 'How many target units equal 1 source unit (e.g., 1 piece = 21 feet).',
+            'conversion_price': 'Explicit selling price per to_unit. Recommended for cross-category conversions.',
         }
 
 
 class BaseItemUnitConversionFormSet(BaseInlineFormSet):
     def clean(self):
         super().clean()
+        if any(self.errors):
+            # Don't validate duplicates if there are already field errors
+            return
+        
         seen = set()
         for form in self.forms:
             if not hasattr(form, 'cleaned_data'):
                 continue
             if form.cleaned_data.get('DELETE'):
                 continue
+            
             from_unit = form.cleaned_data.get('from_unit')
             to_unit = form.cleaned_data.get('to_unit')
             factor = form.cleaned_data.get('factor')
+            
+            # Skip completely empty rows
             if not from_unit and not to_unit and factor in (None, ''):
                 continue
+            
+            # Check for duplicates within this formset submission
             if from_unit and to_unit:
                 key = (from_unit.pk, to_unit.pk)
                 if key in seen:
-                    raise forms.ValidationError('Duplicate conversion rows are not allowed for the same item.')
+                    raise forms.ValidationError(
+                        f'Duplicate conversion found: {from_unit} → {to_unit}. '
+                        f'You cannot have multiple conversions with the same from/to units for one item.'
+                    )
                 seen.add(key)
 
 

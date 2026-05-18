@@ -882,7 +882,53 @@ function wisHandleFormSubmit(e) {
           wisAdjustmentInit(newForm);
           if (WIS.initServiceOtherMaterials) WIS.initServiceOtherMaterials(wisModalBody);
         }
-        Swal.fire({ icon: 'warning', title: 'Validation', text: 'Please fix the errors below.' });
+        /* Collect all error messages from the re-rendered form */
+        var errorMessages = [];
+        var newFormEl = wisModalBody.querySelector('form');
+        if (newFormEl) {
+          /* Field errors - look for .text-danger and .errorlist */
+          newFormEl.querySelectorAll('.text-danger').forEach(function(errEl) {
+            var text = errEl.textContent.trim();
+            if (text && text.length > 1 && errorMessages.indexOf(text) === -1) {
+              errorMessages.push(text);
+            }
+          });
+          newFormEl.querySelectorAll('.errorlist li').forEach(function(li) {
+            var text = li.textContent.trim();
+            if (text && text.length > 1 && errorMessages.indexOf(text) === -1) {
+              errorMessages.push(text);
+            }
+          });
+          /* Non-field errors in alerts */
+          newFormEl.querySelectorAll('.alert-danger').forEach(function(alert) {
+            var text = alert.textContent.trim();
+            if (text && text.length > 1 && errorMessages.indexOf(text) === -1) {
+              errorMessages.push(text);
+            }
+          });
+          /* Formset non-form errors */
+          wisModalBody.querySelectorAll('.alert-danger').forEach(function(alert) {
+            var text = alert.textContent.trim();
+            if (text && text.length > 1 && errorMessages.indexOf(text) === -1) {
+              errorMessages.push(text);
+            }
+          });
+        }
+        
+        /* Debug: log to console */
+        if (window.console) console.log('Validation errors found:', errorMessages);
+        
+        var errorHtml = errorMessages.length > 0
+          ? '<ul style="text-align:left;margin:0;padding-left:20px;">' + errorMessages.map(function(msg) { return '<li>' + msg + '</li>'; }).join('') + '</ul>'
+          : 'Please check the form for errors. The form could not be saved.';
+        
+        Swal.fire({ 
+          icon: 'warning', 
+          title: 'Validation Error', 
+          html: errorHtml,
+          customClass: { htmlContainer: 'text-start' },
+          width: 600
+        });
       }
     }
   })

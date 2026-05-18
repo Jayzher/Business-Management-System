@@ -355,11 +355,37 @@ def item_edit_view(request, pk):
     if request.method == 'POST':
         form = ItemForm(request.POST, request.FILES, instance=item)
         formset = ItemUnitConversionFormSet(request.POST, instance=item, prefix='conversions')
-        if form.is_valid() and formset.is_valid():
+        
+        form_valid = form.is_valid()
+        formset_valid = formset.is_valid()
+        
+        # Debug logging
+        if not form_valid:
+            print(f"Form errors: {form.errors}")
+        if not formset_valid:
+            print(f"Formset errors: {formset.errors}")
+            print(f"Formset non-form errors: {formset.non_form_errors()}")
+        
+        if form_valid and formset_valid:
             form.save()
             formset.save()
             messages.success(request, 'Item updated successfully.')
             return redirect('item_detail', pk=item.pk)
+        else:
+            # Add error message for modal/AJAX requests
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.POST.get('_modal'):
+                error_details = []
+                if form.errors:
+                    for field, errors in form.errors.items():
+                        error_details.append(f"{field}: {', '.join(errors)}")
+                if formset.errors:
+                    for i, form_errors in enumerate(formset.errors):
+                        if form_errors:
+                            error_details.append(f"Conversion {i+1}: {form_errors}")
+                if formset.non_form_errors():
+                    error_details.extend(formset.non_form_errors())
+                
+                messages.error(request, f"Validation failed. Details: {'; '.join(error_details)}")
     else:
         form = ItemForm(instance=item)
         formset = ItemUnitConversionFormSet(instance=item, prefix='conversions')
