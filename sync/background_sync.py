@@ -142,6 +142,8 @@ def _process_batch(batch: list):
     # Group by type for efficient processing
     saves = [t for t in batch if t['type'] == 'save']
     deletes = [t for t in batch if t['type'] == 'delete']
+    neon_soft_deletes = [t for t in batch if t['type'] == 'neon_soft_delete']
+    neon_hard_deletes = [t for t in batch if t['type'] == 'neon_hard_delete']
 
     # ── Process saves ──────────────────────────────────────────────────
     if saves:
@@ -174,7 +176,7 @@ def _process_batch(batch: list):
                     task['table'], task['pk'], exc,
                 )
 
-    # ── Process deletes ────────────────────────────────────────────────
+    # ── Process deletes (post-commit mirror from Neon signals) ─────────
     if deletes:
         # Deduplicate deletes too
         seen = {}
@@ -205,3 +207,100 @@ def _process_batch(batch: list):
                     'BG delete failed (%s pk=%s): %s',
                     task['table'], task['pk'], exc,
                 )
+
+    # ── Process local-first soft deletes (apply to Neon) ───────────────
+    if neon_soft_deletes:
+        seen = {}
+        for task in neon_soft_deletes:
+            key = (task['table'], task['pk'])
+            seen[key] = task
+        unique_neon_soft = list(seen.values())
+
+        for task in unique_neon_soft:
+            try:
+                _apply_neon_soft_delete(task)
+            except Exception as exc:
+                logger.warning(
+                    'BG neon_soft_delete failed (%s pk=%s): %s',
+                    task['table'], task['pk'], exc,
+                )
+                # Queue to outbox for retry if Neon is unreachable
+                _queue_failed_delete_to_outbox(task, 'upsert', exc)
+
+    # ── Process local-first hard deletes (apply to Neon) ───────────────
+    if neon_hard_deletes:
+        seen = {}
+        for task in neon_hard_deletes:
+            key = (task['table'], task['pk'])
+            seen[key] = task
+        unique_neon_hard = list(seen.values())
+
+        for task in unique_neon_hard:
+            try:
+                _apply_neon_hard_delete(task)
+            except Exception as exc:
+                logger.warning(
+                    'BG neon_hard_delete failed (%s pk=%s): %s',
+                    task['table'], task['pk'], exc,
+                )
+                # Queue to outbox for retry
+                _queue_failed_delete_to_outbox(task, 'delete', exc)
+
+
+def _apply_neon_soft_delete(task):
+    """Apply a soft-delete (UPDATE is_active=False) to Neon."""
+    from sync.signals import _log_to_neon_changelog, _instance_to_dict
+    from django.utils import timezone as tz
+
+    sender = task['sender']
+    pk = task['pk']
+
+    # Update on Neon
+    updated = sender.all_objects.using('default').filter(pk=pk).update(
+        is_active=False, updated_at=tz.now()
+    )
+
+    if updated:
+        # Log to changelog so other devices catch up
+        obj = sender.all_objects.using('default').filter(pk=pk).first()
+        if obj:
+            row_data = _instance_to_dict(obj)
+            _log_to_neon_changelog(
+                'upsert', task['table'], task['app_label'],
+                task['model_name'], pk, row_data,
+            )
+
+
+def _apply_neon_hard_delete(task):
+    """Apply a hard-delete (DELETE) to Neon."""
+    from sync.signals import _log_to_neon_changelog
+
+    sender = task['sender']
+    pk = task['pk']
+
+    # Delete from Neon
+    sender._default_manager.using('default').filter(pk=pk).delete()
+
+    # Log to changelog
+    _log_to_neon_changelog(
+        'delete', task['table'], task['app_label'],
+        task['model_name'], pk, None,
+    )
+
+
+def _queue_failed_delete_to_outbox(task, action, exc):
+    """If the Neon delete fails, queue it to SyncOutbox for later retry."""
+    try:
+        from sync.models import SyncOutbox
+        SyncOutbox.objects.using('local_cache').create(
+            action=action,
+            db_table=task['table'],
+            app_label=task['app_label'],
+            model_name=task['model_name'],
+            row_pk=task['pk'],
+            row_data=None,
+        )
+        logger.info('Queued failed delete to outbox: %s#%d', task['table'], task['pk'])
+    except Exception as outbox_exc:
+        logger.error('Failed to queue delete to outbox (%s#%d): %s',
+                     task['table'], task['pk'], outbox_exc)
