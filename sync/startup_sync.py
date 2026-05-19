@@ -495,7 +495,7 @@ def _get_last_sync_time():
     """Get the last successful sync timestamp from local_cache (legacy)."""
     from django.db import connections
     from django.utils import timezone
-    from datetime import datetime
+    from datetime import datetime, timezone as dt_timezone
 
     try:
         _ensure_metadata_table()
@@ -507,7 +507,7 @@ def _get_last_sync_time():
             if row and row[0]:
                 dt = datetime.fromisoformat(row[0])
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
+                    dt = dt.replace(tzinfo=dt_timezone.utc)
                 return dt
     except Exception:
         pass

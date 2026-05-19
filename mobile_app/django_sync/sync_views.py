@@ -1,5 +1,6 @@
 import time
 import json
+from datetime import datetime, timezone as dt_timezone
 
 from django.db.models import Q
 from django.utils import timezone
@@ -27,7 +28,7 @@ def _ms_to_dt(ms):
     """Convert milliseconds timestamp to datetime, or return None."""
     if ms is None:
         return None
-    return timezone.datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+    return datetime.fromtimestamp(ms / 1000, tz=dt_timezone.utc)
 
 
 def _get_changes(model_class, serializer_class, since_dt, extra_filter=None):

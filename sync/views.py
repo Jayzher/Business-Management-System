@@ -1,5 +1,6 @@
 import time
 import logging
+from datetime import datetime, timezone as dt_timezone
 
 from django.db import transaction
 from django.utils import timezone
@@ -30,7 +31,7 @@ def _ms_to_dt(ms):
     """Convert milliseconds timestamp to datetime, or return None."""
     if ms is None:
         return None
-    return timezone.datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+    return datetime.fromtimestamp(ms / 1000, tz=dt_timezone.utc)
 
 
 def _get_changes(model_class, serializer_class, since_dt, extra_filter=None):
@@ -498,8 +499,8 @@ def sync_catchup(request):
         })
 
     try:
-        since_dt = timezone.datetime.fromtimestamp(
-            int(since_ms) / 1000, tz=timezone.utc
+        since_dt = datetime.fromtimestamp(
+            int(since_ms) / 1000, tz=dt_timezone.utc
         )
     except (ValueError, TypeError, OSError):
         return JsonResponse({

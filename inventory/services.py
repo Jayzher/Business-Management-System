@@ -1065,32 +1065,44 @@ def generate_document_number(prefix, model_class):
     """
     Generate sequential document numbers like PO-000001, GRN-000001, etc.
 
-    Uses a raw SQL query directly against PostgreSQL to find the highest
-    numeric suffix matching the given prefix, then increments by 1.
-    This bypasses ORM caching and ensures we read the latest committed data.
+    Reads the highest existing number from local_cache (SQLite) since that's
+    where writes go. Uses portable SQL that works on both SQLite and PostgreSQL.
     """
-    from django.db import connection
+    from django.db import connection, connections
+    from django.conf import settings
 
-    # Get the actual database table name from the model
     table_name = model_class._meta.db_table
+    pattern_like = f"{prefix}-%"
 
-    # Use a raw SQL query with regex to extract the max number directly from PostgreSQL
-    # This ensures we see ALL rows regardless of soft-delete managers or ORM state
-    sql = f"""
-        SELECT COALESCE(MAX(
-            CAST(SUBSTRING(document_number FROM %s) AS INTEGER)
-        ), 0)
-        FROM {table_name}
-        WHERE document_number ~ %s
-    """
-    # Pattern to extract the numeric part after the prefix
-    extract_pattern = rf'{prefix}-(\d+)'
-    match_pattern = rf'^{prefix}-\d+$'
+    # Determine which DB to query based on the SYNC_MODE.
+    # In neon_primary, all writes go to local_cache, so query there.
+    sync_mode = getattr(settings, 'SYNC_MODE', 'offline')
+    db_alias = 'local_cache' if sync_mode == 'neon_primary' else 'default'
 
-    with connection.cursor() as cursor:
-        cursor.execute(sql, [extract_pattern, match_pattern])
-        row = cursor.fetchone()
-        max_num = row[0] if row and row[0] else 0
+    # Use Django ORM to read all matching document_numbers — portable across DBs.
+    # We extract the numeric suffix in Python rather than SQL to avoid
+    # database-specific regex/substring functions.
+    qs = model_class._default_manager.using(db_alias).filter(
+        document_number__startswith=f"{prefix}-"
+    )
+    # Include soft-deleted rows so we don't reuse their numbers
+    if hasattr(model_class, 'all_objects'):
+        qs = model_class.all_objects.using(db_alias).filter(
+            document_number__startswith=f"{prefix}-"
+        )
+
+    max_num = 0
+    prefix_len = len(prefix) + 1  # +1 for the dash
+    for doc_num in qs.values_list('document_number', flat=True):
+        if not doc_num:
+            continue
+        suffix = doc_num[prefix_len:]
+        try:
+            num = int(suffix)
+            if num > max_num:
+                max_num = num
+        except (ValueError, TypeError):
+            continue
 
     return f"{prefix}-{max_num + 1:06d}"
 
