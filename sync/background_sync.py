@@ -102,6 +102,11 @@ def _worker_loop():
     """
     Main worker loop.  Processes tasks from the queue one at a time.
     Batches consecutive tasks for the same operation when possible.
+
+    IMPORTANT: Each batch is processed in its own short transaction.
+    After each batch, we close the DB connections to release any locks.
+    This prevents the background worker from holding SQLite locks that
+    would block user requests.
     """
     while True:
         try:
@@ -110,10 +115,10 @@ def _worker_loop():
         except queue.Empty:
             continue
 
+        batch = [task]
         try:
             # Drain additional tasks that arrived while we were processing
             # (batch optimization — reduces DB round-trips under load)
-            batch = [task]
             try:
                 while len(batch) < 50:  # Max batch size
                     extra = _task_queue.get_nowait()
@@ -129,6 +134,20 @@ def _worker_loop():
             # Mark all tasks as done
             for _ in batch:
                 _task_queue.task_done()
+
+            # Close DB connections after each batch to release locks.
+            # This is critical — without this, the background thread holds
+            # the SQLite connection open, which can block user writes even
+            # in WAL mode (if a write transaction is left open).
+            try:
+                from django.db import connections
+                for alias in ('local_cache', 'default'):
+                    try:
+                        connections[alias].close()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
 
 def _process_batch(batch: list):

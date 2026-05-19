@@ -169,15 +169,23 @@ if _OFFLINE_MODE:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': str(BASE_DIR / 'db.sqlite3'),
+            'OPTIONS': {
+                'timeout': 30,  # Wait up to 30s for locks (prevents "database is locked")
+            },
         },
         'local_cache': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': str(BASE_DIR / 'db.sqlite3'),
+            'OPTIONS': {
+                'timeout': 30,
+            },
         },
     }
     SYNC_MODE = 'offline'
 else:
-    # ── Normal mode: Neon = default (writes), SQLite = local_cache (reads) ─
+    # ── Normal mode: Local-first architecture ─────────────────────────────
+    # Reads + Writes → local_cache (SQLite, instant)
+    # Background worker pushes to Neon (PostgreSQL) asynchronously
     _neon_config = dj_database_url.parse(
         _DATABASE_URL or NEON_URL,
         conn_max_age=600,
@@ -188,6 +196,9 @@ else:
         'local_cache': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': str(BASE_DIR / 'db.sqlite3'),
+            'OPTIONS': {
+                'timeout': 30,  # Wait up to 30s for locks
+            },
         },
     }
     SYNC_MODE = 'neon_primary'
@@ -302,3 +313,34 @@ if not DEBUG:
 # QR Code settings
 # ---------------------------------------------------------------------------
 QR_CODE_DIR = MEDIA_ROOT / 'qrcodes'
+
+# ---------------------------------------------------------------------------
+# SQLite Performance: WAL mode + busy timeout
+# ---------------------------------------------------------------------------
+# WAL (Write-Ahead Logging) allows concurrent reads and writes on SQLite.
+# Without WAL, the background sync worker would block user requests because
+# SQLite's default journal mode only allows one writer at a time.
+#
+# With WAL:
+#   - Multiple readers can read simultaneously (no blocking)
+#   - One writer can write while readers are reading (no blocking)
+#   - Multiple writers queue up with busy_timeout (instead of failing)
+#
+# This is set via the connection_created signal so it applies to every
+# new SQLite connection (including those from background threads).
+# ---------------------------------------------------------------------------
+from django.db.backends.signals import connection_created
+
+
+def _set_sqlite_pragmas(sender, connection, **kwargs):
+    """Set performance PRAGMAs on every new SQLite connection."""
+    if connection.vendor == 'sqlite':
+        cursor = connection.cursor()
+        cursor.execute('PRAGMA journal_mode=WAL;')
+        cursor.execute('PRAGMA busy_timeout=30000;')  # 30s wait instead of failing
+        cursor.execute('PRAGMA synchronous=NORMAL;')  # Faster writes, still safe with WAL
+        cursor.execute('PRAGMA cache_size=-64000;')   # 64MB page cache
+        cursor.execute('PRAGMA temp_store=MEMORY;')   # Temp tables in RAM
+
+
+connection_created.connect(_set_sqlite_pragmas)
