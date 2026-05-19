@@ -32,7 +32,8 @@
           <td>{{ d.created_by.get_full_name|default:d.created_by.username }}</td>
           <td>
             <a href="{% url 'delivery_detail' d.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
-            {% if not is_view_only %}{% if d.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'delivery_edit' d.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>{% endif %}
+            {% if not is_view_only %}{% if d.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'delivery_edit' d.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
+            <form method="post" action="{% url 'delivery_post' d.pk %}" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-xs btn-success" title="Post" onclick="return confirm('Post this Delivery? This will update stock balances.')"><i class="fas fa-check-circle"></i></button></form>{% endif %}
             <a href="#" data-modal-url="{% url 'delivery_delete' d.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>
