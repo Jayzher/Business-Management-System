@@ -274,6 +274,10 @@ def _push_upsert_to_neon(task):
     This avoids reading from local_cache (which could cause lock contention).
     The row_data was captured at the time of the local_cache write, so it's
     already the correct state to push to Neon.
+    
+    IMPORTANT: We use bulk_create with update_conflicts=True instead of
+    update_or_create to avoid triggering signals and to preserve timestamps
+    from local_cache.
     """
     sender = task['sender']
     pk = task['pk']
@@ -287,40 +291,27 @@ def _push_upsert_to_neon(task):
     # Reconstruct the model instance from row_data
     obj = sender(**row_data)
     obj.pk = pk
+    obj._state.adding = True
+    obj._state.db = 'default'
     
     concrete_fields = [
         f for f in sender._meta.concrete_fields if not f.primary_key
     ]
     update_fields = [f.attname for f in concrete_fields]
 
-    # Temporarily disable auto_now/auto_now_add to preserve timestamps
-    auto_fields = []
-    for field in sender._meta.get_fields():
-        if hasattr(field, 'auto_now') and field.auto_now:
-            field.auto_now = False
-            auto_fields.append(('auto_now', field))
-        if hasattr(field, 'auto_now_add') and field.auto_now_add:
-            field.auto_now_add = False
-            auto_fields.append(('auto_now_add', field))
-
-    try:
-        obj._state.adding = True
-        obj._state.db = 'default'
-
-        if update_fields:
-            sender._default_manager.using('default').bulk_create(
-                [obj],
-                update_conflicts=True,
-                update_fields=update_fields,
-                unique_fields=['id'],
-            )
-        else:
-            sender._default_manager.using('default').bulk_create(
-                [obj], ignore_conflicts=True,
-            )
-    finally:
-        for attr, field in auto_fields:
-            setattr(field, attr, True)
+    # Use bulk_create with update_conflicts to bypass auto_now behavior
+    # This preserves the exact timestamps from local_cache
+    if update_fields:
+        sender._default_manager.using('default').bulk_create(
+            [obj],
+            update_conflicts=True,
+            update_fields=update_fields,
+            unique_fields=['id'],
+        )
+    else:
+        sender._default_manager.using('default').bulk_create(
+            [obj], ignore_conflicts=True,
+        )
 
 
 def _push_delete_to_neon(task):

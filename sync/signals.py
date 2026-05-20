@@ -294,34 +294,22 @@ def _mirror_to_local_cache(sender, pk: int) -> None:
         ]
         update_fields = [f.attname for f in concrete_fields]
 
-        # Temporarily disable auto_now so timestamps are preserved from Neon
-        auto_fields = []
-        for field in sender._meta.get_fields():
-            if hasattr(field, 'auto_now') and field.auto_now:
-                field.auto_now = False
-                auto_fields.append(('auto_now', field))
-            if hasattr(field, 'auto_now_add') and field.auto_now_add:
-                field.auto_now_add = False
-                auto_fields.append(('auto_now_add', field))
+        # bulk_create bypasses auto_now/auto_now_add, so timestamps from Neon are preserved
+        # No need to globally disable auto_now (which causes race conditions)
+        obj._state.adding = True
+        obj._state.db = 'local_cache'
 
-        try:
-            obj._state.adding = True
-            obj._state.db = 'local_cache'
-
-            if update_fields:
-                sender._default_manager.using('local_cache').bulk_create(
-                    [obj],
-                    update_conflicts=True,
-                    update_fields=update_fields,
-                    unique_fields=['id'],
-                )
-            else:
-                sender._default_manager.using('local_cache').bulk_create(
-                    [obj], ignore_conflicts=True,
-                )
-        finally:
-            for attr, field in auto_fields:
-                setattr(field, attr, True)
+        if update_fields:
+            sender._default_manager.using('local_cache').bulk_create(
+                [obj],
+                update_conflicts=True,
+                update_fields=update_fields,
+                unique_fields=['id'],
+            )
+        else:
+            sender._default_manager.using('local_cache').bulk_create(
+                [obj], ignore_conflicts=True,
+            )
     except Exception as exc:
         logger.warning('Local cache mirror failed (%s pk=%s): %s', sender.__name__, pk, exc)
     finally:
