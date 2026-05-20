@@ -336,11 +336,18 @@ def _set_sqlite_pragmas(sender, connection, **kwargs):
     """Set performance PRAGMAs on every new SQLite connection."""
     if connection.vendor == 'sqlite':
         cursor = connection.cursor()
+        # WAL mode allows concurrent reads + writes
         cursor.execute('PRAGMA journal_mode=WAL;')
-        cursor.execute('PRAGMA busy_timeout=30000;')  # 30s wait instead of failing
-        cursor.execute('PRAGMA synchronous=NORMAL;')  # Faster writes, still safe with WAL
-        cursor.execute('PRAGMA cache_size=-64000;')   # 64MB page cache
-        cursor.execute('PRAGMA temp_store=MEMORY;')   # Temp tables in RAM
+        # Wait up to 60s for locks instead of failing immediately
+        cursor.execute('PRAGMA busy_timeout=60000;')
+        # Faster writes, still safe with WAL
+        cursor.execute('PRAGMA synchronous=NORMAL;')
+        # 64MB page cache
+        cursor.execute('PRAGMA cache_size=-64000;')
+        # Temp tables in RAM
+        cursor.execute('PRAGMA temp_store=MEMORY;')
+        # Reduce checkpoint frequency (less lock contention)
+        cursor.execute('PRAGMA wal_autocheckpoint=10000;')
 
 
 connection_created.connect(_set_sqlite_pragmas)

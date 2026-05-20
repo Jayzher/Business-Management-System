@@ -119,8 +119,9 @@ def _worker_loop():
         try:
             # Drain additional tasks that arrived while we were processing
             # (batch optimization — reduces DB round-trips under load)
+            # Keep batch size small (10) to minimize SQLite lock duration
             try:
-                while len(batch) < 50:  # Max batch size
+                while len(batch) < 10:  # Max batch size (reduced from 50)
                     extra = _task_queue.get_nowait()
                     batch.append(extra)
             except queue.Empty:
@@ -268,16 +269,25 @@ def _process_batch(batch: list):
 
 
 def _push_upsert_to_neon(task):
-    """Push a row from local_cache to Neon (upsert)."""
+    """Push a row to Neon using the serialized row_data from the task.
+    
+    This avoids reading from local_cache (which could cause lock contention).
+    The row_data was captured at the time of the local_cache write, so it's
+    already the correct state to push to Neon.
+    """
     sender = task['sender']
     pk = task['pk']
-
-    # Read the current state from local_cache
-    obj = sender._default_manager.using('local_cache').filter(pk=pk).first()
-    if obj is None:
-        # Row was deleted locally after the save was queued — skip
+    row_data = task.get('row_data')
+    
+    if not row_data:
+        # No row data in task — skip (shouldn't happen)
+        logger.debug('No row_data in task for %s pk=%s', sender.__name__, pk)
         return
-
+    
+    # Reconstruct the model instance from row_data
+    obj = sender(**row_data)
+    obj.pk = pk
+    
     concrete_fields = [
         f for f in sender._meta.concrete_fields if not f.primary_key
     ]
