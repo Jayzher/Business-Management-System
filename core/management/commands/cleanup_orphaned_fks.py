@@ -40,6 +40,10 @@ class Command(BaseCommand):
         total_deleted = 0
 
         with connection.cursor() as cursor:
+            # Temporarily disable FK constraints for cleanup
+            if not dry_run:
+                cursor.execute('PRAGMA foreign_keys = OFF;')
+            
             # Get all tables
             cursor.execute("""
                 SELECT name FROM sqlite_master 
@@ -75,6 +79,10 @@ class Command(BaseCommand):
                         deleted = self._delete_orphans(cursor, table, orphans)
                         total_deleted += deleted
                         self.stdout.write(self.style.SUCCESS(f'  Deleted {deleted} orphaned record(s)'))
+            
+            # Re-enable FK constraints
+            if not dry_run:
+                cursor.execute('PRAGMA foreign_keys = ON;')
 
         self.stdout.write(self.style.SUCCESS(f'\n=== Summary ==='))
         self.stdout.write(f'Total orphaned records found: {total_orphans}')
