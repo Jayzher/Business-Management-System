@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 
 {% block title %}Categories{% endblock %}
 {% block page_title %}Categories{% endblock %}
@@ -8,7 +8,7 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title">Category List</h3>
-    {% if not is_view_only %}<div class="card-tools">
+    {% if not is_view_only and not is_web_version %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'category_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Category</a>
     </div>{% endif %}
   </div>
@@ -24,7 +24,7 @@
           <td>{{ cat.name }}</td>
           <td>{{ cat.parent.name|default:"-" }}</td>
           <td>
-            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'category_edit' cat.pk %}" class="btn btn-xs btn-warning"><i class="fas fa-edit"></i></a>
+            {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'category_edit' cat.pk %}" class="btn btn-xs btn-warning"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'category_delete' cat.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>

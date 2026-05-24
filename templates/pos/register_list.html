@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 
 {% block title %}POS Registers{% endblock %}
 {% block page_title %}POS Registers{% endblock %}
@@ -8,7 +8,7 @@
 
 {% block content %}
 <div class="mb-3">
-  {% if not is_view_only %}<a href="#" data-modal-url="{% url 'pos_register_create' %}" class="btn btn-primary"><i class="fas fa-plus mr-1"></i> New Register</a>{% endif %}
+  {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'pos_register_create' %}" class="btn btn-primary"><i class="fas fa-plus mr-1"></i> New Register</a>{% endif %}
 </div>
 <div class="card">
   <div class="card-body table-responsive">
@@ -32,7 +32,7 @@
           <td>{{ reg.price_list|default:"-" }}</td>
           <td>{% if reg.is_active %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
           <td>
-            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'pos_register_edit' reg.pk %}" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
+            {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'pos_register_edit' reg.pk %}" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'pos_register_delete' reg.pk %}" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>

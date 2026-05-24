@@ -37,6 +37,26 @@ def _user_is_viewer(user):
     return roles == {'Viewer'}
 
 
+def _user_is_web_version(user):
+    """Return True if user ONLY has the 'Web Version' role."""
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return False
+    roles = set(user.user_roles.values_list('role__name', flat=True))
+    return roles == {'Web Version'}
+
+
+def _user_is_checker(user):
+    """Return True if user ONLY has the 'Checker' role."""
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return False
+    roles = set(user.user_roles.values_list('role__name', flat=True))
+    return roles == {'Checker'}
+
+
 def role_required(*role_names):
     """
     Decorator that restricts a view to users who have at least one of the
@@ -58,12 +78,12 @@ def role_required(*role_names):
 
 def write_denied_for_viewer(view_func):
     """
-    Decorator that blocks 'Manager (View Only)' and 'Viewer' users from
+    Decorator that blocks 'Manager (View Only)', 'Viewer', 'Web Version', and 'Checker' users from
     write operations.  Must be applied AFTER @login_required.
     """
     @wraps(view_func)
     def _wrapped(request, *args, **kwargs):
-        if _user_is_view_only(request.user) or _user_is_viewer(request.user):
+        if _user_is_view_only(request.user) or _user_is_viewer(request.user) or _user_is_web_version(request.user) or _user_is_checker(request.user):
             messages.error(request, 'Your role is view-only. You cannot make changes.')
             if _user_is_viewer(request.user):
                 return redirect('item_list')
@@ -82,48 +102,53 @@ def admin_required(view_func):
 
 def manager_or_admin_required(view_func):
     """Admin or Manager."""
-    return role_required('Admin', 'Manager', 'Manager (View Only)')(view_func)
+    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Web Version', 'Checker')(view_func)
 
 
 def procurement_access(view_func):
     """Admin, Manager, or Procurement Officer."""
-    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Procurement Officer')(view_func)
+    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Procurement Officer', 'Web Version', 'Checker')(view_func)
 
 
 def sales_access(view_func):
     """Admin, Manager, or Sales Officer."""
-    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Sales Officer')(view_func)
+    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Sales Officer', 'Web Version', 'Checker')(view_func)
 
 
 def warehouse_access(view_func):
     """Admin, Manager, or Warehouse Staff."""
+    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Warehouse Staff', 'Web Version', 'Checker')(view_func)
+
+
+def adjustment_access(view_func):
+    """Admin, Manager, or Warehouse Staff - excludes Web Version and Checker."""
     return role_required('Admin', 'Manager', 'Manager (View Only)', 'Warehouse Staff')(view_func)
 
 
 def pos_access(view_func):
-    """Admin, Manager, or POS Cashier."""
+    """Admin, Manager, or POS Cashier - excludes Web Version and Checker."""
     return role_required('Admin', 'Manager', 'Manager (View Only)', 'POS Cashier')(view_func)
 
 
 def viewer_access(view_func):
     """Viewer role — catalog read-only access."""
     return role_required('Admin', 'Manager', 'Manager (View Only)', 'Procurement Officer',
-                         'Sales Officer', 'Warehouse Staff', 'POS Cashier', 'Viewer')(view_func)
+                         'Sales Officer', 'Warehouse Staff', 'POS Cashier', 'Viewer', 'Web Version', 'Checker')(view_func)
 
 
 def services_access(view_func):
     """Admin, Manager, or Sales Officer."""
-    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Sales Officer')(view_func)
+    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Sales Officer', 'Web Version', 'Checker')(view_func)
 
 
 def reports_access(view_func):
     """Admin, Manager, Sales Officer, or Procurement Officer."""
-    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Sales Officer', 'Procurement Officer')(view_func)
+    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Sales Officer', 'Procurement Officer', 'Web Version', 'Checker')(view_func)
 
 
 def cashflow_access(view_func):
     """Admin or Manager only."""
-    return role_required('Admin', 'Manager', 'Manager (View Only)')(view_func)
+    return role_required('Admin', 'Manager', 'Manager (View Only)', 'Web Version', 'Checker')(view_func)
 
 
 # ── DRF Permission class ─────────────────────────────────────────────────

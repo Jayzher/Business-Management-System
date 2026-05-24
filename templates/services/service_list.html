@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 {% block title %}Customer Services{% endblock %}
 {% block page_title %}Customer Services{% endblock %}
 {% block breadcrumb %}
@@ -21,7 +21,7 @@
       <a href="{% url 'service_invoice_list' %}" class="btn btn-sm btn-outline-purple mr-1" style="color:#6f42c1;border-color:#6f42c1;">
         <i class="fas fa-file-invoice-dollar mr-1"></i>Service Invoices
       </a>
-      {% if not is_view_only %}<a href="#" data-modal-url="{% url 'service_create' %}" data-modal-size="modal-xl"
+      {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'service_create' %}" data-modal-size="modal-xl"
          class="btn btn-sm btn-primary">
         <i class="fas fa-plus mr-1"></i>New Service
       </a>{% endif %}
@@ -64,7 +64,7 @@
           <td class="text-right">{{ svc.grand_total|floatformat:2 }}</td>
           <td>
             <a href="{% url 'service_detail' svc.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
-            {% if not is_view_only %}{% if svc.status == 'DRAFT' or svc.status == 'IN_PROGRESS' %}
+            {% if not is_view_only and not is_web_version %}{% if svc.status == 'DRAFT' or svc.status == 'IN_PROGRESS' %}
             <a href="#" data-modal-url="{% url 'service_edit' svc.pk %}" data-modal-size="modal-xl"
                class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'service_delete' svc.pk %}"

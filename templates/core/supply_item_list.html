@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 {% load humanize %}
 {% block title %}Supplies Inventory{% endblock %}
 {% block page_title %}Supplies Inventory{% endblock %}
@@ -8,7 +8,7 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-box-open mr-1"></i> Supply Items</h3>
-    {% if not is_view_only %}<div class="card-tools">
+    {% if not is_view_only and not is_web_version %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'supply_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
       <a href="#" data-modal-url="{% url 'supply_movement_create' %}" class="btn btn-sm btn-info mr-1"><i class="fas fa-plus mr-1"></i> Stock In/Out</a>
       <a href="#" data-modal-url="{% url 'supply_item_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Item</a>
@@ -35,7 +35,7 @@
             {% endif %}
           </td>
           <td class="text-right">
-            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'supply_item_edit' item.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'supply_item_edit' item.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'supply_item_delete' item.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>

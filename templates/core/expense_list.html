@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 {% load humanize %}
 {% block title %}Expense Listing{% endblock %}
 {% block page_title %}Expense Listing{% endblock %}
@@ -8,7 +8,7 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-receipt mr-1"></i> Expenses</h3>
-    {% if not is_view_only %}<div class="card-tools">
+    {% if not is_view_only and not is_web_version %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'expense_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import CSV</a>
       <a href="#" data-modal-url="{% url 'expense_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> Record Expense</a>
     </div>{% endif %}
@@ -48,7 +48,7 @@
           <td><small>{{ exp.memo|truncatewords:8 }}</small></td>
           <td>{{ exp.created_by.get_short_name|default:exp.created_by.username }}</td>
           <td class="text-right">
-            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'expense_edit' exp.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'expense_edit' exp.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'expense_delete' exp.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>

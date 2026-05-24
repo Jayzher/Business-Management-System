@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 {% block title %}Sales Channels{% endblock %}
 {% block page_title %}Sales Channels{% endblock %}
 {% block breadcrumb %}<li class="breadcrumb-item"><a href="{% url 'settings' %}">Settings</a></li><li class="breadcrumb-item active">Channels</li>{% endblock %}
@@ -7,7 +7,7 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-broadcast-tower mr-1"></i> Sales Channels</h3>
-    {% if not is_view_only %}<div class="card-tools"><a href="#" data-modal-url="{% url 'channel_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Channel</a></div>{% endif %}
+    {% if not is_view_only and not is_web_version %}<div class="card-tools"><a href="#" data-modal-url="{% url 'channel_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Channel</a></div>{% endif %}
   </div>
   <div class="card-body table-responsive">
     <table class="table table-hover table-striped text-nowrap wis-table">
@@ -19,7 +19,7 @@
           <td>{{ ch.name }}</td>
           <td>{{ ch.description|truncatewords:10 }}</td>
           <td class="text-right">
-            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'channel_edit' ch.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'channel_edit' ch.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'channel_delete' ch.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>

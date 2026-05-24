@@ -32,7 +32,7 @@ from inventory.services import (
     save_with_document_number,
 )
 from core.models import DocumentStatus
-from accounts.decorators import write_denied_for_viewer,  warehouse_access
+from accounts.decorators import write_denied_for_viewer, warehouse_access, adjustment_access
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ def transfer_cancel_view(request, pk):
 
 
 @login_required
-@warehouse_access
+@adjustment_access
 @write_denied_for_viewer
 def adjustment_approve_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
@@ -170,7 +170,7 @@ def adjustment_approve_view(request, pk):
 
 
 @login_required
-@warehouse_access
+@adjustment_access
 @write_denied_for_viewer
 def adjustment_post_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
@@ -189,7 +189,7 @@ def adjustment_post_view(request, pk):
 
 
 @login_required
-@warehouse_access
+@adjustment_access
 @write_denied_for_viewer
 def adjustment_cancel_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
@@ -331,7 +331,7 @@ def transfer_detail_view(request, pk):
 
 
 @login_required
-@warehouse_access
+@adjustment_access
 def adjustment_list_view(request):
     adjustments = StockAdjustment.objects.select_related(
         'warehouse', 'created_by'
@@ -340,7 +340,7 @@ def adjustment_list_view(request):
 
 
 @login_required
-@warehouse_access
+@adjustment_access
 def adjustment_detail_view(request, pk):
     adjustment = get_object_or_404(
         StockAdjustment.objects.select_related('warehouse', 'created_by', 'approved_by', 'posted_by')
@@ -468,7 +468,7 @@ def transfer_delete_view(request, pk):
 # ── Adjustment CRUD ────────────────────────────────────────────────────────
 
 @login_required
-@warehouse_access
+@adjustment_access
 @write_denied_for_viewer
 def adjustment_create_view(request):
     if request.method == 'POST':
@@ -495,7 +495,7 @@ def adjustment_create_view(request):
 
 
 @login_required
-@warehouse_access
+@adjustment_access
 @write_denied_for_viewer
 def adjustment_edit_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
@@ -519,7 +519,7 @@ def adjustment_edit_view(request, pk):
 
 
 @login_required
-@warehouse_access
+@adjustment_access
 @write_denied_for_viewer
 def adjustment_delete_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)

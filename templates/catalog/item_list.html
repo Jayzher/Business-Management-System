@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 {% load static %}
 
 {% block title %}Item Catalog{% endblock %}
@@ -252,7 +252,7 @@
 
       <!-- Action buttons -->
       <div class="col ml-auto d-flex justify-content-end flex-wrap" id="cat-action-btns" style="gap:.4rem;">
-        {% if not is_view_only %}<a href="#" data-modal-url="{% url 'catalog_import' %}"
+        {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'catalog_import' %}"
            class="btn btn-sm btn-outline-success no-print" id="catalog-import-btn"
            title="Import items from CSV">
           <i class="fas fa-file-import mr-1"></i>Import

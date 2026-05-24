@@ -2,14 +2,16 @@ def user_role_flags(request):
     """Expose role flags and role set to all templates."""
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
-        return {'is_view_only': False, 'is_viewer': False, 'user_roles': set()}
+        return {'is_view_only': False, 'is_viewer': False, 'is_web_version': False, 'user_roles': set()}
     if user.is_superuser:
-        return {'is_view_only': False, 'is_viewer': False, 'user_roles': {'Admin'}}
-    from accounts.decorators import _user_is_view_only, _user_is_viewer
+        return {'is_view_only': False, 'is_viewer': False, 'is_web_version': False, 'user_roles': {'Admin'}}
+    from accounts.decorators import _user_is_view_only, _user_is_viewer, _user_is_web_version, _user_is_checker
     roles = set(user.user_roles.values_list('role__name', flat=True))
+    is_web_or_checker = _user_is_web_version(user) or _user_is_checker(user)
     return {
         'is_view_only': _user_is_view_only(user),
         'is_viewer': _user_is_viewer(user),
+        'is_web_version': is_web_or_checker,  # Treat Checker same as Web Version for templates
         'user_roles': roles,
     }
 
@@ -20,25 +22,27 @@ _VIEWER_ONLY = {'Viewer'}  # Viewer role — catalog read-only
 # Role → sidebar module access map.  _ALL means every authenticated user.
 # The set values must match accounts.Role.name exactly.
 _ADMIN_MANAGER = {'Admin', 'Manager', 'Manager (View Only)'}
-_EVERYONE_EXCEPT_VIEWER = {*_ADMIN_MANAGER, 'Procurement Officer', 'Sales Officer', 'Warehouse Staff', 'POS Cashier'}
+_ADMIN_MANAGER_WEB = {*_ADMIN_MANAGER, 'Web Version', 'Checker'}
+_WAREHOUSE_ROLES = {'Warehouse Staff', 'Warehouse Manager'}
+_EVERYONE_EXCEPT_VIEWER = {*_ADMIN_MANAGER, 'Procurement Officer', 'Sales Officer', 'Warehouse Staff', 'POS Cashier', 'Warehouse Manager', 'Encoder'}
 _ROLE_MAP = {
-    'Dashboard':   _EVERYONE_EXCEPT_VIEWER,
+    'Dashboard':   {*_EVERYONE_EXCEPT_VIEWER, 'Web Version', 'Checker'},
     'Catalog':     _ALL,
-    'Partners':    {*_ADMIN_MANAGER, 'Procurement Officer', 'Sales Officer'},
-    'Warehouses':  {*_ADMIN_MANAGER, 'Procurement Officer', 'Warehouse Staff'},
-    'Procurement': {*_ADMIN_MANAGER, 'Procurement Officer'},
-    'Sales':       {*_ADMIN_MANAGER, 'Sales Officer'},
-    'Expenses':    _ADMIN_MANAGER,
-    'Supplies':    {*_ADMIN_MANAGER, 'Warehouse Staff'},
-    'Cash Flow':   _ADMIN_MANAGER,
-    'Services':    {*_ADMIN_MANAGER, 'Sales Officer'},
-    'Inventory':   {*_ADMIN_MANAGER, 'Procurement Officer', 'Warehouse Staff'},
-    'POS':         {*_ADMIN_MANAGER, 'POS Cashier', 'Sales Officer'},
-    'Pricing':     {*_ADMIN_MANAGER, 'Sales Officer'},
-    'QR Codes':    {*_ADMIN_MANAGER, 'Warehouse Staff'},
-    'Reports':     {*_ADMIN_MANAGER, 'Sales Officer', 'Procurement Officer'},
-    'Target Goals': _ADMIN_MANAGER,
-    'Dictionary':  _EVERYONE_EXCEPT_VIEWER,
+    'Partners':    {*_ADMIN_MANAGER, 'Procurement Officer', 'Sales Officer', 'Web Version', 'Checker', 'Encoder'},
+    'Warehouses':  {*_ADMIN_MANAGER, 'Procurement Officer', *_WAREHOUSE_ROLES, 'Web Version', 'Checker'},
+    'Procurement': {*_ADMIN_MANAGER, 'Procurement Officer', 'Web Version', 'Checker', 'Encoder'},
+    'Sales':       {*_ADMIN_MANAGER, 'Sales Officer', 'Web Version', 'Checker', 'Encoder'},
+    'Expenses':    {*_ADMIN_MANAGER_WEB, 'Encoder'},
+    'Supplies':    {*_ADMIN_MANAGER, *_WAREHOUSE_ROLES, 'Web Version', 'Checker'},
+    'Cash Flow':   _ADMIN_MANAGER_WEB,
+    'Services':    {*_ADMIN_MANAGER, 'Sales Officer', 'Web Version', 'Checker', 'Encoder'},
+    'Inventory':   {*_ADMIN_MANAGER, 'Procurement Officer', *_WAREHOUSE_ROLES, 'Web Version', 'Checker'},
+    'POS':         {*_ADMIN_MANAGER, 'POS Cashier', 'Sales Officer'},  # Web Version and Checker excluded
+    'Pricing':     {*_ADMIN_MANAGER, 'Sales Officer', 'Web Version', 'Checker'},
+    'QR Codes':    {*_ADMIN_MANAGER, *_WAREHOUSE_ROLES, 'Web Version', 'Checker'},
+    'Reports':     {*_ADMIN_MANAGER, 'Sales Officer', 'Procurement Officer', 'Web Version', 'Checker'},
+    'Target Goals': _ADMIN_MANAGER_WEB,
+    'Dictionary':  {*_EVERYONE_EXCEPT_VIEWER, 'Web Version', 'Checker'},
     'Settings':    {'Admin'},
 }
 
@@ -245,6 +249,15 @@ def sidebar_menu(request):
         for item in menu:
             allowed = _ROLE_MAP.get(item['label'], _ALL)
             if allowed is _ALL or user_roles & allowed:
+                # Special handling for Web Version and Checker roles - exclude specific submenu items
+                if ('Web Version' in user_roles or 'Checker' in user_roles) and 'children' in item:
+                    # Filter out Adjustments submenu from Inventory module
+                    if item['label'] == 'Inventory':
+                        item = item.copy()
+                        item['children'] = [
+                            child for child in item['children']
+                            if child['label'] != 'Adjustments'
+                        ]
                 filtered.append(item)
         menu = filtered
 

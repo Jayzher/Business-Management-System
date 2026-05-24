@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 {% load humanize %}
 {% block title %}Cash Flow Transactions{% endblock %}
 {% block page_title %}Cash Flow Management{% endblock %}
@@ -10,7 +10,7 @@
     <h3 class="card-title"><i class="fas fa-money-bill-wave mr-1"></i> Cash Flow Transactions</h3>
     <div class="card-tools">
       <a href="{% url 'cashflow:cashflow_log_list' %}" class="btn btn-sm btn-outline-secondary mr-1"><i class="fas fa-history mr-1"></i> Logs</a>
-      {% if not is_view_only %}<button type="button" class="btn btn-sm btn-outline-warning mr-1" id="btn-sync-cashflow">
+      {% if not is_view_only and not is_web_version %}<button type="button" class="btn btn-sm btn-outline-warning mr-1" id="btn-sync-cashflow">
         <i class="fas fa-sync-alt mr-1"></i> Sync Cash Flow
       </button>
       <a href="#" data-modal-url="{% url 'cashflow:cashflow_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Transaction</a>{% endif %}
@@ -134,7 +134,7 @@
           <td>{{ txn.created_by.get_short_name|default:txn.created_by.username }}</td>
           <td class="text-right">
             <a href="{% url 'cashflow:cashflow_detail' txn.pk %}" class="btn btn-xs btn-outline-info"><i class="fas fa-eye"></i></a>
-            {% if not is_view_only %}{% if txn.status == 'PENDING' or txn.status == 'REJECTED' %}
+            {% if not is_view_only and not is_web_version %}{% if txn.status == 'PENDING' or txn.status == 'REJECTED' %}
             <a href="#" data-modal-url="{% url 'cashflow:cashflow_edit' txn.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             {% if not txn.is_auto_generated %}
             <a href="#" data-modal-url="{% url 'cashflow:cashflow_delete' txn.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>

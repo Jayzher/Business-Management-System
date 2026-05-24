@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 {% load humanize %}
 {% block title %}Supply Movements{% endblock %}
 {% block page_title %}Supply Movement Log{% endblock %}
@@ -8,7 +8,7 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-history mr-1"></i> Supply Movements</h3>
-    {% if not is_view_only %}<div class="card-tools">
+    {% if not is_view_only and not is_web_version %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'procurement_import' %}" class="btn btn-sm btn-success mr-1"><i class="fas fa-file-import mr-1"></i> Import Stock-In</a>
       <a href="#" data-modal-url="{% url 'supply_movement_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Movement</a>
     </div>{% endif %}

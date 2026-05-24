@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 
 {% block title %}Locations{% endblock %}
 {% block page_title %}Locations{% endblock %}
@@ -11,7 +11,7 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-map-marker-alt mr-1"></i> Locations</h3>
-    {% if not is_view_only %}<div class="card-tools">
+    {% if not is_view_only and not is_web_version %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'location_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Location</a>
     </div>{% endif %}
   </div>
@@ -38,7 +38,7 @@
           <td>{{ loc.get_location_type_display }}</td>
           <td>{% if loc.is_pickable %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
           <td>
-            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'location_edit' loc.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'location_edit' loc.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'location_delete' loc.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>

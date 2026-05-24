@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 
 {% block title %}Price Lists{% endblock %}
 {% block page_title %}Price Lists{% endblock %}
@@ -8,7 +8,7 @@
 
 {% block content %}
 <div class="mb-3">
-  {% if not is_view_only %}<a href="#" data-modal-url="{% url 'price_list_create' %}" data-modal-size="modal-xl" class="btn btn-primary"><i class="fas fa-plus mr-1"></i> New Price List</a>{% endif %}
+  {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'price_list_create' %}" data-modal-size="modal-xl" class="btn btn-primary"><i class="fas fa-plus mr-1"></i> New Price List</a>{% endif %}
 </div>
 <div class="card">
   <div class="card-body table-responsive">
@@ -32,7 +32,7 @@
           <td>{% if pl.is_default %}<span class="badge bg-primary">Yes</span>{% else %}-{% endif %}</td>
           <td>{% if pl.is_active %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
           <td>
-            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'price_list_edit' pl.pk %}" data-modal-size="modal-xl" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
+            {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'price_list_edit' pl.pk %}" data-modal-size="modal-xl" class="btn btn-sm btn-warning"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'price_list_delete' pl.pk %}" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>

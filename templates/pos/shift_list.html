@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 
 {% block title %}POS Shifts{% endblock %}
 {% block page_title %}POS Shifts{% endblock %}
@@ -8,7 +8,7 @@
 
 {% block content %}
 <div class="mb-3">
-  {% if not is_view_only %}<a href="#" data-modal-url="{% url 'pos_shift_open' %}" class="btn btn-primary"><i class="fas fa-play mr-1"></i> Open New Shift</a>{% endif %}
+  {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'pos_shift_open' %}" class="btn btn-primary"><i class="fas fa-play mr-1"></i> Open New Shift</a>{% endif %}
 </div>
 <div class="card">
   <div class="card-body table-responsive">
@@ -38,7 +38,7 @@
           <td>{{ shift.cash_sales_total }}</td>
           <td>
             {% if shift.status == 'OPEN' %}
-            {% if not is_view_only %}<a href="{% url 'pos_terminal' shift_id=shift.pk %}" class="btn btn-sm btn-primary"><i class="fas fa-cash-register"></i> Terminal</a>
+            {% if not is_view_only and not is_web_version %}<a href="{% url 'pos_terminal' shift_id=shift.pk %}" class="btn btn-sm btn-primary"><i class="fas fa-cash-register"></i> Terminal</a>
             <a href="{% url 'pos_shift_close' pk=shift.pk %}" class="btn btn-sm btn-warning"><i class="fas fa-lock"></i> Close</a>{% endif %}
             {% endif %}
             <a href="{% url 'pos_shift_summary' pk=shift.pk %}" class="btn btn-sm btn-info"><i class="fas fa-chart-bar"></i> Summary</a>

@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 {% load humanize %}
 
 {% block title %}Supplier Catalog{% endblock %}
@@ -46,7 +46,7 @@
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-balance-scale mr-1"></i> Supplier Price Comparison Matrix</h3>
     <div class="card-tools">
-      {% if not is_view_only %}
+      {% if not is_view_only and not is_web_version %}
       <a href="#" data-modal-url="{% url 'supplier_catalog_sync' %}" class="btn btn-sm btn-success mr-1">
         <i class="fas fa-sync-alt mr-1"></i> Sync from POs
       </a>
@@ -120,7 +120,7 @@
               {% if cell.entry.last_po_number %}
               <span class="sc-po-ref">{{ cell.entry.last_po_number }}</span>
               {% endif %}
-              {% if not is_view_only %}
+              {% if not is_view_only and not is_web_version %}
               <a href="#" data-modal-url="{% url 'supplier_catalog_edit' cell.entry.pk %}" class="text-muted" title="Edit" style="font-size:.7rem;"><i class="fas fa-pen"></i></a>
               {% endif %}
             {% else %}
@@ -133,7 +133,7 @@
         <tr>
           <td colspan="{{ suppliers.count|add:4 }}" class="text-center text-muted py-4">
             <i class="fas fa-inbox mr-2"></i>No supplier catalog entries found.
-            {% if not is_view_only %}
+            {% if not is_view_only and not is_web_version %}
             <br><a href="#" data-modal-url="{% url 'supplier_catalog_sync' %}" class="btn btn-sm btn-success mt-2">
               <i class="fas fa-sync-alt mr-1"></i> Sync from Past POs
             </a>

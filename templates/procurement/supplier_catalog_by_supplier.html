@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 {% load humanize %}
 
 {% block title %}Supplier Catalog — By Supplier{% endblock %}
@@ -13,7 +13,7 @@
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-truck mr-1"></i> Supplier Price List</h3>
     <div class="card-tools">
-      {% if not is_view_only %}
+      {% if not is_view_only and not is_web_version %}
       <a href="#" data-modal-url="{% url 'supplier_catalog_create' %}" class="btn btn-sm btn-primary">
         <i class="fas fa-plus mr-1"></i> Add Entry
       </a>
@@ -77,7 +77,7 @@
           <td>{{ entry.last_po_date|date:"M d, Y"|default:"—" }}</td>
           <td><small>{{ entry.notes|default:"—"|truncatechars:30 }}</small></td>
           <td>
-            {% if not is_view_only %}
+            {% if not is_view_only and not is_web_version %}
             <a href="#" data-modal-url="{% url 'supplier_catalog_edit' entry.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'supplier_catalog_delete' entry.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>
             {% endif %}

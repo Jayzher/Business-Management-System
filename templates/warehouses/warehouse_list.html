@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 
 {% block title %}Warehouses{% endblock %}
 {% block page_title %}Warehouses{% endblock %}
@@ -8,7 +8,7 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title">Warehouse List</h3>
-    {% if not is_view_only %}<div class="card-tools"><a href="#" data-modal-url="{% url 'warehouse_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Warehouse</a></div>{% endif %}
+    {% if not is_view_only and not is_web_version %}<div class="card-tools"><a href="#" data-modal-url="{% url 'warehouse_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Warehouse</a></div>{% endif %}
   </div>
   <div class="card-body table-responsive">
     <table class="table table-hover text-nowrap wis-table">
@@ -25,7 +25,7 @@
           <td>{{ wh.locations.count }}</td>
           <td>
             <a href="{% url 'warehouse_detail' wh.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
-            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'warehouse_edit' wh.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
+            {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'warehouse_edit' wh.pk %}" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'warehouse_delete' wh.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>

@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 
 {% block title %}Unit Conversions{% endblock %}
 {% block page_title %}Unit Conversions{% endblock %}
@@ -11,7 +11,7 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-exchange-alt mr-2"></i>Unit Conversion Rules</h3>
-    {% if not is_view_only %}<div class="card-tools">
+    {% if not is_view_only and not is_web_version %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'unit_conversion_create' %}" class="btn btn-sm btn-primary">
         <i class="fas fa-plus mr-1"></i> New Conversion
       </a>
@@ -63,7 +63,7 @@
             {% endif %}
           </td>
           <td>
-            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'unit_conversion_edit' c.pk %}" class="btn btn-xs btn-warning" title="Edit">
+            {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'unit_conversion_edit' c.pk %}" class="btn btn-xs btn-warning" title="Edit">
               <i class="fas fa-edit"></i>
             </a>
             <a href="#" data-modal-url="{% url 'unit_conversion_delete' c.pk %}" class="btn btn-xs btn-danger" title="Delete">

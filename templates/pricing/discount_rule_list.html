@@ -1,4 +1,4 @@
-{% extends "theme/base.html" %}
+﻿{% extends "theme/base.html" %}
 
 {% block title %}Discount Rules{% endblock %}
 {% block page_title %}Discount Rules{% endblock %}
@@ -11,7 +11,7 @@
 <div class="card">
   <div class="card-header">
     <h3 class="card-title"><i class="fas fa-percentage mr-1"></i> Discount Rules</h3>
-    {% if not is_view_only %}<div class="card-tools">
+    {% if not is_view_only and not is_web_version %}<div class="card-tools">
       <a href="#" data-modal-url="{% url 'discount_rule_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Discount Rule</a>
     </div>{% endif %}
   </div>
@@ -48,7 +48,7 @@
             {% endif %}
           </td>
           <td>
-            {% if not is_view_only %}<a href="#" data-modal-url="{% url 'discount_rule_edit' rule.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
+            {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'discount_rule_edit' rule.pk %}" class="btn btn-xs btn-info"><i class="fas fa-edit"></i></a>
             <a href="#" data-modal-url="{% url 'discount_rule_delete' rule.pk %}" class="btn btn-xs btn-danger"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>

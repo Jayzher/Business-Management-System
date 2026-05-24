@@ -39,6 +39,22 @@ DEFAULT_ROLES = [
         'name': 'Viewer',
         'description': 'Read-only access to catalog items only. Cannot access dashboard, reports, or any other module.',
     },
+    {
+        'name': 'Web Version',
+        'description': 'Read-only access to all modules except Adjustments and POS. Cannot create, edit, delete, or post any records.',
+    },
+    {
+        'name': 'Checker',
+        'description': 'Read-only access to all modules except Adjustments and POS. Cannot create, edit, delete, or post any records. (Same as Web Version)',
+    },
+    {
+        'name': 'Encoder',
+        'description': 'Can create and edit documents but cannot approve or post. Limited write access.',
+    },
+    {
+        'name': 'Warehouse Manager',
+        'description': 'Full access to warehouse operations including transfers, adjustments, and inventory management.',
+    },
 ]
 
 
