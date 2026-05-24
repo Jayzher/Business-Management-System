@@ -106,6 +106,9 @@ def convert_price_for_unit(
     Returns:
         Decimal price adjusted for the selling_unit
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if not base_unit or not selling_unit:
         return Decimal(str(base_price)).quantize(Decimal(10) ** -round_places)
 
@@ -117,6 +120,13 @@ def convert_price_for_unit(
     conv, is_reverse = _lookup_conversion_record(base_unit, selling_unit, item)
 
     if conv is None:
+        # NO CONVERSION FOUND - Log warning and return base price
+        item_info = f" for item {item.code}" if item and hasattr(item, 'code') else ""
+        logger.warning(
+            f"No unit conversion found between {base_unit.abbreviation} and {selling_unit.abbreviation}"
+            f"{item_info}. Returning base price without conversion. "
+            f"Please add a conversion under Catalog → Unit Conversions."
+        )
         return base_price_dec.quantize(Decimal(10) ** -round_places)
 
     if use_conversion_price and not is_reverse and conv.conversion_price is not None:
@@ -125,6 +135,10 @@ def convert_price_for_unit(
     factor = Decimal('1') / conv.factor if is_reverse else conv.factor
 
     if factor == 0:
+        logger.error(
+            f"Invalid conversion factor (0) between {base_unit.abbreviation} and {selling_unit.abbreviation}"
+            f"{item_info}. Returning base price."
+        )
         return base_price_dec.quantize(Decimal(10) ** -round_places)
 
     adjusted_price = base_price_dec / factor

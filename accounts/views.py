@@ -74,7 +74,10 @@ def login_view(request):
 
 @require_POST
 def logout_view(request):
+    username = request.user.username if request.user.is_authenticated else None
     logout(request)
+    if username:
+        messages.success(request, f'You have been successfully logged out. See you soon, {username}!')
     return redirect('login')
 
 

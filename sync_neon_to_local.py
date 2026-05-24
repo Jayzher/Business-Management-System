@@ -18,7 +18,16 @@ def run_command(cmd, env=None):
     """Run a command and return the result."""
     print(f"Running: {' '.join(cmd)}")
     print()
-    result = subprocess.run(cmd, env=env, text=True)
+    result = subprocess.run(cmd, env=env, text=True, capture_output=True)
+    
+    # Print stdout
+    if result.stdout:
+        print(result.stdout)
+    
+    # Print stderr
+    if result.stderr:
+        print("STDERR:", result.stderr, file=sys.stderr)
+    
     if result.returncode != 0:
         print(f"\nCommand failed with exit code: {result.returncode}")
         return False
@@ -65,6 +74,26 @@ def main():
     
     print("✓ Export completed")
     print()
+    
+    # Validate JSON before importing
+    print("Validating exported JSON...")
+    try:
+        import json
+        with open(tmp_filename, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        print(f"✓ Valid JSON with {len(data)} records")
+        print()
+    except json.JSONDecodeError as e:
+        print(f"✗ Invalid JSON in exported file: {e}")
+        print("\nFirst 500 characters of the file:")
+        with open(tmp_filename, 'r', encoding='utf-8') as f:
+            print(f.read(500))
+        os.unlink(tmp_filename)
+        return 1
+    except Exception as e:
+        print(f"✗ Error reading exported file: {e}")
+        os.unlink(tmp_filename)
+        return 1
 
     # Step 2: Import to local SQLite (OFFLINE_MODE=1)
     print("Step 2: Importing data to local SQLite database...")
