@@ -198,9 +198,9 @@ def service_detail(request, pk):
     for line in svc.lines.all():
         if _cogs_fn:
             try:
-                # Services use procurement unit (stock_unit) for COGS, not selling unit
-                procurement_unit = line.item.stock_unit
-                cogs_per_unit = _cogs_fn(line.item, procurement_unit)
+                # Get COGS per unit in the SAME unit as line.qty (line.unit)
+                # This ensures we multiply cost_per_unit × qty in matching units
+                cogs_per_unit = _cogs_fn(line.item, line.unit)
             except Exception:
                 cogs_per_unit = line.item.cost_price or Decimal('0')
         else:
@@ -229,11 +229,10 @@ def service_detail(request, pk):
         b_mat_cogs = Decimal('0')
         b_sets = b.qty or Decimal('1')
         for pli in b.price_list.items.all():
-            # Services use procurement unit (stock_unit) for COGS, not selling unit
-            if _cogs_fn:
+            # Get COGS per unit in the same unit as pli.min_qty
+            if _cogs_fn and pli.unit:
                 try:
-                    procurement_unit = pli.item.stock_unit
-                    cost_pu = _cogs_fn(pli.item, procurement_unit)
+                    cost_pu = _cogs_fn(pli.item, pli.unit)
                 except Exception:
                     cost_pu = Decimal(str(pli.item.cost_price or 0))
             else:

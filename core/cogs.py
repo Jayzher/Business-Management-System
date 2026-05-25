@@ -88,12 +88,9 @@ def service_invoice_cogs(invoice):
     Formula: Product Lines COGS + Bundles COGS + Other Materials COGS = Total COGS
 
     Includes:
-      - Product lines (ServiceLine): item cost_price × qty (with procurement unit conversion), scrap excluded
+      - Product lines (ServiceLine): item cost_price × qty (with unit conversion), scrap excluded
       - Bundle lines (ServiceBundle): each PriceListItem cost_price × min_qty × bundle qty
       - Other materials (ServiceOtherMaterial): unit_cost × qty (cost paid to vendor)
-    
-    NOTE: Services use the procurement unit (stock_unit) for COGS calculation, not the selling unit.
-    This is because service parts are consumed from inventory at their procurement rate.
     
     Gracefully handles missing items (orphaned FKs) by skipping them.
     """
@@ -108,10 +105,8 @@ def service_invoice_cogs(invoice):
             try:
                 if getattr(line, 'is_scrap', False):
                     continue
-                if line.item:
-                    # Services use procurement unit (stock_unit) for COGS, not selling unit
-                    procurement_unit = line.item.stock_unit
-                    cogs = calculate_line_cogs_with_conversion(line.item, line.qty, procurement_unit)
+                if line.item and line.unit:
+                    cogs = calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
                     total += cogs
             except Exception:
                 # Skip lines with missing items or other errors
@@ -121,11 +116,9 @@ def service_invoice_cogs(invoice):
         for bundle in svc.bundles.all():
             try:
                 for pli in bundle.price_list.items.all():
-                    if pli.item:
-                        # Services use procurement unit (stock_unit) for COGS, not selling unit
-                        procurement_unit = pli.item.stock_unit
+                    if pli.item and pli.unit:
                         item_cogs = calculate_line_cogs_with_conversion(
-                            pli.item, pli.min_qty, procurement_unit
+                            pli.item, pli.min_qty, pli.unit
                         )
                         total += item_cogs * bundle.qty
             except Exception:
