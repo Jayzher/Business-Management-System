@@ -1,67 +1,126 @@
-# Services COGS Unit Fix
+# Services COGS Unit Fix - CORRECTED
 
 ## Problem
-Services COGS calculation was incorrectly using the **Selected Selling Unit** instead of the **Procurement Unit** (stock_unit/default_unit) when calculating Cost of Goods Sold.
+Services COGS calculation was incorrectly using the **Procurement Unit** when it should use the **unit that the quantity is stored in** (`line.unit`).
 
-This caused incorrect COGS calculations when:
-- A service line item had a different selling unit than its procurement unit
-- Unit conversions existed between the selling unit and procurement unit
-- The cost price needed to be converted from the procurement unit to the selling unit
+## Root Cause - The Misunderstanding
 
-## Root Cause
-The `service_invoice_cogs()` function in `core/cogs.py` was passing `line.unit` (the selling unit selected by the user) to `calculate_line_cogs_with_conversion()`, which then converted the cost price from the procurement unit to the selling unit.
+The original issue description was misleading. The problem wasn't about which unit to use for COGS calculation, but about **matching the unit with the quantity**.
 
-**Example of the bug:**
-- Item: Wire Cable
-- Procurement Unit: Roll (cost_price = $100 per Roll)
-- Selling Unit: Foot
-- Conversion: 1 Roll = 50 Feet
-- Service Line: 10 Feet @ $5/Foot (selling price)
+### The Actual Bug
 
-**Before Fix (WRONG):**
-- COGS per Foot = $100 / 50 = $2/Foot
-- Total COGS = 10 Feet × $2/Foot = $20 ✗ (Incorrect - assumes we consumed 10 feet)
+In the code, we have:
+- `line.qty` = quantity stored in `line.unit` (e.g., 1.00 Meters)
+- `line.unit` = the unit selected by the user (e.g., Meter)
 
-**After Fix (CORRECT):**
-- Service consumes from inventory at procurement unit (Roll)
-- COGS = $100 per Roll (no conversion needed)
-- Total COGS = $100 ✓ (Correct - we consumed 1 roll from inventory)
+**The bug was:**
+```python
+# WRONG - Mismatched units
+procurement_unit = line.item.stock_unit  # Roll
+cogs = calculate_line_cogs_with_conversion(line.item, line.qty, procurement_unit)
+# This calculates: cost of line.qty ROLLS
+# But line.qty is in METERS, not Rolls!
+```
+
+**Example with ACC-E-48-HA:**
+- Item cost: 1847.54 per Roll
+- Line: qty=1.00, unit=Meter
+- Buggy calculation: 1847.54 per Roll × 1.00 = 1847.54 (treating 1.00 as Rolls!)
+- Result: COGS = 1847.54 ❌
+
+### The Correct Approach
+
+```python
+# CORRECT - Matching units
+cogs = calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
+# This calculates: cost of line.qty in line.unit
+# line.qty = 1.00, line.unit = Meter
+# Result: cost per Meter × 1.00 Meters
+```
+
+**Example with ACC-E-48-HA:**
+- Item cost: 1847.54 per Roll
+- Conversion: 1 Roll = 18 Meters
+- Line: qty=1.00, unit=Meter
+- Correct calculation:
+  - Cost per Meter = 1847.54 ÷ 18 = 102.64
+  - COGS = 102.64 × 1.00 = 102.64 ✓
+- Result: COGS = 102.64 ✓
 
 ## Solution
-Modified the COGS calculation to use `item.stock_unit` (which returns `item.default_unit`, the procurement unit) instead of `line.unit` (the selling unit) for Services.
+
+The fix is to use `line.unit` (the unit that matches `line.qty`) instead of trying to force the procurement unit.
 
 ### Files Changed
 
 #### 1. `core/cogs.py` - `service_invoice_cogs()` function
-**Changed:**
-- Product lines: Now use `line.item.stock_unit` instead of `line.unit`
-- Bundle lines: Now use `pli.item.stock_unit` instead of `pli.unit`
-
-**Rationale:** Services consume inventory at the procurement rate, not the selling rate. The selling unit is only used for customer-facing pricing, not for internal cost tracking.
+**Reverted to original logic:**
+- Use `line.unit` (the unit that `line.qty` is in)
+- Use `pli.unit` (the unit that `pli.min_qty` is in)
 
 #### 2. `services/views.py` - `service_detail_view()` P&L calculation
-**Changed:**
-- Product line P&L: Now uses `line.item.stock_unit` for COGS calculation
-- Bundle P&L: Now uses `pli.item.stock_unit` for COGS calculation
-- Updated import from `catalog.models.get_cost_for_unit` to `catalog.utils.get_item_cogs_for_unit`
+**Fixed to use:**
+- `line.unit` for product line COGS
+- `pli.unit` for bundle COGS
 
-**Rationale:** The P&L display should match the actual COGS calculation used in invoices.
+## Why This is Correct
 
-## Why Sales Remains Unchanged
-Sales COGS calculation correctly uses the selling unit because:
-1. Sales transactions are customer-facing and priced in the selling unit
-2. The selling unit represents the actual quantity sold to the customer
-3. COGS should reflect the cost of the quantity sold in the unit it was sold in
+The `calculate_line_cogs_with_conversion()` function handles the unit conversion internally:
 
-## Testing Recommendations
-1. Create a test item with different procurement and selling units
-2. Add unit conversion between the two units
-3. Create a service with this item using the selling unit
-4. Complete the service and verify COGS uses the procurement unit rate
-5. Compare with a sales order using the same item to verify sales still uses selling unit
+```python
+def calculate_line_cogs_with_conversion(item, qty, unit):
+    # Get cost price in the specified unit
+    unit_cost = get_item_cogs_for_unit(item, unit)
+    # This converts from stock_unit to the specified unit
+    
+    # Multiply by quantity (both in the same unit now)
+    return unit_cost × qty
+```
 
-## Impact
-- **Services:** COGS now correctly calculated using procurement unit
-- **Sales:** No change - continues to use selling unit (correct behavior)
-- **Invoices:** Service invoices will now show accurate COGS and profit margins
-- **P&L Reports:** Service P&L will now reflect true material costs
+**The function already converts from procurement unit to the specified unit**, so we just need to pass the unit that matches the quantity.
+
+## Real-World Example
+
+### Item Setup
+- **Item:** ACC-E-48-HA (Expanded wire # 48 Analok)
+- **Procurement Unit:** Roll
+- **Selling Unit:** Meter
+- **Cost Price:** 1847.54 per Roll
+- **Conversion:** 1 Roll = 18 Meters
+
+### Service Line
+```
+qty: 1.00
+unit: Meter (m)
+unit_price: 185.00
+```
+
+### COGS Calculation (After Fix)
+```python
+# Step 1: Get cost per meter
+unit_cost = get_item_cogs_for_unit(item, Meter)
+# Converts: 1847.54 per Roll → 1847.54 ÷ 18 = 102.64 per Meter
+
+# Step 2: Multiply by quantity
+cogs = 102.64 × 1.00 = 102.64
+
+# Step 3: Calculate profit
+profit = 185.00 - 102.64 = 82.36 ✓
+```
+
+## Summary
+
+| Aspect | Wrong Approach | Correct Approach |
+|--------|----------------|------------------|
+| **Unit passed** | `item.stock_unit` (Roll) | `line.unit` (Meter) |
+| **Quantity** | 1.00 (in Meters) | 1.00 (in Meters) |
+| **Mismatch?** | YES - treating 1.00 as Rolls | NO - both in Meters |
+| **COGS** | 1847.54 ❌ | 102.64 ✓ |
+| **Profit** | -1662.54 ❌ | 82.36 ✓ |
+
+## Key Insight
+
+**The unit conversion happens INSIDE `get_item_cogs_for_unit()`**, not outside. We don't need to manually use the procurement unit - the function handles that automatically by converting from `item.stock_unit` to whatever unit we specify.
+
+**Always pass the unit that matches the quantity you're multiplying by.**
+
