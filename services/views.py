@@ -190,7 +190,7 @@ def service_detail(request, pk):
     )
 
     try:
-        from catalog.models import get_cost_for_unit as _cogs_fn
+        from catalog.utils import get_item_cogs_for_unit as _cogs_fn
     except ImportError:
         _cogs_fn = None
 
@@ -198,7 +198,9 @@ def service_detail(request, pk):
     for line in svc.lines.all():
         if _cogs_fn:
             try:
-                cogs_per_unit = _cogs_fn(line.item, line.unit)
+                # Services use procurement unit (stock_unit) for COGS, not selling unit
+                procurement_unit = line.item.stock_unit
+                cogs_per_unit = _cogs_fn(line.item, procurement_unit)
             except Exception:
                 cogs_per_unit = line.item.cost_price or Decimal('0')
         else:
@@ -227,7 +229,15 @@ def service_detail(request, pk):
         b_mat_cogs = Decimal('0')
         b_sets = b.qty or Decimal('1')
         for pli in b.price_list.items.all():
-            cost_pu = Decimal(str(pli.item.cost_price or 0))
+            # Services use procurement unit (stock_unit) for COGS, not selling unit
+            if _cogs_fn:
+                try:
+                    procurement_unit = pli.item.stock_unit
+                    cost_pu = _cogs_fn(pli.item, procurement_unit)
+                except Exception:
+                    cost_pu = Decimal(str(pli.item.cost_price or 0))
+            else:
+                cost_pu = Decimal(str(pli.item.cost_price or 0))
             qty_ps = pli.min_qty or Decimal('1')
             total_qty = qty_ps * b_sets
             price_ps = pli.price or Decimal('0')
