@@ -15,6 +15,15 @@ class PurchaseOrder(TransactionalDocument):
     class Meta:
         ordering = ['-created_at']
 
+    @property
+    def grand_total(self):
+        """Calculate the grand total of all order lines."""
+        from decimal import Decimal
+        total = Decimal('0')
+        for line in self.lines.all():
+            total += line.line_total
+        return total
+
 
 class PurchaseOrderLine(models.Model):
     """Purchase order line items."""
