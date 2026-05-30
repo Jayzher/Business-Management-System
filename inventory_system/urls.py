@@ -29,6 +29,9 @@ from pos.views import (
     POSRefundViewSet, CashEntryViewSet,
     api_open_shift, api_close_shift, api_shift_summary,
 )
+from core.api_views import (
+    InvoiceViewSet, ExpenseViewSet, ExpenseCategoryViewSet, SalesChannelViewSet
+)
 from theme.views import dashboard_view, toggle_environment
 
 # ── DRF Router ─────────────────────────────────────────────────────────────
@@ -64,6 +67,10 @@ router.register(r'pos/shifts', POSShiftViewSet, basename='pos-shift')
 router.register(r'pos/sales', POSSaleViewSet, basename='pos-sale')
 router.register(r'pos/refunds', POSRefundViewSet, basename='pos-refund')
 router.register(r'pos/cash-entries', CashEntryViewSet, basename='pos-cashentry')
+router.register(r'invoices', InvoiceViewSet, basename='invoice')
+router.register(r'expenses', ExpenseViewSet, basename='expense')
+router.register(r'expense-categories', ExpenseCategoryViewSet, basename='expense-category')
+router.register(r'sales-channels', SalesChannelViewSet, basename='sales-channel')
 
 urlpatterns = [
     # Root redirect
