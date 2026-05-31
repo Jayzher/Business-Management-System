@@ -190,6 +190,7 @@ def stock_on_hand_view(request):
 @login_required
 def stock_movement_view(request):
     """HTML rendered stock movement report with filters."""
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
     today = date.today()
     first_of_month = today.replace(day=1)
     item_id = request.GET.get('item')
@@ -209,11 +210,22 @@ def stock_movement_view(request):
     if date_to:
         qs = qs.filter(posted_at__date__lte=date_to)
 
+    # Pagination
+    qs = qs.order_by('-posted_at')
+    paginator = Paginator(qs, 100)  # 100 moves per page
+    page = request.GET.get('page', 1)
+    try:
+        moves = paginator.page(page)
+    except PageNotAnInteger:
+        moves = paginator.page(1)
+    except EmptyPage:
+        moves = paginator.page(paginator.num_pages)
+
     items = Item.objects.filter(is_active=True).order_by('code')
     move_types = MoveType.choices
 
     return render(request, 'reports/stock_movement.html', {
-        'moves': qs[:200],
+        'moves': moves,
         'items': items,
         'move_types': move_types,
         'filters': {

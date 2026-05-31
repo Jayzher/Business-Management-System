@@ -55,12 +55,24 @@ def location_list_view(request):
 
 @login_required
 def warehouse_detail_view(request, pk):
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
     warehouse = get_object_or_404(Warehouse, pk=pk)
     locations = warehouse.locations.select_related('parent').all()
     location_ids = locations.values_list('id', flat=True)
-    balances = StockBalance.objects.filter(
+    balances_qs = StockBalance.objects.filter(
         location_id__in=location_ids, qty_on_hand__gt=0
-    ).select_related('item', 'location')[:50]
+    ).select_related('item', 'location').order_by('item__code')
+    
+    # Pagination
+    paginator = Paginator(balances_qs, 100)  # 100 balances per page
+    page = request.GET.get('page', 1)
+    try:
+        balances = paginator.page(page)
+    except PageNotAnInteger:
+        balances = paginator.page(1)
+    except EmptyPage:
+        balances = paginator.page(paginator.num_pages)
+    
     return render(request, 'warehouses/warehouse_detail.html', {
         'warehouse': warehouse,
         'locations': locations,

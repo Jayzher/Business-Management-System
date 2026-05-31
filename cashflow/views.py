@@ -514,12 +514,24 @@ def transaction_cancel(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def log_list(request):
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
     qs = (
         CashFlowLog.objects
         .select_related('transaction', 'performed_by')
-        .all()[:500]
+        .order_by('-timestamp')
     )
-    return render(request, 'cashflow/log_list.html', {'logs': qs})
+    
+    # Pagination
+    paginator = Paginator(qs, 100)  # 100 logs per page
+    page = request.GET.get('page', 1)
+    try:
+        logs = paginator.page(page)
+    except PageNotAnInteger:
+        logs = paginator.page(1)
+    except EmptyPage:
+        logs = paginator.page(paginator.num_pages)
+    
+    return render(request, 'cashflow/log_list.html', {'logs': logs})
 
 
 # ═══════════════════════════════════════════════════════════════════════════

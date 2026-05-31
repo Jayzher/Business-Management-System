@@ -24,6 +24,7 @@ def service_invoice_list(request):
     from django.db.models import Sum, Q
     from django.db.models.functions import Coalesce
     from django.db.models import DecimalField
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
     # Invoices that have at least one linked customer service
     invoice_ids = CustomerService.objects.filter(
@@ -49,8 +50,18 @@ def service_invoice_list(request):
     paid_count = qs.filter(is_paid=True).count()
     unpaid_count = qs.filter(is_paid=False).count()
 
+    # Pagination
+    paginator = Paginator(qs, 100)  # 100 invoices per page
+    page = request.GET.get('page', 1)
+    try:
+        invoices = paginator.page(page)
+    except PageNotAnInteger:
+        invoices = paginator.page(1)
+    except EmptyPage:
+        invoices = paginator.page(paginator.num_pages)
+
     return render(request, 'services/service_invoice_list.html', {
-        'invoices': qs,
+        'invoices': invoices,
         'paid_filter': paid_filter,
         'total_revenue': agg['total_revenue'],
         'paid_count': paid_count,

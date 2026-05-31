@@ -142,6 +142,7 @@ def expense_category_delete(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def expense_list(request):
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
     qs = Expense.objects.select_related('category', 'created_by')
     cat = request.GET.get('category')
     date_from = request.GET.get('date_from')
@@ -153,9 +154,21 @@ def expense_list(request):
     if date_to:
         qs = qs.filter(date__lte=date_to)
     total = qs.aggregate(total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()))['total']
+    
+    # Pagination
+    qs = qs.order_by('-date', '-created_at')
+    paginator = Paginator(qs, 100)  # 100 expenses per page
+    page = request.GET.get('page', 1)
+    try:
+        expenses = paginator.page(page)
+    except PageNotAnInteger:
+        expenses = paginator.page(1)
+    except EmptyPage:
+        expenses = paginator.page(paginator.num_pages)
+    
     categories = ExpenseCategory.objects.all()
     return render(request, 'core/expense_list.html', {
-        'expenses': qs[:500],
+        'expenses': expenses,
         'categories': categories,
         'total': total,
         'filters': {'category': cat or '', 'date_from': date_from or '', 'date_to': date_to or ''},
@@ -224,14 +237,26 @@ def _compute_cogs_for_invoice(inv):
 def invoice_list(request):
     from django.db.models import Sum, Count, DecimalField
     from django.db.models.functions import Coalesce
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
     from decimal import Decimal
     # Exclude invoices that belong to a CustomerService (those live in services/)
     service_invoice_ids = Invoice.objects.filter(
         customer_services__isnull=False
     ).values_list('id', flat=True)
-    invoices = Invoice.objects.exclude(
+    invoices_qs = Invoice.objects.exclude(
         pk__in=service_invoice_ids
-    ).select_related('created_by')[:200]
+    ).select_related('created_by').order_by('-date', '-created_at')
+    
+    # Pagination
+    paginator = Paginator(invoices_qs, 100)  # 100 invoices per page
+    page = request.GET.get('page', 1)
+    try:
+        invoices = paginator.page(page)
+    except PageNotAnInteger:
+        invoices = paginator.page(1)
+    except EmptyPage:
+        invoices = paginator.page(paginator.num_pages)
+    
     invoice_summary = Invoice.objects.exclude(
         pk__in=service_invoice_ids
     ).aggregate(
@@ -602,6 +627,7 @@ def supply_item_delete(request, pk):
 
 @login_required
 def supply_movement_list(request):
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
     qs = SupplyMovement.objects.select_related('supply_item', 'created_by')
     item_id = request.GET.get('item')
     mtype = request.GET.get('type')
@@ -609,9 +635,21 @@ def supply_movement_list(request):
         qs = qs.filter(supply_item_id=item_id)
     if mtype:
         qs = qs.filter(movement_type=mtype)
+    
+    # Pagination
+    qs = qs.order_by('-date', '-created_at')
+    paginator = Paginator(qs, 100)  # 100 movements per page
+    page = request.GET.get('page', 1)
+    try:
+        movements = paginator.page(page)
+    except PageNotAnInteger:
+        movements = paginator.page(1)
+    except EmptyPage:
+        movements = paginator.page(paginator.num_pages)
+    
     items = SupplyItem.objects.all()
     return render(request, 'core/supply_movement_list.html', {
-        'movements': qs[:500], 'items': items,
+        'movements': movements, 'items': items,
         'filters': {'item': item_id or '', 'type': mtype or ''},
     })
 

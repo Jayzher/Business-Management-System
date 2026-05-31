@@ -145,7 +145,19 @@ def qr_scan(request):
 
 @login_required
 def qr_list_view(request):
-    tags = QRCodeTag.objects.select_related('item', 'location').all()[:100]
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    tags_qs = QRCodeTag.objects.select_related('item', 'location').order_by('-created_at')
+    
+    # Pagination
+    paginator = Paginator(tags_qs, 100)  # 100 tags per page
+    page = request.GET.get('page', 1)
+    try:
+        tags = paginator.page(page)
+    except PageNotAnInteger:
+        tags = paginator.page(1)
+    except EmptyPage:
+        tags = paginator.page(paginator.num_pages)
+    
     return render(request, 'qr/qr_list.html', {'tags': tags})
 
 
@@ -158,7 +170,8 @@ def qr_scan_view(request):
 def qr_print_view(request):
     tag_ids = request.GET.getlist('ids')
     if tag_ids:
-        tags = QRCodeTag.objects.filter(pk__in=tag_ids).select_related('item')
+        tags = QRCodeTag.objects.filter(pk__in=tag_ids).select_related('item').order_by('id')
     else:
-        tags = QRCodeTag.objects.filter(printed=False).select_related('item')[:50]
+        # Limit to 50 unprinted tags to avoid accidentally printing too many
+        tags = QRCodeTag.objects.filter(printed=False).select_related('item').order_by('created_at')[:50]
     return render(request, 'qr/qr_print.html', {'tags': tags})

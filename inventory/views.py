@@ -305,10 +305,22 @@ def item_inventory_view(request):
 @login_required
 @warehouse_access
 def stock_move_list_view(request):
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
     moves = StockMove.objects.filter(status='POSTED').select_related(
         'item', 'unit', 'from_location', 'to_location', 'created_by'
-    )[:100]
-    return render(request, 'inventory/stock_move_list.html', {'moves': moves})
+    ).order_by('-posted_at')
+    
+    # Pagination
+    paginator = Paginator(moves, 100)  # 100 moves per page
+    page = request.GET.get('page', 1)
+    try:
+        moves_page = paginator.page(page)
+    except PageNotAnInteger:
+        moves_page = paginator.page(1)
+    except EmptyPage:
+        moves_page = paginator.page(paginator.num_pages)
+    
+    return render(request, 'inventory/stock_move_list.html', {'moves': moves_page})
 
 
 @login_required
