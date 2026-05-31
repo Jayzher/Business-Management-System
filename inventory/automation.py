@@ -286,8 +286,11 @@ def auto_create_invoice_from_so(so, user):
 @transaction.atomic
 def auto_create_invoice_from_pickup(pickup, user):
     """
-    Auto-create an Invoice when a Sales Pickup is posted.
+    Auto-create or UPDATE an Invoice when a Sales Pickup is posted.
     Uses a select_for_update lock on the SO to prevent concurrent duplicate invoices.
+    
+    IDEMPOTENT: If invoice exists, updates it with any new items from the SO.
+    Returns the created or updated Invoice.
     """
     from core.models import Invoice, InvoiceLine
 
@@ -296,7 +299,56 @@ def auto_create_invoice_from_pickup(pickup, user):
         from sales.models import SalesOrder
         SalesOrder.objects.select_for_update().filter(pk=pickup.sales_order_id).first()
         existing = Invoice.objects.filter(sales_order=pickup.sales_order, is_void=False).first()
+        
         if existing:
+            # UPDATE existing invoice with new items
+            so = pickup.sales_order
+            
+            # Get existing invoice line item codes
+            existing_line_items = set(
+                existing.lines.values_list('item_code', flat=True)
+            )
+            
+            # Add new SO lines that don't exist in invoice
+            new_lines_added = 0
+            for line in so.lines.select_related('item', 'unit'):
+                if line.item.code not in existing_line_items:
+                    InvoiceLine.objects.create(
+                        invoice=existing,
+                        item_code=line.item.code,
+                        item_name=line.item.name,
+                        qty=line.qty_ordered,
+                        unit=line.unit.abbreviation,
+                        unit_price=line.unit_price,
+                        line_total=line.line_total,
+                    )
+                    new_lines_added += 1
+            
+            # Add new bundles that don't exist in invoice
+            existing_bundles = set(
+                existing.lines.filter(item_code='BUNDLE').values_list('item_name', flat=True)
+            )
+            for bundle in so.price_list_lines.select_related('price_list').all():
+                if bundle.price_list.name not in existing_bundles:
+                    InvoiceLine.objects.create(
+                        invoice=existing,
+                        item_code='BUNDLE',
+                        item_name=bundle.price_list.name,
+                        qty=bundle.qty_multiplier,
+                        unit='bundle',
+                        unit_price=bundle.bundle_subtotal,
+                        discount=bundle.bundle_discount_amount if hasattr(bundle, 'bundle_discount_amount') else Decimal('0'),
+                        line_total=bundle.bundle_total,
+                    )
+                    new_lines_added += 1
+            
+            # Recalculate totals
+            if new_lines_added > 0:
+                subtotal = sum(l.line_total for l in existing.lines.all())
+                existing.subtotal = subtotal
+                existing.grand_total = subtotal
+                existing.save(update_fields=['subtotal', 'grand_total', 'updated_at'])
+            
             return existing
 
     inv_number = _generate_invoice_number()
@@ -368,9 +420,11 @@ def auto_create_invoice_from_pickup(pickup, user):
 @transaction.atomic
 def auto_create_invoice_from_delivery(delivery, user):
     """
-    Auto-create an Invoice when a Delivery Note is posted.
+    Auto-create or UPDATE an Invoice when a Delivery Note is posted.
     Uses a select_for_update lock on the SO to prevent concurrent duplicate invoices.
-    Returns the created Invoice or the existing non-void one.
+    
+    IDEMPOTENT: If invoice exists, updates it with any new items from the SO.
+    Returns the created or updated Invoice.
     """
     from core.models import Invoice, InvoiceLine
 
@@ -379,7 +433,58 @@ def auto_create_invoice_from_delivery(delivery, user):
         from sales.models import SalesOrder
         SalesOrder.objects.select_for_update().filter(pk=delivery.sales_order_id).first()
         existing = Invoice.objects.filter(sales_order=delivery.sales_order, is_void=False).first()
+        
         if existing:
+            # UPDATE existing invoice with new items
+            so = delivery.sales_order
+            
+            # Get existing invoice line item codes
+            existing_line_items = set(
+                existing.lines.values_list('item_code', flat=True)
+            )
+            
+            # Add new SO lines that don't exist in invoice
+            new_lines_added = 0
+            for line in so.lines.select_related('item', 'unit'):
+                if line.item.code not in existing_line_items:
+                    InvoiceLine.objects.create(
+                        invoice=existing,
+                        item_code=line.item.code,
+                        item_name=line.item.name,
+                        qty=line.qty_ordered,
+                        unit=line.unit.abbreviation,
+                        unit_price=line.unit_price,
+                        line_total=line.line_total,
+                    )
+                    new_lines_added += 1
+            
+            # Add new bundles that don't exist in invoice
+            existing_bundles = set(
+                existing.lines.filter(item_code='BUNDLE').values_list('item_name', flat=True)
+            )
+            for bundle in so.price_list_lines.select_related('price_list').all():
+                if bundle.price_list.name not in existing_bundles:
+                    InvoiceLine.objects.create(
+                        invoice=existing,
+                        item_code='BUNDLE',
+                        item_name=bundle.price_list.name,
+                        qty=bundle.qty_multiplier,
+                        unit='bundle',
+                        unit_price=bundle.bundle_subtotal,
+                        discount=bundle.bundle_discount_amount if hasattr(bundle, 'bundle_discount_amount') else Decimal('0'),
+                        line_total=bundle.bundle_total,
+                    )
+                    new_lines_added += 1
+            
+            # Recalculate totals
+            if new_lines_added > 0:
+                subtotal = sum(l.line_total for l in existing.lines.all())
+                delivery_charge = so.delivery_charge or Decimal('0')
+                existing.subtotal = subtotal
+                existing.delivery_charge = delivery_charge
+                existing.grand_total = subtotal + delivery_charge
+                existing.save(update_fields=['subtotal', 'delivery_charge', 'grand_total', 'updated_at'])
+            
             return existing
 
     inv_number = _generate_invoice_number()
@@ -447,6 +552,8 @@ def auto_create_invoice_from_delivery(delivery, user):
                 unit_price=Decimal('0'),
                 line_total=Decimal('0'),
             )
+
+    return inv
 
     return inv
 
