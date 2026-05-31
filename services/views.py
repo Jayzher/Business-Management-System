@@ -605,13 +605,32 @@ def service_complete(request, pk):
         invoice_notes = f'Service: {svc.service_name}'
 
     # ── Check for existing invoice and UPDATE or CREATE ───────────────────
+    # Search for an existing invoice for this customer that can be updated
+    # Criteria: Same customer name, same date, not void, not fully paid
     existing_invoice = None
+    
     if svc.invoice_id:
-        # Service already has an invoice linked, update it
+        # Service already has an invoice linked, use it
         existing_invoice = Invoice.objects.select_for_update().filter(
             pk=svc.invoice_id,
             is_void=False
         ).first()
+        logger.info(f"Service {svc.service_number} already linked to invoice {existing_invoice.invoice_number if existing_invoice else 'NOT FOUND'}")
+    
+    if not existing_invoice and svc.customer_name:
+        # Search for a recent invoice for the same customer that's not fully paid
+        # This allows grouping multiple services for the same customer into one invoice
+        existing_invoice = Invoice.objects.select_for_update().filter(
+            customer_name__iexact=svc.customer_name.strip(),
+            date=now.date(),  # Same day only
+            is_void=False,
+            is_paid=False,  # Don't add to fully paid invoices
+            sales_order__isnull=True,  # Don't add to SO invoices
+            pos_sale__isnull=True,  # Don't add to POS invoices
+        ).order_by('-created_at').first()
+        
+        if existing_invoice:
+            logger.info(f"Found existing unpaid invoice {existing_invoice.invoice_number} for customer '{svc.customer_name}' on {now.date()}, will update it")
     
     if existing_invoice:
         logger.info(f"Found existing invoice {existing_invoice.invoice_number} for service {svc.service_number}, updating it")
@@ -623,29 +642,35 @@ def service_complete(request, pk):
         
         new_lines_added = 0
         
-        # Update invoice header
-        existing_invoice.subtotal = invoice_subtotal
-        existing_invoice.discount_total = invoice_discount
-        existing_invoice.grand_total = invoice_grand_total
-        existing_invoice.notes = invoice_notes
-        existing_invoice.customer_name = svc.customer_name
-        existing_invoice.customer_address = svc.address
+        # Update invoice header - ADD to existing totals
+        existing_invoice.subtotal += invoice_subtotal
+        existing_invoice.discount_total += invoice_discount
+        existing_invoice.grand_total += invoice_grand_total
+        
+        # Update notes to include this service
+        if existing_invoice.notes:
+            existing_invoice.notes += f'\n+ Service: {svc.service_name} ({svc.service_number})'
+        else:
+            existing_invoice.notes = f'Service: {svc.service_name} ({svc.service_number})'
+        
         existing_invoice.save(update_fields=[
-            'subtotal', 'discount_total', 'grand_total', 'notes',
-            'customer_name', 'customer_address', 'updated_at'
+            'subtotal', 'discount_total', 'grand_total', 'notes', 'updated_at'
         ])
         
         # Add new invoice lines based on service type
         if svc.quotation_amount > 0:
-            # Quotation-based: Update or create the single service line
-            if 'SVC-QUOT' not in existing_line_items:
+            # Quotation-based: Add a line for this service's quotation
+            # Use service number as unique identifier
+            service_line_code = f'SVC-QUOT-{svc.service_number}'
+            if service_line_code not in existing_line_items:
                 line_description = svc.service_name or 'Service'
                 if partial_paid > 0:
                     line_description += f' (Balance after ₱{partial_paid:,.2f} partial payment)'
+                line_description += f' [{svc.service_number}]'
                 
                 InvoiceLine.objects.create(
                     invoice=existing_invoice,
-                    item_code='SVC-QUOT',
+                    item_code=service_line_code,
                     item_name=line_description,
                     qty=Decimal('1'),
                     unit='svc',
@@ -653,52 +678,55 @@ def service_complete(request, pk):
                     line_total=invoice_grand_total,
                 )
                 new_lines_added += 1
-                logger.info(f"Added quotation line to invoice {existing_invoice.invoice_number}")
+                logger.info(f"Added quotation line for service {svc.service_number} to invoice {existing_invoice.invoice_number}")
         else:
-            # Item-based: Add new product lines
+            # Item-based: Add new product lines with service number prefix
             for line in lines:
-                if line.item.code not in existing_line_items:
+                # Use service number + item code as unique identifier
+                line_code = f'{svc.service_number}-{line.item.code}'
+                if line_code not in existing_line_items:
                     InvoiceLine.objects.create(
                         invoice=existing_invoice,
-                        item_code=line.item.code,
-                        item_name=line.item.name,
+                        item_code=line_code,
+                        item_name=f'{line.item.name} [{svc.service_number}]',
                         qty=line.qty,
                         unit=line.unit.abbreviation,
                         unit_price=line.unit_price,
                         line_total=line.line_total,
                     )
                     new_lines_added += 1
-                    logger.info(f"Added item {line.item.code} to invoice {existing_invoice.invoice_number}")
+                    logger.info(f"Added item {line.item.code} from service {svc.service_number} to invoice {existing_invoice.invoice_number}")
 
-            # Add new other materials
+            # Add new other materials with service number prefix
             for mat in other_mats:
-                mat_key = f"MAT-{mat.item_name}"
+                mat_key = f'{svc.service_number}-MAT-{mat.item_name}'
                 if mat_key not in existing_line_items:
                     InvoiceLine.objects.create(
                         invoice=existing_invoice,
-                        item_code='MAT',
-                        item_name=mat.item_name,
+                        item_code=mat_key,
+                        item_name=f'{mat.item_name} [{svc.service_number}]',
                         qty=mat.qty,
                         unit='unit',
                         unit_price=mat.unit_price,
                         line_total=mat.line_total,
                     )
                     new_lines_added += 1
-                    logger.info(f"Added material {mat.item_name} to invoice {existing_invoice.invoice_number}")
+                    logger.info(f"Added material {mat.item_name} from service {svc.service_number} to invoice {existing_invoice.invoice_number}")
 
             # If no lines and no materials, add service line
-            if not lines and not other_mats and 'SVC' not in existing_line_items:
+            service_line_code = f'SVC-{svc.service_number}'
+            if not lines and not other_mats and service_line_code not in existing_line_items:
                 InvoiceLine.objects.create(
                     invoice=existing_invoice,
-                    item_code='SVC',
-                    item_name=svc.service_name,
+                    item_code=service_line_code,
+                    item_name=f'{svc.service_name} [{svc.service_number}]',
                     qty=Decimal('1'),
                     unit='svc',
                     unit_price=grand_total,
                     line_total=grand_total,
                 )
                 new_lines_added += 1
-                logger.info(f"Added service line to invoice {existing_invoice.invoice_number}")
+                logger.info(f"Added service line for {svc.service_number} to invoice {existing_invoice.invoice_number}")
         
         logger.info(f"Updated invoice {existing_invoice.invoice_number} with {new_lines_added} new line(s)")
         inv = existing_invoice
