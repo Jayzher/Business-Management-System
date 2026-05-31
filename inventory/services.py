@@ -401,6 +401,9 @@ def post_delivery(delivery, user):
     """
     Post a Delivery Note: creates DELIVER StockMoves and updates balances.
     Before processing, ensures any SO bundle components are present as DN lines.
+    
+    IDEMPOTENT: If stock movements already exist for a line, skip creating duplicates.
+    Only create movements for NEW lines that don't have movements yet.
     """
     from sales.models import DeliveryNote, DeliveryLine
     from core.models import DocumentStatus
@@ -411,11 +414,26 @@ def post_delivery(delivery, user):
     # ── Expand missing SO bundle components into DN lines ──────────────
     _ensure_so_bundle_lines_on_delivery(delivery)
 
+    # ── Check for existing stock movements ──────────────────────────────
+    existing_moves = StockMove.objects.filter(
+        reference_type='DeliveryNote',
+        reference_id=delivery.pk,
+        status=MoveStatus.POSTED,
+    ).values_list('item_id', flat=True)
+    
+    existing_item_ids = set(existing_moves)
+
     now = timezone.now()
     moves = []
     skipped = []
+    skipped_existing = []
 
     for line in delivery.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+        # Skip if stock movement already exists for this item
+        if line.item_id in existing_item_ids:
+            skipped_existing.append(f"{line.item.code} (already moved)")
+            continue
+            
         base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
         if base_qty is None:
             continue
@@ -446,15 +464,21 @@ def post_delivery(delivery, user):
                 so_line.qty_delivered += line.qty
                 so_line.save(update_fields=['qty_delivered'])
 
-    StockMove.objects.bulk_create(moves)
+    if moves:
+        StockMove.objects.bulk_create(moves)
 
     delivery.status = DocumentStatus.POSTED
     delivery.posted_by = user
     delivery.posted_at = now
     delivery.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', delivery, {'lines': len(moves), 'skipped_lines': len(skipped)})
-    delivery.skipped_lines = skipped
+    audit_data = {
+        'lines': len(moves), 
+        'skipped_lines': len(skipped),
+        'skipped_existing': len(skipped_existing),
+    }
+    _create_audit(user, 'POST', delivery, audit_data)
+    delivery.skipped_lines = skipped + skipped_existing
     return delivery
 
 
@@ -464,6 +488,9 @@ def post_sales_pickup(pickup, user):
     Post a Sales Pickup: behaves like a Delivery Note but for PICKUP fulfillment.
     Creates DELIVER StockMoves and updates balances.
     Before processing, ensures any SO bundle components are present as Pickup lines.
+    
+    IDEMPOTENT: If stock movements already exist for a line, skip creating duplicates.
+    Only create movements for NEW lines that don't have movements yet.
     """
     from sales.models import SalesPickup, SalesPickupLine
     from core.models import DocumentStatus
@@ -474,11 +501,26 @@ def post_sales_pickup(pickup, user):
     # ── Expand missing SO bundle components into Pickup lines ─────────
     _ensure_so_bundle_lines_on_pickup(pickup)
 
+    # ── Check for existing stock movements ──────────────────────────────
+    existing_moves = StockMove.objects.filter(
+        reference_type='SalesPickup',
+        reference_id=pickup.pk,
+        status=MoveStatus.POSTED,
+    ).values_list('item_id', flat=True)
+    
+    existing_item_ids = set(existing_moves)
+
     now = timezone.now()
     moves = []
     skipped = []
+    skipped_existing = []
 
     for line in pickup.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+        # Skip if stock movement already exists for this item
+        if line.item_id in existing_item_ids:
+            skipped_existing.append(f"{line.item.code} (already moved)")
+            continue
+            
         base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
         if base_qty is None:
             continue
@@ -509,15 +551,22 @@ def post_sales_pickup(pickup, user):
                 so_line.qty_delivered += line.qty
                 so_line.save(update_fields=['qty_delivered'])
 
-    StockMove.objects.bulk_create(moves)
+    if moves:
+        StockMove.objects.bulk_create(moves)
 
     pickup.status = DocumentStatus.POSTED
     pickup.posted_by = user
     pickup.posted_at = now
     pickup.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    _create_audit(user, 'POST', pickup, {'lines': len(moves), 'skipped_lines': len(skipped)})
-    pickup.skipped_lines = skipped
+    audit_data = {
+        'lines': len(moves), 
+        'skipped_lines': len(skipped),
+        'skipped_existing': len(skipped_existing),
+    }
+    _create_audit(user, 'POST', pickup, audit_data)
+    pickup.skipped_lines = skipped + skipped_existing
+    return pickup
     return pickup
 
 

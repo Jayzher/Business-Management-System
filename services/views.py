@@ -442,6 +442,15 @@ def service_complete(request, pk):
             from catalog.models import convert_to_base_unit
             from warehouses.models import Location
 
+            # ── Check for existing stock movements ──────────────────────────────
+            existing_moves = StockMove.objects.filter(
+                reference_type='CustomerService',
+                reference_id=svc.pk,
+                status=MoveStatus.POSTED,
+            ).values_list('item_id', flat=True)
+            
+            existing_item_ids = set(existing_moves)
+
             default_location = None
             if svc.warehouse_id:
                 default_location = (
@@ -453,9 +462,15 @@ def service_complete(request, pk):
 
             missing_location_items = []
             skipped_unit_items = []
+            skipped_existing_items = []
             moves = []
 
             def deduct_item(item, sale_unit, qty, location):
+                # Skip if stock movement already exists for this item
+                if item.id in existing_item_ids:
+                    skipped_existing_items.append(f"{item.code} (already moved)")
+                    return
+                    
                 try:
                     base_qty = convert_to_base_unit(qty, sale_unit, item.stock_unit, item=item)
                 except (ValueError, Exception) as exc:
@@ -524,6 +539,13 @@ def service_complete(request, pk):
                     request,
                     f'No location set for item(s): {", ".join(sorted(set(missing_location_items)))}. '
                     'Their stock was NOT deducted. Set a location or assign a warehouse.'
+                )
+
+            if skipped_existing_items:
+                messages.info(
+                    request,
+                    f'Stock already deducted for: {", ".join(skipped_existing_items)}. '
+                    'Only NEW items were processed.'
                 )
 
             if skipped_unit_items:
