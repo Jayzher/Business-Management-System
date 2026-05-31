@@ -55,8 +55,8 @@
   </ul>
   
   <div class="text-center mt-2 text-muted small">
-    Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} 
-    ({{ page_obj.paginator.count }} total {{ items_name|default:"items" }})
+    Showing {{ page_obj.start_index }} - {{ page_obj.end_index }} of <strong>{{ page_obj.paginator.count }}</strong> total {{ items_name|default:"items" }}
+    (Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }})
   </div>
 </nav>
 {% endif %}

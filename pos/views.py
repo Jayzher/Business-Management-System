@@ -323,20 +323,15 @@ def shift_close_view(request, pk):
 
 @login_required
 def shift_list_view(request):
-    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-    shifts_qs = POSShift.objects.select_related('register', 'opened_by', 'closed_by').order_by('-opened_at')
+    shifts = POSShift.objects.select_related('register', 'opened_by', 'closed_by').order_by('-opened_at')
     
-    # Pagination
-    paginator = Paginator(shifts_qs, 50)  # 50 shifts per page
-    page = request.GET.get('page', 1)
-    try:
-        shifts = paginator.page(page)
-    except PageNotAnInteger:
-        shifts = paginator.page(1)
-    except EmptyPage:
-        shifts = paginator.page(paginator.num_pages)
+    # Get total count (no pagination - DataTables handles it client-side)
+    total_count = shifts.count()
     
-    return render(request, 'pos/shift_list.html', {'shifts': shifts})
+    return render(request, 'pos/shift_list.html', {
+        'shifts': shifts,
+        'total_count': total_count,
+    })
 
 
 @login_required
@@ -398,22 +393,17 @@ def terminal_view(request, shift_id):
 
 @login_required
 def receipt_list_view(request):
-    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-    sales_qs = POSSale.objects.filter(
+    sales = POSSale.objects.filter(
         status__in=[SaleStatus.POSTED, SaleStatus.PAID, SaleStatus.REFUNDED],
     ).select_related('register', 'customer', 'created_by').order_by('-created_at')
     
-    # Pagination
-    paginator = Paginator(sales_qs, 100)  # 100 receipts per page
-    page = request.GET.get('page', 1)
-    try:
-        sales = paginator.page(page)
-    except PageNotAnInteger:
-        sales = paginator.page(1)
-    except EmptyPage:
-        sales = paginator.page(paginator.num_pages)
+    # Get total count (no pagination - DataTables handles it client-side)
+    total_count = sales.count()
     
-    return render(request, 'pos/receipt_list.html', {'sales': sales})
+    return render(request, 'pos/receipt_list.html', {
+        'sales': sales,
+        'total_count': total_count,
+    })
 
 
 @login_required

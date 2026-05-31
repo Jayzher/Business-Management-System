@@ -145,20 +145,15 @@ def qr_scan(request):
 
 @login_required
 def qr_list_view(request):
-    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-    tags_qs = QRCodeTag.objects.select_related('item', 'location').order_by('-created_at')
+    tags = QRCodeTag.objects.select_related('item', 'location').order_by('-created_at')
     
-    # Pagination
-    paginator = Paginator(tags_qs, 100)  # 100 tags per page
-    page = request.GET.get('page', 1)
-    try:
-        tags = paginator.page(page)
-    except PageNotAnInteger:
-        tags = paginator.page(1)
-    except EmptyPage:
-        tags = paginator.page(paginator.num_pages)
+    # Get total count (no pagination - DataTables handles it client-side)
+    total_count = tags.count()
     
-    return render(request, 'qr/qr_list.html', {'tags': tags})
+    return render(request, 'qr/qr_list.html', {
+        'tags': tags,
+        'total_count': total_count,
+    })
 
 
 @login_required
