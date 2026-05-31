@@ -563,6 +563,8 @@ def service_complete(request, pk):
     # ── Generate Invoice ───────────────────────────────────────────────────
     from core.models import Invoice, InvoiceLine, InvoicePayment, PaymentMethod
     from core.views import _next_invoice_number
+    import logging
+    logger = logging.getLogger(__name__)
 
     # Invoice amounts are what the CUSTOMER pays — the quoted price (not the net profit).
     if svc.quotation_amount > 0:
@@ -602,19 +604,180 @@ def service_complete(request, pk):
         invoice_grand_total = grand_total
         invoice_notes = f'Service: {svc.service_name}'
 
-    inv = Invoice.objects.create(
-        invoice_number=_next_invoice_number(),
-        date=now.date(),
-        customer_name=svc.customer_name,
-        customer_address=svc.address,
-        subtotal=invoice_subtotal,
-        discount_total=invoice_discount,
-        grand_total=invoice_grand_total,
-        grand_total_cogs=Decimal('0'),
-        notes=invoice_notes,
-        created_by=request.user,
-    )
+    # ── Check for existing invoice and UPDATE or CREATE ───────────────────
+    existing_invoice = None
+    if svc.invoice_id:
+        # Service already has an invoice linked, update it
+        existing_invoice = Invoice.objects.select_for_update().filter(
+            pk=svc.invoice_id,
+            is_void=False
+        ).first()
+    
+    if existing_invoice:
+        logger.info(f"Found existing invoice {existing_invoice.invoice_number} for service {svc.service_number}, updating it")
+        
+        # Get existing invoice line item codes to avoid duplicates
+        existing_line_items = set(
+            existing_invoice.lines.values_list('item_code', flat=True)
+        )
+        
+        new_lines_added = 0
+        
+        # Update invoice header
+        existing_invoice.subtotal = invoice_subtotal
+        existing_invoice.discount_total = invoice_discount
+        existing_invoice.grand_total = invoice_grand_total
+        existing_invoice.notes = invoice_notes
+        existing_invoice.customer_name = svc.customer_name
+        existing_invoice.customer_address = svc.address
+        existing_invoice.save(update_fields=[
+            'subtotal', 'discount_total', 'grand_total', 'notes',
+            'customer_name', 'customer_address', 'updated_at'
+        ])
+        
+        # Add new invoice lines based on service type
+        if svc.quotation_amount > 0:
+            # Quotation-based: Update or create the single service line
+            if 'SVC-QUOT' not in existing_line_items:
+                line_description = svc.service_name or 'Service'
+                if partial_paid > 0:
+                    line_description += f' (Balance after ₱{partial_paid:,.2f} partial payment)'
+                
+                InvoiceLine.objects.create(
+                    invoice=existing_invoice,
+                    item_code='SVC-QUOT',
+                    item_name=line_description,
+                    qty=Decimal('1'),
+                    unit='svc',
+                    unit_price=invoice_grand_total,
+                    line_total=invoice_grand_total,
+                )
+                new_lines_added += 1
+                logger.info(f"Added quotation line to invoice {existing_invoice.invoice_number}")
+        else:
+            # Item-based: Add new product lines
+            for line in lines:
+                if line.item.code not in existing_line_items:
+                    InvoiceLine.objects.create(
+                        invoice=existing_invoice,
+                        item_code=line.item.code,
+                        item_name=line.item.name,
+                        qty=line.qty,
+                        unit=line.unit.abbreviation,
+                        unit_price=line.unit_price,
+                        line_total=line.line_total,
+                    )
+                    new_lines_added += 1
+                    logger.info(f"Added item {line.item.code} to invoice {existing_invoice.invoice_number}")
 
+            # Add new other materials
+            for mat in other_mats:
+                mat_key = f"MAT-{mat.item_name}"
+                if mat_key not in existing_line_items:
+                    InvoiceLine.objects.create(
+                        invoice=existing_invoice,
+                        item_code='MAT',
+                        item_name=mat.item_name,
+                        qty=mat.qty,
+                        unit='unit',
+                        unit_price=mat.unit_price,
+                        line_total=mat.line_total,
+                    )
+                    new_lines_added += 1
+                    logger.info(f"Added material {mat.item_name} to invoice {existing_invoice.invoice_number}")
+
+            # If no lines and no materials, add service line
+            if not lines and not other_mats and 'SVC' not in existing_line_items:
+                InvoiceLine.objects.create(
+                    invoice=existing_invoice,
+                    item_code='SVC',
+                    item_name=svc.service_name,
+                    qty=Decimal('1'),
+                    unit='svc',
+                    unit_price=grand_total,
+                    line_total=grand_total,
+                )
+                new_lines_added += 1
+                logger.info(f"Added service line to invoice {existing_invoice.invoice_number}")
+        
+        logger.info(f"Updated invoice {existing_invoice.invoice_number} with {new_lines_added} new line(s)")
+        inv = existing_invoice
+        inv._was_updated = True
+        inv._new_lines_count = new_lines_added
+    else:
+        # No existing invoice, create new one
+        logger.info(f"No existing invoice found for service {svc.service_number}, creating new one")
+        
+        inv = Invoice.objects.create(
+            invoice_number=_next_invoice_number(),
+            date=now.date(),
+            customer_name=svc.customer_name,
+            customer_address=svc.address,
+            subtotal=invoice_subtotal,
+            discount_total=invoice_discount,
+            grand_total=invoice_grand_total,
+            grand_total_cogs=Decimal('0'),
+            notes=invoice_notes,
+            created_by=request.user,
+        )
+
+        # ── Invoice lines (what the customer sees) ────────────────────────────
+        # If there's a quotation, the customer is billed for the quoted amount only.
+        # Material/part costs are internal COGS and do not appear as customer line items.
+        if svc.quotation_amount > 0:
+            # Show the remaining balance amount (after partial payment)
+            line_description = svc.service_name or 'Service'
+            if partial_paid > 0:
+                line_description += f' (Balance after ₱{partial_paid:,.2f} partial payment)'
+            
+            InvoiceLine.objects.create(
+                invoice=inv,
+                item_code='SVC-QUOT',
+                item_name=line_description,
+                qty=Decimal('1'),
+                unit='svc',
+                unit_price=invoice_grand_total,
+                line_total=invoice_grand_total,
+            )
+        else:
+            # No quotation — show individual product/material lines
+            for line in lines:
+                InvoiceLine.objects.create(
+                    invoice=inv,
+                    item_code=line.item.code,
+                    item_name=line.item.name,
+                    qty=line.qty,
+                    unit=line.unit.abbreviation,
+                    unit_price=line.unit_price,
+                    line_total=line.line_total,
+                )
+
+            for mat in other_mats:
+                InvoiceLine.objects.create(
+                    invoice=inv,
+                    item_code='MAT',
+                    item_name=mat.item_name,
+                    qty=mat.qty,
+                    unit='unit',
+                    unit_price=mat.unit_price,
+                    line_total=mat.line_total,
+                )
+
+            if not lines and not other_mats:
+                InvoiceLine.objects.create(
+                    invoice=inv,
+                    item_code='SVC',
+                    item_name=svc.service_name,
+                    qty=Decimal('1'),
+                    unit='svc',
+                    unit_price=grand_total,
+                    line_total=grand_total,
+                )
+        
+        inv._was_updated = False
+        inv._was_updated = False
+
+    # ── Handle payments ────────────────────────────────────────────────────
     if svc.payment_status == ServicePaymentStatus.PAID and invoice_grand_total > 0:
         # If already marked as paid, create payment for the remaining balance
         final_payment = invoice_grand_total
@@ -637,59 +800,6 @@ def service_complete(request, pk):
         inv.paid_at = now
         inv.paid_date = now.date()
         inv.save(update_fields=['is_paid', 'paid_at', 'paid_date', 'updated_at'])
-
-    # ── Invoice lines (what the customer sees) ────────────────────────────
-    # If there's a quotation, the customer is billed for the quoted amount only.
-    # Material/part costs are internal COGS and do not appear as customer line items.
-    if svc.quotation_amount > 0:
-        # Show the remaining balance amount (after partial payment)
-        line_description = svc.service_name or 'Service'
-        if partial_paid > 0:
-            line_description += f' (Balance after ₱{partial_paid:,.2f} partial payment)'
-        
-        InvoiceLine.objects.create(
-            invoice=inv,
-            item_code='SVC-QUOT',
-            item_name=line_description,
-            qty=Decimal('1'),
-            unit='svc',
-            unit_price=invoice_grand_total,
-            line_total=invoice_grand_total,
-        )
-    else:
-        # No quotation — show individual product/material lines
-        for line in lines:
-            InvoiceLine.objects.create(
-                invoice=inv,
-                item_code=line.item.code,
-                item_name=line.item.name,
-                qty=line.qty,
-                unit=line.unit.abbreviation,
-                unit_price=line.unit_price,
-                line_total=line.line_total,
-            )
-
-        for mat in other_mats:
-            InvoiceLine.objects.create(
-                invoice=inv,
-                item_code='MAT',
-                item_name=mat.item_name,
-                qty=mat.qty,
-                unit='unit',
-                unit_price=mat.unit_price,
-                line_total=mat.line_total,
-            )
-
-        if not lines and not other_mats:
-            InvoiceLine.objects.create(
-                invoice=inv,
-                item_code='SVC',
-                item_name=svc.service_name,
-                qty=Decimal('1'),
-                unit='svc',
-                unit_price=grand_total,
-                line_total=grand_total,
-            )
 
     # ── Mark service completed ─────────────────────────────────────────────
     svc.status = ServiceStatus.COMPLETED
@@ -715,20 +825,38 @@ def service_complete(request, pk):
         pass
 
     if partial_paid > 0 and partial_paid < grand_total:
-        messages.success(
-            request,
-            f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated with partial payment of ₱{partial_paid:,.2f}.'
-        )
+        if getattr(inv, '_was_updated', False):
+            messages.success(
+                request,
+                f'Service {svc.service_number} completed. Invoice {inv.invoice_number} updated with {getattr(inv, "_new_lines_count", 0)} new item(s). Partial payment of ₱{partial_paid:,.2f} applied.'
+            )
+        else:
+            messages.success(
+                request,
+                f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated with partial payment of ₱{partial_paid:,.2f}.'
+            )
     elif partial_paid >= grand_total and grand_total > 0:
-        messages.success(
-            request,
-            f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated and marked fully paid.'
-        )
+        if getattr(inv, '_was_updated', False):
+            messages.success(
+                request,
+                f'Service {svc.service_number} completed. Invoice {inv.invoice_number} updated with {getattr(inv, "_new_lines_count", 0)} new item(s) and marked fully paid.'
+            )
+        else:
+            messages.success(
+                request,
+                f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated and marked fully paid.'
+            )
     else:
-        messages.success(
-            request,
-            f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated.'
-        )
+        if getattr(inv, '_was_updated', False):
+            messages.success(
+                request,
+                f'Service {svc.service_number} completed. Invoice {inv.invoice_number} updated with {getattr(inv, "_new_lines_count", 0)} new item(s).'
+            )
+        else:
+            messages.success(
+                request,
+                f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated.'
+            )
     return redirect('service_detail', pk=pk)
 
 
