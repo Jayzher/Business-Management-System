@@ -293,14 +293,23 @@ def auto_create_invoice_from_pickup(pickup, user):
     Returns the created or updated Invoice.
     """
     from core.models import Invoice, InvoiceLine
+    import logging
+    logger = logging.getLogger(__name__)
 
     if pickup.sales_order:
         # Lock the SO row so concurrent posts for the same SO wait for this transaction
         from sales.models import SalesOrder
         SalesOrder.objects.select_for_update().filter(pk=pickup.sales_order_id).first()
-        existing = Invoice.objects.filter(sales_order=pickup.sales_order, is_void=False).first()
+        
+        # Check for existing non-void invoice linked to this SO
+        # Use select_for_update to lock the invoice row as well
+        existing = Invoice.objects.select_for_update().filter(
+            sales_order=pickup.sales_order, 
+            is_void=False
+        ).first()
         
         if existing:
+            logger.info(f"Found existing invoice {existing.invoice_number} for SO {pickup.sales_order.document_number}, updating it")
             # UPDATE existing invoice with new items
             so = pickup.sales_order
             
@@ -323,6 +332,7 @@ def auto_create_invoice_from_pickup(pickup, user):
                         line_total=line.line_total,
                     )
                     new_lines_added += 1
+                    logger.info(f"Added new item {line.item.code} to invoice {existing.invoice_number}")
             
             # Add new bundles that don't exist in invoice
             existing_bundles = set(
@@ -341,6 +351,7 @@ def auto_create_invoice_from_pickup(pickup, user):
                         line_total=bundle.bundle_total,
                     )
                     new_lines_added += 1
+                    logger.info(f"Added new bundle {bundle.price_list.name} to invoice {existing.invoice_number}")
             
             # Recalculate totals
             if new_lines_added > 0:
@@ -348,8 +359,17 @@ def auto_create_invoice_from_pickup(pickup, user):
                 existing.subtotal = subtotal
                 existing.grand_total = subtotal
                 existing.save(update_fields=['subtotal', 'grand_total', 'updated_at'])
+                logger.info(f"Updated invoice {existing.invoice_number} totals: subtotal={subtotal}, grand_total={existing.grand_total}")
+                # Mark that this invoice was updated (for view to display message)
+                existing._was_updated = True
+                existing._new_lines_count = new_lines_added
+            else:
+                logger.info(f"No new items to add to invoice {existing.invoice_number}")
+                existing._was_updated = False
             
             return existing
+        else:
+            logger.info(f"No existing invoice found for SO {pickup.sales_order.document_number}, creating new one")
 
     inv_number = _generate_invoice_number()
 
@@ -427,14 +447,23 @@ def auto_create_invoice_from_delivery(delivery, user):
     Returns the created or updated Invoice.
     """
     from core.models import Invoice, InvoiceLine
+    import logging
+    logger = logging.getLogger(__name__)
 
     if delivery.sales_order:
         # Lock the SO row so concurrent posts for the same SO wait for this transaction
         from sales.models import SalesOrder
         SalesOrder.objects.select_for_update().filter(pk=delivery.sales_order_id).first()
-        existing = Invoice.objects.filter(sales_order=delivery.sales_order, is_void=False).first()
+        
+        # Check for existing non-void invoice linked to this SO
+        # Use select_for_update to lock the invoice row as well
+        existing = Invoice.objects.select_for_update().filter(
+            sales_order=delivery.sales_order, 
+            is_void=False
+        ).first()
         
         if existing:
+            logger.info(f"Found existing invoice {existing.invoice_number} for SO {delivery.sales_order.document_number}, updating it")
             # UPDATE existing invoice with new items
             so = delivery.sales_order
             
@@ -457,6 +486,7 @@ def auto_create_invoice_from_delivery(delivery, user):
                         line_total=line.line_total,
                     )
                     new_lines_added += 1
+                    logger.info(f"Added new item {line.item.code} to invoice {existing.invoice_number}")
             
             # Add new bundles that don't exist in invoice
             existing_bundles = set(
@@ -475,6 +505,7 @@ def auto_create_invoice_from_delivery(delivery, user):
                         line_total=bundle.bundle_total,
                     )
                     new_lines_added += 1
+                    logger.info(f"Added new bundle {bundle.price_list.name} to invoice {existing.invoice_number}")
             
             # Recalculate totals
             if new_lines_added > 0:
@@ -484,8 +515,17 @@ def auto_create_invoice_from_delivery(delivery, user):
                 existing.delivery_charge = delivery_charge
                 existing.grand_total = subtotal + delivery_charge
                 existing.save(update_fields=['subtotal', 'delivery_charge', 'grand_total', 'updated_at'])
+                logger.info(f"Updated invoice {existing.invoice_number} totals: subtotal={subtotal}, grand_total={existing.grand_total}")
+                # Mark that this invoice was updated (for view to display message)
+                existing._was_updated = True
+                existing._new_lines_count = new_lines_added
+            else:
+                logger.info(f"No new items to add to invoice {existing.invoice_number}")
+                existing._was_updated = False
             
             return existing
+        else:
+            logger.info(f"No existing invoice found for SO {delivery.sales_order.document_number}, creating new one")
 
     inv_number = _generate_invoice_number()
 
@@ -552,8 +592,6 @@ def auto_create_invoice_from_delivery(delivery, user):
                 unit_price=Decimal('0'),
                 line_total=Decimal('0'),
             )
-
-    return inv
 
     return inv
 

@@ -145,6 +145,9 @@ class DeliveryNoteViewSet(viewsets.ModelViewSet):
             data = {'status': 'posted', 'document_number': delivery.document_number}
             if inv:
                 data['invoice_number'] = inv.invoice_number
+                data['invoice_was_updated'] = getattr(inv, '_was_updated', False)
+                if data['invoice_was_updated']:
+                    data['new_lines_count'] = getattr(inv, '_new_lines_count', 0)
             return Response(data)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -168,6 +171,9 @@ class SalesPickupViewSet(viewsets.ModelViewSet):
             data = {'status': 'posted', 'document_number': pickup.document_number}
             if inv:
                 data['invoice_number'] = inv.invoice_number
+                data['invoice_was_updated'] = getattr(inv, '_was_updated', False)
+                if data['invoice_was_updated']:
+                    data['new_lines_count'] = getattr(inv, '_new_lines_count', 0)
             return Response(data)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -232,7 +238,11 @@ def delivery_post_view(request, pk):
             from inventory.automation import auto_create_invoice_from_delivery
             inv = auto_create_invoice_from_delivery(dn, request.user)
             if inv:
-                messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
+                if getattr(inv, '_was_updated', False):
+                    new_lines = getattr(inv, '_new_lines_count', 0)
+                    messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
+                else:
+                    messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('delivery_detail', pk=pk)
@@ -710,7 +720,11 @@ def pickup_post_view(request, pk):
                 from inventory.automation import auto_create_invoice_from_pickup
                 inv = auto_create_invoice_from_pickup(pickup, request.user)
                 if inv:
-                    messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
+                    if getattr(inv, '_was_updated', False):
+                        new_lines = getattr(inv, '_new_lines_count', 0)
+                        messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
+                    else:
+                        messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
             except Exception as e:
                 messages.warning(request, f'Pickup was posted, but invoice auto-creation failed: {e}')
     return redirect('pickup_detail', pk=pk)
