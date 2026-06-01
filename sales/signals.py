@@ -17,21 +17,27 @@ def sync_sales_order_changes_to_related_documents(sender, instance, created, **k
     1. Related non-void Invoices
     2. Related Delivery Notes (if not posted)
     3. Related Sales Pickups (if not posted)
+    
+    Uses on_commit to ensure all related lines (formsets) are saved.
     """
     if created:
         # Skip on creation - only sync on updates
         return
     
-    # Use transaction to ensure all updates are atomic
-    with transaction.atomic():
-        # 1. Update related invoices
-        _sync_invoices(instance)
-        
-        # 2. Update related deliveries
-        _sync_deliveries(instance)
-        
-        # 3. Update related pickups
-        _sync_pickups(instance)
+    def do_sync():
+        # Use transaction to ensure all updates are atomic
+        with transaction.atomic():
+            # 1. Update related invoices
+            _sync_invoices(instance)
+            
+            # 2. Update related deliveries
+            _sync_deliveries(instance)
+            
+            # 3. Update related pickups
+            _sync_pickups(instance)
+
+    # Use on_commit to ensure all formset data is in the DB
+    transaction.on_commit(do_sync)
 
 
 def _sync_invoices(sales_order):
@@ -91,16 +97,16 @@ def _sync_invoices(sales_order):
             changes.append(f"Grand total: {invoice.grand_total} → {grand_total}")
             invoice.grand_total = grand_total
         
-        # Save invoice if there were changes
+        # Save invoice and recreate lines
+        invoice.save(update_fields=[
+            'customer_name', 'customer_address', 'subtotal', 
+            'delivery_charge', 'grand_total', 'updated_at'
+        ])
+        
+        # Recreate invoice lines to match current SO
+        _recreate_invoice_lines(invoice, sales_order)
+        
         if changes:
-            invoice.save(update_fields=[
-                'customer_name', 'customer_address', 'subtotal', 
-                'delivery_charge', 'grand_total', 'updated_at'
-            ])
-            
-            # Recreate invoice lines to match current SO
-            _recreate_invoice_lines(invoice, sales_order)
-            
             # Log the sync in audit trail
             AuditLog.objects.create(
                 action='UPDATE',
@@ -195,13 +201,16 @@ def _sync_deliveries(sales_order):
             changes.append(f"Warehouse: {delivery.warehouse.name} → {warehouse.name}")
             delivery.warehouse = warehouse
         
-        # Save if there were changes
+        # Save delivery and recreate lines
+        delivery.save(update_fields=[
+            'shipping_address', 'delivery_date', 'customer', 
+            'warehouse', 'updated_at'
+        ])
+        
+        # Recreate delivery lines to match current SO
+        _recreate_delivery_lines(delivery, sales_order)
+        
         if changes:
-            delivery.save(update_fields=[
-                'shipping_address', 'delivery_date', 'customer', 
-                'warehouse', 'updated_at'
-            ])
-            
             # Log the sync
             AuditLog.objects.create(
                 action='UPDATE',
@@ -213,6 +222,54 @@ def _sync_deliveries(sales_order):
                     'updates': changes
                 },
                 user=getattr(sales_order, 'updated_by', delivery.created_by),
+            )
+
+
+def _recreate_delivery_lines(delivery, sales_order):
+    """
+    Delete existing delivery lines and recreate them from the current Sales Order.
+    Uses the first active location in the delivery warehouse as default.
+    """
+    from warehouses.models import Location
+    from sales.models import DeliveryLine
+    
+    # Delete existing lines
+    delivery.lines.all().delete()
+    
+    # Get default location for the warehouse
+    default_location = Location.objects.filter(
+        warehouse=delivery.warehouse, is_active=True
+    ).first()
+    
+    if not default_location:
+        return
+    
+    # Recreate from SO lines
+    for so_line in sales_order.lines.select_related('item', 'unit').all():
+        DeliveryLine.objects.create(
+            delivery=delivery,
+            item=so_line.item,
+            location=default_location,
+            qty=so_line.qty_ordered,
+            unit=so_line.unit,
+            notes=f'Synced from SO line: {so_line.item.code}',
+        )
+    
+    # Add items from bundles
+    for bundle in sales_order.price_list_lines.select_related('price_list').prefetch_related(
+        'price_list__items__item', 'price_list__items__unit'
+    ).all():
+        for pli in bundle.price_list.items.select_related('item', 'unit').all():
+            qty = pli.min_qty * bundle.qty_multiplier
+            if qty <= 0:
+                continue
+            DeliveryLine.objects.create(
+                delivery=delivery,
+                item=pli.item,
+                location=default_location,
+                qty=qty,
+                unit=pli.unit,
+                notes=f'Synced from bundle {bundle.price_list.name}',
             )
 
 
@@ -256,12 +313,15 @@ def _sync_pickups(sales_order):
             changes.append(f"Warehouse: {pickup.warehouse.name} → {warehouse.name}")
             pickup.warehouse = warehouse
         
-        # Save if there were changes
+        # Save pickup and recreate lines
+        pickup.save(update_fields=[
+            'pickup_date', 'customer', 'warehouse', 'updated_at'
+        ])
+        
+        # Recreate pickup lines to match current SO
+        _recreate_pickup_lines(pickup, sales_order)
+        
         if changes:
-            pickup.save(update_fields=[
-                'pickup_date', 'customer', 'warehouse', 'updated_at'
-            ])
-            
             # Log the sync
             AuditLog.objects.create(
                 action='UPDATE',
@@ -273,6 +333,56 @@ def _sync_pickups(sales_order):
                     'updates': changes
                 },
                 user=getattr(sales_order, 'updated_by', pickup.created_by),
+            )
+
+
+def _recreate_pickup_lines(pickup, sales_order):
+    """
+    Delete existing pickup lines and recreate them from the current Sales Order.
+    Uses the first active location in the pickup warehouse as default.
+    """
+    from warehouses.models import Location
+    from sales.models import SalesPickupLine
+    
+    # Delete existing lines
+    pickup.lines.all().delete()
+    
+    # Get default location for the warehouse
+    default_location = Location.objects.filter(
+        warehouse=pickup.warehouse, is_active=True
+    ).first()
+    
+    if not default_location:
+        return
+    
+    # Recreate from SO lines
+    for so_line in sales_order.lines.select_related('item', 'unit').all():
+        SalesPickupLine.objects.create(
+            pickup=pickup,
+            item=so_line.item,
+            location=default_location,
+            qty=so_line.qty_ordered,
+            unit=so_line.unit,
+            batch_number=getattr(so_line, 'batch_number', '') or '',
+            serial_number=getattr(so_line, 'serial_number', '') or '',
+            notes=f'Synced from SO line: {so_line.item.code}',
+        )
+    
+    # Add items from bundles
+    for bundle in sales_order.price_list_lines.select_related('price_list').prefetch_related(
+        'price_list__items__item', 'price_list__items__unit'
+    ).all():
+        for pli in bundle.price_list.items.select_related('item', 'unit').all():
+            qty = pli.min_qty * bundle.qty_multiplier
+            if qty <= 0:
+                continue
+            SalesPickupLine.objects.create(
+                pickup=pickup,
+                item=pli.item,
+                location=default_location,
+                qty=qty,
+                unit=pli.unit,
+                notes=f'Synced from bundle {bundle.price_list.name}',
             )
 
 
