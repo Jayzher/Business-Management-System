@@ -398,33 +398,18 @@ def service_delete(request, pk):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# MARK IN-PROGRESS
-# ═══════════════════════════════════════════════════════════════════════════
-@login_required
-@write_denied_for_viewer
-def service_start(request, pk):
-    svc = get_object_or_404(CustomerService, pk=pk)
-    if request.method == 'POST':
-        if svc.status == ServiceStatus.DRAFT:
-            svc.status = ServiceStatus.IN_PROGRESS
-            svc.save(update_fields=['status', 'updated_at'])
-            messages.success(request, f'Service {svc.service_number} marked as In Progress.')
-        else:
-            messages.error(request, 'Only DRAFT services can be started.')
-    return redirect('service_detail', pk=pk)
-# ═══════════════════════════════════════════════════════════════════════════
-# COMPLETE — deducts inventory + generates invoice with COGS/ROI
+# MARK IN-PROGRESS — deducts inventory (Product Lines + Bundles)
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 @transaction.atomic
 @write_denied_for_viewer
-def service_complete(request, pk):
+def service_start(request, pk):
     svc = get_object_or_404(CustomerService, pk=pk)
     if request.method != 'POST':
         return redirect('service_detail', pk=pk)
 
-    if svc.status not in (ServiceStatus.DRAFT, ServiceStatus.IN_PROGRESS):
-        messages.error(request, 'Only Draft or In Progress services can be completed.')
+    if svc.status != ServiceStatus.DRAFT:
+        messages.error(request, 'Only DRAFT services can be started.')
         return redirect('service_detail', pk=pk)
 
     now = timezone.now()
@@ -432,7 +417,6 @@ def service_complete(request, pk):
         'item__default_unit', 'item__selling_unit',
         'unit', 'location__warehouse',
     ).all())
-    other_mats = list(svc.other_materials.all())
     bundles = list(svc.bundles.select_related('price_list').prefetch_related('price_list__items__item', 'price_list__items__unit').all())
 
     # ── Inventory deduction (Product Lines + Bundles) ──────────────────────
@@ -442,13 +426,13 @@ def service_complete(request, pk):
             from catalog.models import convert_to_base_unit
             from warehouses.models import Location
 
-            # ── Check for existing stock movements ──────────────────────────────
+            # Guard against re-run (e.g., retried POST)
             existing_moves = StockMove.objects.filter(
                 reference_type='CustomerService',
                 reference_id=svc.pk,
                 status=MoveStatus.POSTED,
             ).values_list('item_id', flat=True)
-            
+
             existing_item_ids = set(existing_moves)
 
             default_location = None
@@ -461,23 +445,27 @@ def service_complete(request, pk):
                 )
 
             missing_location_items = []
-            skipped_unit_items = []
             skipped_existing_items = []
             moves = []
 
             def deduct_item(item, sale_unit, qty, location):
-                # Skip if stock movement already exists for this item
                 if item.id in existing_item_ids:
                     skipped_existing_items.append(f"{item.code} (already moved)")
                     return
-                    
+
                 try:
                     base_qty = convert_to_base_unit(qty, sale_unit, item.stock_unit, item=item)
-                except (ValueError, Exception) as exc:
-                    skipped_unit_items.append(
-                        f"{item.code} ({qty} {sale_unit.abbreviation} → {item.stock_unit.abbreviation})"
+                except (ValueError, Exception) as conv_exc:
+                    # Hard-fail instead of skipping: a missing conversion here
+                    # would mean the service silently posts without deducting
+                    # part of its inventory.
+                    raise ValueError(
+                        f"No unit conversion for {item.code}: "
+                        f"{qty} {sale_unit.abbreviation} → "
+                        f"{item.stock_unit.abbreviation}. "
+                        f"Add it under Catalog → Unit Conversions and try again. "
+                        f"({conv_exc})"
                     )
-                    return
                 move = StockMove(
                     move_type=MoveType.SERVICE_OUT,
                     item=item,
@@ -548,17 +536,38 @@ def service_complete(request, pk):
                     'Only NEW items were processed.'
                 )
 
-            if skipped_unit_items:
-                messages.warning(
-                    request,
-                    f'{len(skipped_unit_items)} line(s) skipped due to incompatible units: '
-                    f'{", ".join(skipped_unit_items)}. '
-                    f'Add the missing Unit Conversions under Catalog → Unit Conversions.'
-                )
-
         except ValueError as exc:
+            transaction.set_rollback(True)
             messages.error(request, f'Stock error: {exc}')
             return redirect('service_detail', pk=pk)
+
+    svc.status = ServiceStatus.IN_PROGRESS
+    svc.save(update_fields=['status', 'updated_at'])
+    messages.success(request, f'Service {svc.service_number} marked as In Progress. Inventory deducted.')
+    return redirect('service_detail', pk=pk)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COMPLETE — generates invoice with COGS/ROI (inventory already deducted on Start)
+# ═══════════════════════════════════════════════════════════════════════════
+@login_required
+@transaction.atomic
+@write_denied_for_viewer
+def service_complete(request, pk):
+    svc = get_object_or_404(CustomerService, pk=pk)
+    if request.method != 'POST':
+        return redirect('service_detail', pk=pk)
+
+    if svc.status != ServiceStatus.IN_PROGRESS:
+        messages.error(request, 'Service must be marked In Progress before it can be completed.')
+        return redirect('service_detail', pk=pk)
+
+    now = timezone.now()
+    lines = list(svc.lines.select_related(
+        'item__default_unit', 'item__selling_unit',
+        'unit', 'location__warehouse',
+    ).all())
+    other_mats = list(svc.other_materials.all())
 
     # ── Generate Invoice ───────────────────────────────────────────────────
     from core.models import Invoice, InvoiceLine, InvoicePayment, PaymentMethod

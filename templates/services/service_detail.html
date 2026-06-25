@@ -417,14 +417,17 @@
         </form>
         {% endif %}
 
-        {% if service.status == 'DRAFT' or service.status == 'IN_PROGRESS' %}
+        {% if service.status == 'IN_PROGRESS' %}
         <form method="post" action="{% url 'service_complete' service.pk %}" class="mb-2">
           {% csrf_token %}
           <button type="submit" class="btn btn-success btn-block"
-            onclick="return confirm('Complete this service? This will deduct inventory and generate an invoice.')">
+            onclick="return confirm('Complete this service? This will generate an invoice.')">
             <i class="fas fa-check-circle mr-1"></i>Complete Service
           </button>
         </form>
+        {% endif %}
+
+        {% if service.status == 'DRAFT' or service.status == 'IN_PROGRESS' %}
         <a href="#" data-modal-url="{% url 'service_edit' service.pk %}" data-modal-size="modal-xl"
            class="btn btn-warning btn-block mb-2">
           <i class="fas fa-edit mr-1"></i>Edit

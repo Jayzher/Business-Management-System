@@ -4,10 +4,23 @@ Django settings for inventory_system project.
 
 import os
 import dj_database_url
+import sys
 from pathlib import Path
 from datetime import timedelta
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+# Base directory for persistent data (DB, Media)
+if getattr(sys, 'frozen', False):
+    # When running as .exe, data stays next to the executable
+    # or in a specific user data folder. 
+    # For now, let's keep it next to the .exe for 'portable' feel
+    BASE_DIR = Path(sys.executable).parent
+    # Bundled assets (templates, static) are in the temp extraction folder
+    ASSET_DIR = Path(sys._MEIPASS)
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    ASSET_DIR = BASE_DIR
+
+DESKTOP_MODE = os.environ.get('DESKTOP_MODE', 'false').lower() == 'true'
 
 SECRET_KEY = os.environ.get(
     'DJANGO_SECRET_KEY',
@@ -18,6 +31,9 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
 _raw_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,192.168.1.7,10.0.2.2,.onrender.com')
 ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(',') if h.strip()]
+# Note: when DESKTOP_MODE is true, settings_desktop is imported at the very
+# bottom of this file so it overrides DATABASES, DATABASE_ROUTERS, MEDIA_ROOT,
+# CHANNEL_LAYERS, etc. set unconditionally below.
 
 # ---------------------------------------------------------------------------
 # Application definition
@@ -78,7 +94,7 @@ ROOT_URLCONF = 'inventory_system.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
+        'DIRS': [ASSET_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'builtins': ['theme.templatetags.custom_filters'],
@@ -285,9 +301,14 @@ USE_TZ = True
 # Static & Media files
 # ---------------------------------------------------------------------------
 STATIC_URL = '/static/'
-STATICFILES_DIRS = [BASE_DIR / 'static']
+STATICFILES_DIRS = [ASSET_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+if DESKTOP_MODE:
+    # Simpler storage for desktop mode to avoid manifest issues
+    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
+else:
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -351,3 +372,10 @@ def _set_sqlite_pragmas(sender, connection, **kwargs):
 
 
 connection_created.connect(_set_sqlite_pragmas)
+
+# ---------------------------------------------------------------------------
+# Desktop-mode overlay — must be last so it overrides DATABASES, MEDIA_ROOT,
+# DATABASE_ROUTERS, CHANNEL_LAYERS, LOGGING, etc.
+# ---------------------------------------------------------------------------
+if DESKTOP_MODE:
+    from inventory_system.settings_desktop import *  # noqa: F401,F403

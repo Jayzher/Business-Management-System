@@ -799,6 +799,309 @@ def _backfill_missing_moves(warn_fn, dry_run, info_fn):
     return created
 
 
+# ── Phase 1c helpers: recompute derived totals from posted documents ─────────
+
+def _recompute_po_qty_received(dry_run, info_fn, warn_fn):
+    """Reset every PO line's qty_received to 0, then replay all POSTED GRNs
+    chronologically and increment qty_received in the PO LINE's OWN UNIT.
+
+    Fixes data drift caused by the pre-fix bug where GRN unit ≠ PO unit
+    inflated qty_received (GRN qty was added to a PO-unit field without
+    converting).  Also fixes over-counting when a PO had multiple lines for
+    the same item — we now pick a single best-matching PO line per GRN line.
+
+    Returns (updated_lines, skipped_lines).
+    """
+    from procurement.models import GoodsReceipt, PurchaseOrderLine
+    from inventory.services import _pick_po_line_for_grn
+
+    # Reset on all PO lines that could have been touched by a posted GRN
+    po_line_ids = set(
+        GoodsReceipt.objects
+        .filter(status=DocumentStatus.POSTED, purchase_order__isnull=False)
+        .values_list('purchase_order__lines', flat=True)
+    )
+    po_line_ids.discard(None)
+
+    if po_line_ids and not dry_run:
+        PurchaseOrderLine.objects.filter(pk__in=po_line_ids).update(qty_received=Decimal('0'))
+    info_fn(f'  [QTY-RECEIVED] Reset qty_received on {len(po_line_ids)} PO line(s).')
+
+    grns = (
+        _all_manager(GoodsReceipt)
+        .filter(status=DocumentStatus.POSTED, purchase_order__isnull=False)
+        .select_related('purchase_order')
+        .prefetch_related(
+            'lines__item', 'lines__unit',
+            'purchase_order__lines__item', 'purchase_order__lines__unit',
+        )
+        .order_by('receipt_date', 'posted_at', 'pk')
+    )
+
+    # Running qty_received per PO line (so chronological order is honored
+    # even when multiple GRNs hit the same PO).
+    running = defaultdict(lambda: Decimal('0'))
+
+    updated = 0
+    skipped = 0
+    for grn in grns:
+        po = grn.purchase_order
+        for line in grn.lines.all():
+            po_line = _pick_po_line_for_grn(po, line.item, line.unit)
+            if po_line is None:
+                skipped += 1
+                continue
+            if po_line.unit_id == line.unit_id:
+                received = line.qty or Decimal('0')
+            else:
+                try:
+                    received = convert_to_base_unit(
+                        line.qty, line.unit, po_line.unit, item=line.item,
+                    )
+                except (ValueError, Exception) as exc:
+                    warn_fn(
+                        f'    [QTY-RECEIVED] GRN {grn.document_number} '
+                        f'item {line.item.code}: cannot convert '
+                        f'{line.qty} {getattr(line.unit, "abbreviation", "?")} → '
+                        f'{getattr(po_line.unit, "abbreviation", "?")}: {exc}'
+                    )
+                    skipped += 1
+                    continue
+            running[po_line.pk] += received
+            updated += 1
+
+    if not dry_run and running:
+        # Bulk apply running totals
+        for pk, total in running.items():
+            PurchaseOrderLine.objects.filter(pk=pk).update(qty_received=total)
+
+    info_fn(f'  [QTY-RECEIVED] Applied {updated} GRN line(s); skipped {skipped}.')
+    return updated, skipped
+
+
+def _recompute_so_qty_delivered(dry_run, info_fn, warn_fn):
+    """Reset SalesOrderLine.qty_delivered to 0, then replay all POSTED DNs
+    and SalesPickups chronologically, incrementing qty_delivered in the
+    SO line's OWN UNIT (converting where necessary).
+    """
+    from sales.models import DeliveryNote, SalesPickup, SalesOrderLine
+    from inventory.services import _pick_so_line
+
+    so_line_ids = set(
+        DeliveryNote.objects
+        .filter(status=DocumentStatus.POSTED, sales_order__isnull=False)
+        .values_list('sales_order__lines', flat=True)
+    )
+    so_line_ids |= set(
+        SalesPickup.objects
+        .filter(status=DocumentStatus.POSTED, sales_order__isnull=False)
+        .values_list('sales_order__lines', flat=True)
+    )
+    so_line_ids.discard(None)
+
+    if so_line_ids and not dry_run:
+        SalesOrderLine.objects.filter(pk__in=so_line_ids).update(qty_delivered=Decimal('0'))
+    info_fn(f'  [QTY-DELIVERED] Reset qty_delivered on {len(so_line_ids)} SO line(s).')
+
+    fulfilment_docs = []
+    for dn in (DeliveryNote.objects
+               .filter(status=DocumentStatus.POSTED, sales_order__isnull=False)
+               .select_related('sales_order')
+               .prefetch_related(
+                   'lines__item', 'lines__unit',
+                   'sales_order__lines__item', 'sales_order__lines__unit',
+               )):
+        fulfilment_docs.append((_document_posted_at(dn) or timezone.now(), 'DN', dn))
+    for pu in (SalesPickup.objects
+               .filter(status=DocumentStatus.POSTED, sales_order__isnull=False)
+               .select_related('sales_order')
+               .prefetch_related(
+                   'lines__item', 'lines__unit',
+                   'sales_order__lines__item', 'sales_order__lines__unit',
+               )):
+        fulfilment_docs.append((_document_posted_at(pu) or timezone.now(), 'PU', pu))
+    fulfilment_docs.sort(key=lambda t: (t[0], t[1], t[2].pk))
+
+    running = defaultdict(lambda: Decimal('0'))
+    updated = 0
+    skipped = 0
+    for _ts, _kind, doc in fulfilment_docs:
+        so = doc.sales_order
+        for line in doc.lines.all():
+            so_line = _pick_so_line(so, line.item, line.unit)
+            if so_line is None:
+                skipped += 1
+                continue
+            if so_line.unit_id == line.unit_id:
+                delivered = line.qty or Decimal('0')
+            else:
+                try:
+                    delivered = convert_to_base_unit(
+                        line.qty, line.unit, so_line.unit, item=line.item,
+                    )
+                except (ValueError, Exception) as exc:
+                    warn_fn(
+                        f'    [QTY-DELIVERED] {doc.document_number} '
+                        f'item {line.item.code}: cannot convert '
+                        f'{line.qty} {getattr(line.unit, "abbreviation", "?")} → '
+                        f'{getattr(so_line.unit, "abbreviation", "?")}: {exc}'
+                    )
+                    skipped += 1
+                    continue
+            running[so_line.pk] += delivered
+            updated += 1
+
+    if not dry_run and running:
+        for pk, total in running.items():
+            SalesOrderLine.objects.filter(pk=pk).update(qty_delivered=total)
+
+    info_fn(f'  [QTY-DELIVERED] Applied {updated} fulfilment line(s); skipped {skipped}.')
+    return updated, skipped
+
+
+def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
+    """Rebuild Item.cost_price via chronological weighted-average-cost replay.
+
+    For every POSTED GoodsReceipt (in receipt_date, posted_at, pk order):
+      - For each line: convert qty to stock_unit, convert PO unit_price to
+        price per stock_unit (factor-based, NOT conversion_price), distribute
+        delivery_charge proportionally by line value.
+      - Apply weighted-average:
+          new_cost = (old_qty * old_cost + base_qty * landed_per_stock) / new_qty
+
+    Items with no priceable receipts retain their existing cost_price
+    (catalog-seeded values are preserved). Items whose history is fully
+    re-priceable get a deterministic cost.
+    """
+    from procurement.models import GoodsReceipt
+    from catalog.models import Item
+    from catalog.utils import convert_price_for_unit
+
+    state = {}  # item_id -> (running_qty_in_stock_unit, cost_per_stock_unit)
+
+    grns = (
+        _all_manager(GoodsReceipt)
+        .filter(status=DocumentStatus.POSTED)
+        .select_related('purchase_order')
+        .prefetch_related(
+            'lines__item__default_unit', 'lines__unit',
+            'purchase_order__lines__item', 'purchase_order__lines__unit',
+        )
+        .order_by('receipt_date', 'posted_at', 'pk')
+    )
+
+    grn_count = 0
+    line_count = 0
+    skipped_lines = 0
+
+    for grn in grns:
+        grn_count += 1
+        po = grn.purchase_order
+        delivery_charge = grn.delivery_charge or Decimal('0')
+
+        per_line = []
+        total_value = Decimal('0')
+        for line in grn.lines.all():
+            po_unit_price = Decimal('0')
+            po_unit = None
+            if po is not None:
+                po_line = (
+                    po.lines.filter(item=line.item, unit=line.unit).first()
+                    or po.lines.filter(item=line.item).first()
+                )
+                if po_line is not None:
+                    po_unit_price = po_line.unit_price or Decimal('0')
+                    po_unit = po_line.unit
+            value = (line.qty or Decimal('0')) * po_unit_price
+            per_line.append({
+                'line': line,
+                'po_unit_price': po_unit_price,
+                'po_unit': po_unit,
+                'value': value,
+            })
+            total_value += value
+
+        n_lines = len(per_line)
+        for rec in per_line:
+            line = rec['line']
+            item = line.item
+            stock_unit = item.default_unit
+            po_unit_price = rec['po_unit_price']
+            po_unit = rec['po_unit'] or line.unit
+
+            try:
+                base_qty = _safe_convert(
+                    line.qty, line.unit, stock_unit,
+                    f'GRN#{grn.pk} cost-replay item={item.code}',
+                    warn_fn, item=item,
+                )
+            except (ValueError, Exception):
+                skipped_lines += 1
+                continue
+            if base_qty is None or base_qty <= 0:
+                continue
+
+            if po_unit_price > 0 and getattr(po_unit, 'pk', None) != stock_unit.pk:
+                try:
+                    po_price_per_stock = convert_price_for_unit(
+                        po_unit_price, po_unit, stock_unit,
+                        item=item, use_conversion_price=False,
+                        raise_on_missing=True,
+                    )
+                except (ValueError, Exception):
+                    warn_fn(
+                        f'    [COST] GRN {grn.document_number} item {item.code}: '
+                        f'no price conversion {getattr(po_unit, "abbreviation", "?")} → '
+                        f'{getattr(stock_unit, "abbreviation", "?")} — line skipped.'
+                    )
+                    skipped_lines += 1
+                    continue
+            else:
+                po_price_per_stock = po_unit_price
+
+            line_delivery_share = Decimal('0')
+            if delivery_charge > 0 and total_value > 0:
+                line_delivery_share = delivery_charge * (rec['value'] / total_value)
+            elif delivery_charge > 0 and n_lines > 0:
+                line_delivery_share = delivery_charge / n_lines
+            delivery_per_stock = (line_delivery_share / base_qty) if base_qty else Decimal('0')
+
+            landed_per_stock = po_price_per_stock + delivery_per_stock
+
+            old_qty, old_cost = state.get(item.pk, (Decimal('0'), Decimal('0')))
+            new_qty = old_qty + base_qty
+            if landed_per_stock > 0 and new_qty > 0:
+                new_cost = (old_qty * old_cost + base_qty * landed_per_stock) / new_qty
+                state[item.pk] = (new_qty, new_cost)
+            else:
+                # Free receipt (no PO price) — qty grows, cost unchanged.
+                state[item.pk] = (new_qty, old_cost)
+            line_count += 1
+
+    updated = 0
+    unchanged = 0
+    for item_id, (_qty, cost) in state.items():
+        try:
+            item = Item.objects.only('pk', 'code', 'cost_price').get(pk=item_id)
+        except Item.DoesNotExist:
+            continue
+        new_cost = (cost or Decimal('0')).quantize(Decimal('0.0001'))
+        old_cost = (item.cost_price or Decimal('0')).quantize(Decimal('0.0001'))
+        if new_cost == old_cost:
+            unchanged += 1
+            continue
+        if not dry_run:
+            Item.objects.filter(pk=item_id).update(cost_price=new_cost)
+        info_fn(f'    [COST] {item.code}: {old_cost} → {new_cost}')
+        updated += 1
+
+    info_fn(
+        f'  [COST] Walked {grn_count} GRN(s), {line_count} priceable line(s); '
+        f'updated {updated} item cost(s), unchanged {unchanged}, skipped {skipped_lines}.'
+    )
+    return updated, unchanged, skipped_lines
+
+
 # ── line-lookup functions per document type ──────────────────────────────────
 
 def _make_grn_lookup():
@@ -1196,18 +1499,28 @@ def _build_balance_from_documents(warn_fn):
                 _accumulate(bal, line.item_id, line.to_location_id, q)
         
         elif doc_type == 'StockAdjustment':
+            # SET-to-counted semantics: post_adjustment writes
+            #   balance.qty_on_hand = qty_counted
+            # discarding the prior balance. A diff-based replay
+            # (accumulate qty_counted - qty_system) only matches when
+            # qty_system equalled the running balance at the time of post —
+            # if any prior document was edited, the historical qty_system
+            # is stale and the diff replay drifts.
+            # Setting the (item, location) bucket directly to the converted
+            # qty_counted preserves the SET intent across replays.
             for line in doc.lines.all():
-                raw_diff = line.qty_counted - line.qty_system
-                if raw_diff == 0:
+                if line.location_id is None:
                     continue
                 target_unit = _inventory_unit(line.item)
                 try:
-                    q = _safe_convert(abs(raw_diff), line.unit, target_unit,
-                                      f"Adj#{doc.pk} item={line.item.code}", warn_fn, item=line.item)
+                    new_qty = _safe_convert(
+                        line.qty_counted, line.unit, target_unit,
+                        f"Adj#{doc.pk} item={line.item.code}", warn_fn,
+                        item=line.item,
+                    )
                 except (ValueError, Exception):
                     continue
-                _accumulate(bal, line.item_id, line.location_id,
-                            q if raw_diff > 0 else -q)
+                bal[(line.item_id, line.location_id)] = new_qty
         
         elif doc_type == 'DamagedReport':
             for line in doc.lines.all():
@@ -1572,6 +1885,12 @@ class Command(BaseCommand):
                 parts.append(f"{changes['moves_corrected']} move quantities corrected")
             if changes.get('moves_backfilled'):
                 parts.append(f"{changes['moves_backfilled']} missing moves backfilled")
+            if changes.get('po_qty_received_lines'):
+                parts.append(f"{changes['po_qty_received_lines']} PO line(s) qty_received recomputed")
+            if changes.get('so_qty_delivered_lines'):
+                parts.append(f"{changes['so_qty_delivered_lines']} SO line(s) qty_delivered recomputed")
+            if changes.get('item_cost_updated'):
+                parts.append(f"{changes['item_cost_updated']} item cost_price recomputed via WAC")
             if changes.get('balances_updated'):
                 parts.append(f"{changes['balances_updated']} balances updated")
             if changes.get('balances_created'):
@@ -2073,6 +2392,36 @@ class Command(BaseCommand):
                 transaction.set_rollback(True)
         self._info(f'  Missing moves backfilled: {backfilled}')
         total_stats['backfilled'] += backfilled
+
+        # ── Phase 1c: rebuild derived totals from posted documents ──────
+        # Fixes drift from the pre-fix bug where line.qty (in the document's
+        # own unit) was added to PO/SO unit fields without converting, and
+        # where Item.cost_price was averaged using mixed units.
+        self.stdout.write('\n--- Phase 1c: Recomputing derived totals ---')
+
+        with transaction.atomic():
+            qr_updated, qr_skipped = _recompute_po_qty_received(dry_run, self._info, self._warn)
+            if dry_run:
+                transaction.set_rollback(True)
+        self._resync_summary['changes']['po_qty_received_lines'] = qr_updated
+        self._resync_summary['changes']['po_qty_received_skipped'] = qr_skipped
+
+        with transaction.atomic():
+            qd_updated, qd_skipped = _recompute_so_qty_delivered(dry_run, self._info, self._warn)
+            if dry_run:
+                transaction.set_rollback(True)
+        self._resync_summary['changes']['so_qty_delivered_lines'] = qd_updated
+        self._resync_summary['changes']['so_qty_delivered_skipped'] = qd_skipped
+
+        with transaction.atomic():
+            cost_updated, cost_unchanged, cost_skipped = _recompute_item_cost_price(
+                dry_run, self._info, self._warn,
+            )
+            if dry_run:
+                transaction.set_rollback(True)
+        self._resync_summary['changes']['item_cost_updated'] = cost_updated
+        self._resync_summary['changes']['item_cost_unchanged'] = cost_unchanged
+        self._resync_summary['changes']['item_cost_skipped'] = cost_skipped
 
         # Fix reversal moves: their qty should mirror the corrected original
         rev_moves = StockMove.objects.filter(

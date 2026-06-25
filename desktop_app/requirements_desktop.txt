@@ -1,0 +1,7 @@
+PyQt5==5.15.9
+PyQtWebEngine==5.15.6
+psutil>=5.9.8,<7
+python-dotenv==1.0.0
+watchdog==3.0.0
+requests==2.31.0
+pyinstaller==6.3.0

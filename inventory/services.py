@@ -13,6 +13,60 @@ from inventory.models import (
 )
 from audit.models import AuditLog
 from catalog.models import convert_to_base_unit
+from catalog.utils import convert_price_for_unit
+
+
+def _convert_qty_safe(qty, from_unit, to_unit, item):
+    """Convert *qty* between units; return None if conversion is missing.
+
+    Caller decides how to handle None (skip the line, warn the user, etc.).
+    Same-unit returns qty unchanged without DB lookup.
+    """
+    if from_unit is None or to_unit is None:
+        return None
+    if getattr(from_unit, 'pk', None) == getattr(to_unit, 'pk', None):
+        return qty
+    try:
+        return convert_to_base_unit(qty, from_unit, to_unit, item=item)
+    except (ValueError, Exception):
+        return None
+
+
+def _pick_po_line_for_grn(po, grn_item, grn_unit):
+    """Pick the best-matching PurchaseOrderLine for a GRN line.
+
+    Preference order:
+      1. Same item AND same unit, with the most remaining qty.
+      2. Same item (any unit), with the most remaining qty.
+    Returns ``None`` if the PO has no line for that item.
+
+    This replaces the prior ``po_lines.filter(item=...)`` loop which
+    incremented qty_received on every matching line — over-counting receipt
+    when a PO had multiple lines for the same item.
+    """
+    candidates = list(po.lines.filter(item=grn_item).select_related('unit'))
+    if not candidates:
+        return None
+    same_unit = [pl for pl in candidates if pl.unit_id == getattr(grn_unit, 'pk', None)]
+    pool = same_unit or candidates
+    pool.sort(key=lambda pl: (pl.qty_ordered - (pl.qty_received or Decimal('0'))), reverse=True)
+    return pool[0]
+
+
+def _pick_so_line(so, item, line_unit):
+    """Pick the best-matching SalesOrderLine for a delivery/pickup line.
+
+    Same preference as :func:`_pick_po_line_for_grn`: same-unit first, then
+    most-remaining. Single line is picked so qty_delivered is incremented
+    once instead of on every matching SO line.
+    """
+    candidates = list(so.lines.filter(item=item).select_related('unit'))
+    if not candidates:
+        return None
+    same_unit = [sl for sl in candidates if sl.unit_id == getattr(line_unit, 'pk', None)]
+    pool = same_unit or candidates
+    pool.sort(key=lambda sl: (sl.qty_ordered - (sl.qty_delivered or Decimal('0'))), reverse=True)
+    return pool[0]
 
 logger = logging.getLogger(__name__)
 
@@ -196,16 +250,31 @@ def post_goods_receipt(grn, user):
     moves = []
     skipped = []
 
+    # Pre-resolve PO line + base_qty per GRN line so qty_received and the
+    # weighted-average cost see the SAME converted numbers.
+    line_ctx = {}
     for line in grn.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
+        stock_unit = line.item.stock_unit
+        base_qty = _try_convert(line.qty, line.unit, stock_unit, line.item, line, skipped)
         if base_qty is None:
             continue
+
+        po_line = None
+        if grn.purchase_order:
+            po_line = _pick_po_line_for_grn(grn.purchase_order, line.item, line.unit)
+
+        line_ctx[line.pk] = {
+            'line': line,
+            'base_qty': base_qty,
+            'stock_unit': stock_unit,
+            'po_line': po_line,
+        }
 
         move = StockMove(
             move_type=MoveType.RECEIVE,
             item=line.item,
             qty=base_qty,
-            unit=line.item.stock_unit,
+            unit=stock_unit,
             from_location=None,
             to_location=line.location,
             reference_type='GoodsReceipt',
@@ -221,57 +290,119 @@ def post_goods_receipt(grn, user):
         moves.append(move)
         _update_balance(line.item, line.location, base_qty)
 
-        # Update PO received qty if linked
-        if grn.purchase_order:
-            po_lines = grn.purchase_order.lines.filter(item=line.item)
-            for po_line in po_lines:
-                po_line.qty_received += line.qty
+        # Update PO received qty (denominated in the PO line's own unit)
+        if po_line is not None:
+            if po_line.unit_id == line.unit_id:
+                received_in_po_unit = line.qty
+            else:
+                received_in_po_unit = _convert_qty_safe(
+                    line.qty, line.unit, po_line.unit, line.item,
+                )
+                if received_in_po_unit is None:
+                    logger.warning(
+                        'GRN %s line %s: cannot convert %s %s → %s; '
+                        'qty_received NOT updated on PO line.',
+                        grn.document_number, line.item.code, line.qty,
+                        getattr(line.unit, 'abbreviation', '?'),
+                        getattr(po_line.unit, 'abbreviation', '?'),
+                    )
+                    received_in_po_unit = Decimal('0')
+            if received_in_po_unit:
+                po_line.qty_received = (po_line.qty_received or Decimal('0')) + received_in_po_unit
                 po_line.save(update_fields=['qty_received'])
 
     StockMove.objects.bulk_create(moves)
 
-    # Weighted average cost update (includes proportional delivery charge)
+    # ── Weighted-average cost update (denominated in stock_unit) ───────────
+    # Every term (price, qty, delivery share) is expressed per stock_unit
+    # before averaging. Previously, line.qty (GRN unit) was mixed with
+    # cost_price (stock unit), corrupting cost_price when units differed.
     from catalog.models import Item
     delivery_charge = grn.delivery_charge or Decimal('0')
-    grn_lines = list(grn.lines.select_related('item').all())
+    active_ctx = list(line_ctx.values())
 
-    # Calculate total line value to distribute delivery charge proportionally
+    # ── line value (for proportional delivery distribution) — value is unit-free
     line_values = {}
     total_line_value = Decimal('0')
-    for line in grn_lines:
+    for ctx in active_ctx:
+        po_line = ctx['po_line']
         po_unit_price = Decimal('0')
-        if grn.purchase_order:
-            po_line = grn.purchase_order.lines.filter(item=line.item).first()
-            if po_line:
-                po_unit_price = po_line.unit_price
-        lv = line.qty * po_unit_price
-        line_values[line.pk] = {'po_unit_price': po_unit_price, 'line_value': lv}
+        po_unit = None
+        if po_line is not None:
+            po_unit_price = po_line.unit_price or Decimal('0')
+            po_unit = po_line.unit
+        lv = ctx['line'].qty * po_unit_price  # value in (line.unit × PO currency)
+        line_values[ctx['line'].pk] = {
+            'po_unit_price': po_unit_price,
+            'po_unit': po_unit,
+            'line_value': lv,
+        }
         total_line_value += lv
 
-    for line in grn_lines:
+    for ctx in active_ctx:
+        line = ctx['line']
         item = line.item
+        base_qty = ctx['base_qty']
+        stock_unit = ctx['stock_unit']
+        if base_qty <= 0:
+            continue
+
         if item.cost_price is None:
             item.cost_price = Decimal('0')
+
+        # Existing stock total (already includes the qty we just received).
         total_existing_qty = sum(
             b.qty_on_hand for b in StockBalance.objects.filter(item=item)
         )
-        # total_existing_qty already includes the qty we just added
-        old_qty = total_existing_qty - line.qty
-        if old_qty + line.qty > 0:
-            po_unit_price = line_values[line.pk]['po_unit_price']
-            # Distribute delivery charge proportionally by line value
-            line_delivery_share = Decimal('0')
-            if delivery_charge > 0 and total_line_value > 0:
-                line_delivery_share = delivery_charge * (line_values[line.pk]['line_value'] / total_line_value)
-            elif delivery_charge > 0 and len(grn_lines) > 0:
-                # Equal split if no PO prices available
-                line_delivery_share = delivery_charge / len(grn_lines)
-            landed_unit_price = po_unit_price + (line_delivery_share / line.qty if line.qty else Decimal('0'))
-            if landed_unit_price > 0:
-                old_value = old_qty * item.cost_price
-                new_value = line.qty * landed_unit_price
-                item.cost_price = (old_value + new_value) / (old_qty + line.qty)
-                item.save(update_fields=['cost_price', 'updated_at'])
+        old_qty = total_existing_qty - base_qty
+        if old_qty < 0:
+            # Concurrent writes / data drift — clamp to 0 so the average
+            # weights only the receipt we just posted.
+            old_qty = Decimal('0')
+
+        lv = line_values[line.pk]
+        po_unit_price = lv['po_unit_price']
+        po_unit = lv['po_unit'] or line.unit
+
+        # Convert PO unit price → price per stock_unit
+        if po_unit_price > 0 and getattr(po_unit, 'pk', None) != stock_unit.pk:
+            try:
+                po_price_per_stock = convert_price_for_unit(
+                    po_unit_price, po_unit, stock_unit,
+                    item=item, use_conversion_price=False,
+                    raise_on_missing=True,
+                )
+            except ValueError:
+                logger.warning(
+                    'GRN %s item %s: no price conversion from %s → %s; '
+                    'cost_price weighted-average skipped for this line.',
+                    grn.document_number, item.code,
+                    getattr(po_unit, 'abbreviation', '?'),
+                    getattr(stock_unit, 'abbreviation', '?'),
+                )
+                continue
+        else:
+            po_price_per_stock = po_unit_price
+
+        # Proportional delivery share (also normalised per stock_unit)
+        line_delivery_share = Decimal('0')
+        if delivery_charge > 0 and total_line_value > 0:
+            line_delivery_share = delivery_charge * (lv['line_value'] / total_line_value)
+        elif delivery_charge > 0 and active_ctx:
+            line_delivery_share = delivery_charge / len(active_ctx)
+        delivery_per_stock = (line_delivery_share / base_qty) if base_qty else Decimal('0')
+
+        landed_per_stock = po_price_per_stock + delivery_per_stock
+        if landed_per_stock <= 0:
+            continue
+
+        denom = old_qty + base_qty
+        if denom <= 0:
+            continue
+        old_value = old_qty * item.cost_price
+        new_value = base_qty * landed_per_stock
+        item.cost_price = (old_value + new_value) / denom
+        item.save(update_fields=['cost_price', 'updated_at'])
 
     grn.status = DocumentStatus.POSTED
     grn.posted_by = user
@@ -433,10 +564,18 @@ def post_delivery(delivery, user):
         if line.item_id in existing_item_ids:
             skipped_existing.append(f"{line.item.code} (already moved)")
             continue
-            
+
         base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
         if base_qty is None:
-            continue
+            # Hard-fail the post so the DN isn't marked POSTED while a line
+            # is silently dropped from inventory. Caller's @transaction.atomic
+            # rolls back partial work.
+            raise ValueError(
+                f"Delivery {delivery.document_number}: cannot convert line "
+                f"{line.item.code} {line.qty} {line.unit.abbreviation} → "
+                f"{line.item.stock_unit.abbreviation}. "
+                f"Add the conversion under Catalog → Unit Conversions and try again."
+            )
         move = StockMove(
             move_type=MoveType.DELIVER,
             item=line.item,
@@ -457,12 +596,30 @@ def post_delivery(delivery, user):
         moves.append(move)
         _update_balance(line.item, line.location, -base_qty)
 
-        # Update SO delivered qty if linked (track in the SO line's own unit)
+        # Update SO delivered qty — picked single best-matching SO line and
+        # converted into that line's unit so qty_delivered stays comparable
+        # to qty_ordered.
         if delivery.sales_order:
-            so_lines = delivery.sales_order.lines.filter(item=line.item)
-            for so_line in so_lines:
-                so_line.qty_delivered += line.qty
-                so_line.save(update_fields=['qty_delivered'])
+            so_line = _pick_so_line(delivery.sales_order, line.item, line.unit)
+            if so_line is not None:
+                if so_line.unit_id == line.unit_id:
+                    delivered = line.qty
+                else:
+                    delivered = _convert_qty_safe(
+                        line.qty, line.unit, so_line.unit, line.item,
+                    )
+                    if delivered is None:
+                        logger.warning(
+                            'Delivery %s line %s: cannot convert %s %s → %s; '
+                            'qty_delivered NOT updated on SO line.',
+                            delivery.document_number, line.item.code, line.qty,
+                            getattr(line.unit, 'abbreviation', '?'),
+                            getattr(so_line.unit, 'abbreviation', '?'),
+                        )
+                        delivered = Decimal('0')
+                if delivered:
+                    so_line.qty_delivered = (so_line.qty_delivered or Decimal('0')) + delivered
+                    so_line.save(update_fields=['qty_delivered'])
 
     if moves:
         StockMove.objects.bulk_create(moves)
@@ -520,10 +677,15 @@ def post_sales_pickup(pickup, user):
         if line.item_id in existing_item_ids:
             skipped_existing.append(f"{line.item.code} (already moved)")
             continue
-            
+
         base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
         if base_qty is None:
-            continue
+            raise ValueError(
+                f"Pickup {pickup.document_number}: cannot convert line "
+                f"{line.item.code} {line.qty} {line.unit.abbreviation} → "
+                f"{line.item.stock_unit.abbreviation}. "
+                f"Add the conversion under Catalog → Unit Conversions and try again."
+            )
         move = StockMove(
             move_type=MoveType.DELIVER,
             item=line.item,
@@ -544,12 +706,29 @@ def post_sales_pickup(pickup, user):
         moves.append(move)
         _update_balance(line.item, line.location, -base_qty)
 
-        # Update SO delivered qty if linked (track in the SO line's own unit)
+        # Update SO delivered qty — single best-matching SO line, converted
+        # into that line's unit (see post_delivery for rationale).
         if pickup.sales_order:
-            so_lines = pickup.sales_order.lines.filter(item=line.item)
-            for so_line in so_lines:
-                so_line.qty_delivered += line.qty
-                so_line.save(update_fields=['qty_delivered'])
+            so_line = _pick_so_line(pickup.sales_order, line.item, line.unit)
+            if so_line is not None:
+                if so_line.unit_id == line.unit_id:
+                    delivered = line.qty
+                else:
+                    delivered = _convert_qty_safe(
+                        line.qty, line.unit, so_line.unit, line.item,
+                    )
+                    if delivered is None:
+                        logger.warning(
+                            'Pickup %s line %s: cannot convert %s %s → %s; '
+                            'qty_delivered NOT updated on SO line.',
+                            pickup.document_number, line.item.code, line.qty,
+                            getattr(line.unit, 'abbreviation', '?'),
+                            getattr(so_line.unit, 'abbreviation', '?'),
+                        )
+                        delivered = Decimal('0')
+                if delivered:
+                    so_line.qty_delivered = (so_line.qty_delivered or Decimal('0')) + delivered
+                    so_line.save(update_fields=['qty_delivered'])
 
     if moves:
         StockMove.objects.bulk_create(moves)

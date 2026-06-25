@@ -80,6 +80,7 @@ def convert_price_for_unit(
     item=None,
     round_places: int = 4,
     use_conversion_price: bool = True,
+    raise_on_missing: bool = False,
 ) -> Decimal:
     """
     Convert a price from one unit to another based on conversion factors.
@@ -88,27 +89,19 @@ def convert_price_for_unit(
       - If the matching UnitConversion record has ``conversion_price`` set **and**
         the match is direct (not a reverse lookup), that explicit price is returned
         instead of dividing base_price by the factor.
-      - This lets you set a per-converted-unit price independently of the ratio.
-        Example: Roll→ft factor=5, conversion_price=30 → price per ft = 30 (not 100/5=20).
 
     When *use_conversion_price* is False (used for COGS):
       - Always performs factor-based division: base_price / factor.
-      - ``conversion_price`` is never used for cost calculations.
 
-    Args:
-        base_price: The base price in the base_unit
-        base_unit: The unit the base_price is denominated in
-        selling_unit: The unit we want to price in
-        item: Optional item for item-specific conversions
-        round_places: Decimal places to round result to
-        use_conversion_price: If True, prefer explicit conversion_price over factor calc
-
-    Returns:
-        Decimal price adjusted for the selling_unit
+    When *raise_on_missing* is True:
+      - Raises ValueError if no conversion exists between base_unit and selling_unit.
+        Callers that depend on a correct conversion (e.g. cost-price recompute,
+        supplier-catalog sync) should pass True to surface bad data instead of
+        silently using the unconverted base price.
     """
     import logging
     logger = logging.getLogger(__name__)
-    
+
     if not base_unit or not selling_unit:
         return Decimal(str(base_price)).quantize(Decimal(10) ** -round_places)
 
@@ -116,17 +109,18 @@ def convert_price_for_unit(
         return Decimal(str(base_price)).quantize(Decimal(10) ** -round_places)
 
     base_price_dec = Decimal(str(base_price))
+    item_info = f" for item {item.code}" if item and hasattr(item, 'code') else ""
 
     conv, is_reverse = _lookup_conversion_record(base_unit, selling_unit, item)
 
     if conv is None:
-        # NO CONVERSION FOUND - Log warning and return base price
-        item_info = f" for item {item.code}" if item and hasattr(item, 'code') else ""
-        logger.warning(
-            f"No unit conversion found between {base_unit.abbreviation} and {selling_unit.abbreviation}"
-            f"{item_info}. Returning base price without conversion. "
-            f"Please add a conversion under Catalog → Unit Conversions."
+        msg = (
+            f"No unit conversion found between {base_unit.abbreviation} and "
+            f"{selling_unit.abbreviation}{item_info}."
         )
+        if raise_on_missing:
+            raise ValueError(msg + " Add one under Catalog → Unit Conversions.")
+        logger.warning(msg + " Returning base price without conversion.")
         return base_price_dec.quantize(Decimal(10) ** -round_places)
 
     if use_conversion_price and not is_reverse and conv.conversion_price is not None:
@@ -135,10 +129,13 @@ def convert_price_for_unit(
     factor = Decimal('1') / conv.factor if is_reverse else conv.factor
 
     if factor == 0:
-        logger.error(
-            f"Invalid conversion factor (0) between {base_unit.abbreviation} and {selling_unit.abbreviation}"
-            f"{item_info}. Returning base price."
+        msg = (
+            f"Invalid conversion factor (0) between {base_unit.abbreviation} and "
+            f"{selling_unit.abbreviation}{item_info}."
         )
+        if raise_on_missing:
+            raise ValueError(msg)
+        logger.error(msg + " Returning base price.")
         return base_price_dec.quantize(Decimal(10) ** -round_places)
 
     adjusted_price = base_price_dec / factor
