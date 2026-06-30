@@ -250,18 +250,32 @@ def post_goods_receipt(grn, user):
     moves = []
     skipped = []
 
+    # Pre-load all PO lines once to avoid _pick_po_line_for_grn N+1
+    po_lines_by_item = {}
+    if grn.purchase_order:
+        for pl in grn.purchase_order.lines.select_related('unit').all():
+            po_lines_by_item.setdefault(pl.item_id, []).append(pl)
+
     # Pre-resolve PO line + base_qty per GRN line so qty_received and the
     # weighted-average cost see the SAME converted numbers.
     line_ctx = {}
+    po_line_updates = {}  # po_line.pk → po_line (with accumulated qty_received)
+
     for line in grn.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
         stock_unit = line.item.stock_unit
         base_qty = _try_convert(line.qty, line.unit, stock_unit, line.item, line, skipped)
         if base_qty is None:
             continue
 
+        # Dict lookup replaces _pick_po_line_for_grn DB query per line
         po_line = None
         if grn.purchase_order:
-            po_line = _pick_po_line_for_grn(grn.purchase_order, line.item, line.unit)
+            candidates = po_lines_by_item.get(line.item_id, [])
+            if candidates:
+                same_unit = [pl for pl in candidates if pl.unit_id == getattr(line.unit, 'pk', None)]
+                pool = same_unit or candidates
+                pool.sort(key=lambda pl: (pl.qty_ordered - (pl.qty_received or Decimal('0'))), reverse=True)
+                po_line = pool[0]
 
         line_ctx[line.pk] = {
             'line': line,
@@ -290,7 +304,7 @@ def post_goods_receipt(grn, user):
         moves.append(move)
         _update_balance(line.item, line.location, base_qty)
 
-        # Update PO received qty (denominated in the PO line's own unit)
+        # Accumulate PO qty_received (batched, denominated in PO line's unit)
         if po_line is not None:
             if po_line.unit_id == line.unit_id:
                 received_in_po_unit = line.qty
@@ -308,10 +322,16 @@ def post_goods_receipt(grn, user):
                     )
                     received_in_po_unit = Decimal('0')
             if received_in_po_unit:
+                if po_line.pk not in po_line_updates:
+                    po_line_updates[po_line.pk] = po_line
                 po_line.qty_received = (po_line.qty_received or Decimal('0')) + received_in_po_unit
-                po_line.save(update_fields=['qty_received'])
 
     StockMove.objects.bulk_create(moves)
+
+    # Batch-update all PO line qty_received in one round-trip
+    if po_line_updates:
+        from procurement.models import PurchaseOrderLine
+        PurchaseOrderLine.objects.bulk_update(list(po_line_updates.values()), ['qty_received'])
 
     # ── Weighted-average cost update (denominated in stock_unit) ───────────
     # Every term (price, qty, delivery share) is expressed per stock_unit
@@ -339,6 +359,14 @@ def post_goods_receipt(grn, user):
         }
         total_line_value += lv
 
+    # Pre-fetch StockBalance totals per item to avoid N+1 per WAC line
+    active_item_ids = [ctx['line'].item_id for ctx in active_ctx]
+    balance_totals = {}
+    for b in StockBalance.objects.filter(item_id__in=active_item_ids).values('item_id', 'qty_on_hand'):
+        balance_totals[b['item_id']] = balance_totals.get(b['item_id'], Decimal('0')) + b['qty_on_hand']
+
+    item_cost_updates = {}  # item.pk → item (with updated cost_price)
+
     for ctx in active_ctx:
         line = ctx['line']
         item = line.item
@@ -350,10 +378,8 @@ def post_goods_receipt(grn, user):
         if item.cost_price is None:
             item.cost_price = Decimal('0')
 
-        # Existing stock total (already includes the qty we just received).
-        total_existing_qty = sum(
-            b.qty_on_hand for b in StockBalance.objects.filter(item=item)
-        )
+        # Use pre-fetched total (already includes the qty we just received)
+        total_existing_qty = balance_totals.get(item.pk, Decimal('0'))
         old_qty = total_existing_qty - base_qty
         if old_qty < 0:
             # Concurrent writes / data drift — clamp to 0 so the average
@@ -402,7 +428,11 @@ def post_goods_receipt(grn, user):
         old_value = old_qty * item.cost_price
         new_value = base_qty * landed_per_stock
         item.cost_price = (old_value + new_value) / denom
-        item.save(update_fields=['cost_price', 'updated_at'])
+        item_cost_updates[item.pk] = item
+
+    # Batch-update all item cost_prices in one round-trip
+    if item_cost_updates:
+        Item.objects.bulk_update(list(item_cost_updates.values()), ['cost_price', 'updated_at'])
 
     grn.status = DocumentStatus.POSTED
     grn.posted_by = user
@@ -546,30 +576,31 @@ def post_delivery(delivery, user):
     _ensure_so_bundle_lines_on_delivery(delivery)
 
     # ── Check for existing stock movements ──────────────────────────────
-    existing_moves = StockMove.objects.filter(
+    existing_item_ids = set(StockMove.objects.filter(
         reference_type='DeliveryNote',
         reference_id=delivery.pk,
         status=MoveStatus.POSTED,
-    ).values_list('item_id', flat=True)
-    
-    existing_item_ids = set(existing_moves)
+    ).values_list('item_id', flat=True))
+
+    # ── Pre-load SO lines once to avoid N+1 per delivery line ──────────
+    so_lines_by_item = {}
+    if delivery.sales_order:
+        for sl in delivery.sales_order.lines.select_related('unit').all():
+            so_lines_by_item.setdefault(sl.item_id, []).append(sl)
 
     now = timezone.now()
     moves = []
     skipped = []
     skipped_existing = []
+    so_line_updates = {}  # so_line.pk → so_line (with accumulated qty_delivered)
 
     for line in delivery.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        # Skip if stock movement already exists for this item
         if line.item_id in existing_item_ids:
             skipped_existing.append(f"{line.item.code} (already moved)")
             continue
 
         base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
         if base_qty is None:
-            # Hard-fail the post so the DN isn't marked POSTED while a line
-            # is silently dropped from inventory. Caller's @transaction.atomic
-            # rolls back partial work.
             raise ValueError(
                 f"Delivery {delivery.document_number}: cannot convert line "
                 f"{line.item.code} {line.qty} {line.unit.abbreviation} → "
@@ -596,33 +627,38 @@ def post_delivery(delivery, user):
         moves.append(move)
         _update_balance(line.item, line.location, -base_qty)
 
-        # Update SO delivered qty — picked single best-matching SO line and
-        # converted into that line's unit so qty_delivered stays comparable
-        # to qty_ordered.
-        if delivery.sales_order:
-            so_line = _pick_so_line(delivery.sales_order, line.item, line.unit)
-            if so_line is not None:
-                if so_line.unit_id == line.unit_id:
-                    delivered = line.qty
-                else:
-                    delivered = _convert_qty_safe(
-                        line.qty, line.unit, so_line.unit, line.item,
+        # Accumulate SO qty_delivered updates (dict lookup replaces _pick_so_line N+1)
+        candidates = so_lines_by_item.get(line.item_id, [])
+        if candidates:
+            same_unit = [sl for sl in candidates if sl.unit_id == line.unit_id]
+            pool = same_unit or candidates
+            pool.sort(key=lambda sl: (sl.qty_ordered - (sl.qty_delivered or Decimal('0'))), reverse=True)
+            so_line = pool[0]
+            if so_line.unit_id == line.unit_id:
+                delivered = line.qty
+            else:
+                delivered = _convert_qty_safe(line.qty, line.unit, so_line.unit, line.item)
+                if delivered is None:
+                    logger.warning(
+                        'Delivery %s line %s: cannot convert %s %s → %s; '
+                        'qty_delivered NOT updated on SO line.',
+                        delivery.document_number, line.item.code, line.qty,
+                        getattr(line.unit, 'abbreviation', '?'),
+                        getattr(so_line.unit, 'abbreviation', '?'),
                     )
-                    if delivered is None:
-                        logger.warning(
-                            'Delivery %s line %s: cannot convert %s %s → %s; '
-                            'qty_delivered NOT updated on SO line.',
-                            delivery.document_number, line.item.code, line.qty,
-                            getattr(line.unit, 'abbreviation', '?'),
-                            getattr(so_line.unit, 'abbreviation', '?'),
-                        )
-                        delivered = Decimal('0')
-                if delivered:
-                    so_line.qty_delivered = (so_line.qty_delivered or Decimal('0')) + delivered
-                    so_line.save(update_fields=['qty_delivered'])
+                    delivered = Decimal('0')
+            if delivered:
+                if so_line.pk not in so_line_updates:
+                    so_line_updates[so_line.pk] = so_line
+                so_line.qty_delivered = (so_line.qty_delivered or Decimal('0')) + delivered
 
     if moves:
         StockMove.objects.bulk_create(moves)
+
+    # Batch-update all SO line qty_delivered in one round-trip
+    if so_line_updates:
+        from sales.models import SalesOrderLine
+        SalesOrderLine.objects.bulk_update(list(so_line_updates.values()), ['qty_delivered'])
 
     delivery.status = DocumentStatus.POSTED
     delivery.posted_by = user
@@ -659,21 +695,25 @@ def post_sales_pickup(pickup, user):
     _ensure_so_bundle_lines_on_pickup(pickup)
 
     # ── Check for existing stock movements ──────────────────────────────
-    existing_moves = StockMove.objects.filter(
+    existing_item_ids = set(StockMove.objects.filter(
         reference_type='SalesPickup',
         reference_id=pickup.pk,
         status=MoveStatus.POSTED,
-    ).values_list('item_id', flat=True)
-    
-    existing_item_ids = set(existing_moves)
+    ).values_list('item_id', flat=True))
+
+    # ── Pre-load SO lines once to avoid N+1 per pickup line ────────────
+    so_lines_by_item = {}
+    if pickup.sales_order:
+        for sl in pickup.sales_order.lines.select_related('unit').all():
+            so_lines_by_item.setdefault(sl.item_id, []).append(sl)
 
     now = timezone.now()
     moves = []
     skipped = []
     skipped_existing = []
+    so_line_updates = {}  # so_line.pk → so_line (with accumulated qty_delivered)
 
     for line in pickup.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
-        # Skip if stock movement already exists for this item
         if line.item_id in existing_item_ids:
             skipped_existing.append(f"{line.item.code} (already moved)")
             continue
@@ -706,32 +746,38 @@ def post_sales_pickup(pickup, user):
         moves.append(move)
         _update_balance(line.item, line.location, -base_qty)
 
-        # Update SO delivered qty — single best-matching SO line, converted
-        # into that line's unit (see post_delivery for rationale).
-        if pickup.sales_order:
-            so_line = _pick_so_line(pickup.sales_order, line.item, line.unit)
-            if so_line is not None:
-                if so_line.unit_id == line.unit_id:
-                    delivered = line.qty
-                else:
-                    delivered = _convert_qty_safe(
-                        line.qty, line.unit, so_line.unit, line.item,
+        # Accumulate SO qty_delivered updates (dict lookup replaces _pick_so_line N+1)
+        candidates = so_lines_by_item.get(line.item_id, [])
+        if candidates:
+            same_unit = [sl for sl in candidates if sl.unit_id == line.unit_id]
+            pool = same_unit or candidates
+            pool.sort(key=lambda sl: (sl.qty_ordered - (sl.qty_delivered or Decimal('0'))), reverse=True)
+            so_line = pool[0]
+            if so_line.unit_id == line.unit_id:
+                delivered = line.qty
+            else:
+                delivered = _convert_qty_safe(line.qty, line.unit, so_line.unit, line.item)
+                if delivered is None:
+                    logger.warning(
+                        'Pickup %s line %s: cannot convert %s %s → %s; '
+                        'qty_delivered NOT updated on SO line.',
+                        pickup.document_number, line.item.code, line.qty,
+                        getattr(line.unit, 'abbreviation', '?'),
+                        getattr(so_line.unit, 'abbreviation', '?'),
                     )
-                    if delivered is None:
-                        logger.warning(
-                            'Pickup %s line %s: cannot convert %s %s → %s; '
-                            'qty_delivered NOT updated on SO line.',
-                            pickup.document_number, line.item.code, line.qty,
-                            getattr(line.unit, 'abbreviation', '?'),
-                            getattr(so_line.unit, 'abbreviation', '?'),
-                        )
-                        delivered = Decimal('0')
-                if delivered:
-                    so_line.qty_delivered = (so_line.qty_delivered or Decimal('0')) + delivered
-                    so_line.save(update_fields=['qty_delivered'])
+                    delivered = Decimal('0')
+            if delivered:
+                if so_line.pk not in so_line_updates:
+                    so_line_updates[so_line.pk] = so_line
+                so_line.qty_delivered = (so_line.qty_delivered or Decimal('0')) + delivered
 
     if moves:
         StockMove.objects.bulk_create(moves)
+
+    # Batch-update all SO line qty_delivered in one round-trip
+    if so_line_updates:
+        from sales.models import SalesOrderLine
+        SalesOrderLine.objects.bulk_update(list(so_line_updates.values()), ['qty_delivered'])
 
     pickup.status = DocumentStatus.POSTED
     pickup.posted_by = user
@@ -745,7 +791,6 @@ def post_sales_pickup(pickup, user):
     }
     _create_audit(user, 'POST', pickup, audit_data)
     pickup.skipped_lines = skipped + skipped_existing
-    return pickup
     return pickup
 
 
@@ -1307,30 +1352,33 @@ def generate_document_number(prefix, model_class):
     sync_mode = getattr(settings, 'SYNC_MODE', 'offline')
     db_alias = 'local_cache' if sync_mode == 'neon_primary' else 'default'
 
-    # Use Django ORM to read all matching document_numbers — portable across DBs.
-    # We extract the numeric suffix in Python rather than SQL to avoid
-    # database-specific regex/substring functions.
-    qs = model_class._default_manager.using(db_alias).filter(
-        document_number__startswith=f"{prefix}-"
-    )
+    from django.db.models import Max
+
+    base_qs = model_class._default_manager.using(db_alias)
     # Include soft-deleted rows so we don't reuse their numbers
     if hasattr(model_class, 'all_objects'):
-        qs = model_class.all_objects.using(db_alias).filter(
-            document_number__startswith=f"{prefix}-"
-        )
+        base_qs = model_class.all_objects.using(db_alias)
+
+    qs = base_qs.filter(document_number__startswith=f"{prefix}-")
+    result = qs.aggregate(m=Max('document_number'))['m']
 
     max_num = 0
-    prefix_len = len(prefix) + 1  # +1 for the dash
-    for doc_num in qs.values_list('document_number', flat=True):
-        if not doc_num:
-            continue
-        suffix = doc_num[prefix_len:]
+    if result:
+        suffix = result[len(prefix) + 1:]
         try:
-            num = int(suffix)
-            if num > max_num:
-                max_num = num
+            max_num = int(suffix)
         except (ValueError, TypeError):
-            continue
+            # Fall back to iterating only if MAX returned a non-numeric suffix
+            prefix_len = len(prefix) + 1
+            for doc_num in qs.values_list('document_number', flat=True):
+                if not doc_num:
+                    continue
+                try:
+                    num = int(doc_num[prefix_len:])
+                    if num > max_num:
+                        max_num = num
+                except (ValueError, TypeError):
+                    continue
 
     return f"{prefix}-{max_num + 1:06d}"
 

@@ -448,6 +448,18 @@
 {% block extra_js %}{{ block.super }}
 <script>
 (function(){
+  // Move resync modals to <body> so Bootstrap's fixed positioning works correctly
+  // even when AdminLTE applies CSS transforms to .content-wrapper during sidebar
+  // transitions. If the modals stay inside .content-wrapper, Bootstrap's backdrop
+  // renders at viewport level but the dialog is trapped inside the transformed
+  // container and appears off-screen (shows backdrop only).
+  ['resyncResultsModal', 'resyncConfirmModal'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el && el.parentNode !== document.body) {
+      document.body.appendChild(el);
+    }
+  });
+
   var runUrl = "{% url 'run_sync_action' %}";
   var detectUrl = "{% url 'resync_detect_candidates' %}";
   var applyUrl = "{% url 'resync_apply_with_selection' %}";
@@ -693,8 +705,7 @@
         }
         buildConfirmModal(_currentCatalog);
         outBox.textContent = 'Awaiting confirmation...';
-        var modal = new bootstrap.Modal(document.getElementById('resyncConfirmModal'));
-        modal.show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('resyncConfirmModal')).show();
         resetResyncBtn();
       })
       .catch(function(err){
@@ -867,6 +878,20 @@
   function runApply(selection) {
     var outBox = _activeResyncOutBox;
     var btn = _activeResyncBtn;
+    var confirmEl = document.getElementById('resyncConfirmModal');
+
+    // While the resync runs, lock the confirm modal footer so the user cannot
+    // double-submit or cancel mid-flight.
+    var applyBtn    = document.getElementById('resyncApplyBtn');
+    var selAllBtn   = document.getElementById('resyncSelectAllBtn');
+    var selNoneBtn  = document.getElementById('resyncSelectNoneBtn');
+    var cancelBtn   = confirmEl.querySelector('.modal-footer .btn-secondary');
+    if (applyBtn)   { applyBtn.disabled = true; applyBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Running Sync…'; }
+    if (selAllBtn)  selAllBtn.disabled = true;
+    if (selNoneBtn) selNoneBtn.disabled = true;
+    if (cancelBtn)  cancelBtn.disabled = true;
+
+    // Update the page-level button / output box too.
     if (btn) {
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Applying...';
@@ -875,6 +900,7 @@
       outBox.textContent = 'Running resync with approved fixes...';
       outBox.classList.add('show');
     }
+
     fetch(applyUrl, {
       method: 'POST',
       headers: { 'X-CSRFToken': csrfToken, 'Content-Type': 'application/json' },
@@ -888,10 +914,34 @@
           outBox.textContent = text || '(no output)';
           outBox.style.borderLeft = data.ok ? '3px solid #22c55e' : '3px solid #ef4444';
         }
+
+        // Pre-populate the results modal body BEFORE any modal transition so
+        // the DOM is ready the moment the modal becomes visible.
         if (data.resync_results) {
           buildResyncModal(data, 'resync_inventory', data.ok);
-          var modal = new bootstrap.Modal(document.getElementById('resyncResultsModal'));
-          modal.show();
+        }
+
+        var confirmInst = bootstrap.Modal.getInstance(confirmEl);
+        var hasResults  = !!data.resync_results;
+
+        function showResultsIfAny() {
+          if (hasResults) {
+            bootstrap.Modal.getOrCreateInstance(
+              document.getElementById('resyncResultsModal')
+            ).show();
+          }
+        }
+
+        if (confirmInst && confirmEl.classList.contains('show')) {
+          // Wait for the confirm modal's full hide animation (and its backdrop
+          // removal) to complete BEFORE showing the results modal.  Doing both
+          // at the same time causes Bootstrap's backdrop manager to race and
+          // leaves the results modal dialog invisible while the backdrop stays.
+          confirmEl.addEventListener('hidden.bs.modal', showResultsIfAny, { once: true });
+          confirmInst.hide();
+        } else {
+          // No confirm modal was showing (no-candidates fast path) — show directly.
+          showResultsIfAny();
         }
       })
       .catch(function(err){
@@ -899,14 +949,18 @@
           outBox.textContent = '[NETWORK ERROR] ' + err.message;
           outBox.style.borderLeft = '3px solid #ef4444';
         }
+        // Re-enable the confirm modal buttons so the user can retry or cancel.
+        if (applyBtn)   { applyBtn.disabled = false; applyBtn.innerHTML = '<i class="fas fa-play me-1"></i>Apply &amp; Continue Sync'; }
+        if (selAllBtn)  selAllBtn.disabled = false;
+        if (selNoneBtn) selNoneBtn.disabled = false;
+        if (cancelBtn)  cancelBtn.disabled = false;
       })
       .finally(resetResyncBtn);
   }
 
   document.getElementById('resyncApplyBtn').addEventListener('click', function(){
     var selection = collectSelection();
-    bootstrap.Modal.getInstance(document.getElementById('resyncConfirmModal')).hide();
-    runApply(selection);
+    runApply(selection);  // confirm modal is hidden inside runApply after fetch completes
   });
   document.getElementById('resyncSelectAllBtn').addEventListener('click', function(){
     document.querySelectorAll('#resyncConfirmBody input[type="checkbox"][data-move-id]').forEach(function(cb){ cb.checked = true; });
@@ -975,8 +1029,7 @@
         // Show modal for resync actions
         if (isResync && data.resync_results) {
           buildResyncModal(data, action, data.ok);
-          var modal = new bootstrap.Modal(document.getElementById('resyncResultsModal'));
-          modal.show();
+          bootstrap.Modal.getOrCreateInstance(document.getElementById('resyncResultsModal')).show();
         }
       })
       .catch(function(err){

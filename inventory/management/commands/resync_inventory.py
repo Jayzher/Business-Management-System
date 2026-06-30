@@ -135,7 +135,6 @@ def _safe_convert(qty, from_unit, to_unit, label, warn_fn, item=None):
             message=str(exc),
         )
         _conversion_errors.append(err)
-        warn_fn(f"    [ERROR] {label}: {exc}")
         raise
 
 
@@ -859,12 +858,13 @@ def _recompute_po_qty_received(dry_run, info_fn, warn_fn):
                         line.qty, line.unit, po_line.unit, item=line.item,
                     )
                 except (ValueError, Exception) as exc:
-                    warn_fn(
-                        f'    [QTY-RECEIVED] GRN {grn.document_number} '
-                        f'item {line.item.code}: cannot convert '
-                        f'{line.qty} {getattr(line.unit, "abbreviation", "?")} → '
-                        f'{getattr(po_line.unit, "abbreviation", "?")}: {exc}'
-                    )
+                    _conversion_errors.append(ConversionError(
+                        item_code=line.item.code,
+                        from_unit=getattr(line.unit, 'abbreviation', '?'),
+                        to_unit=getattr(po_line.unit, 'abbreviation', '?'),
+                        label=f'QTY-RECEIVED GRN {grn.document_number}',
+                        message=str(exc),
+                    ))
                     skipped += 1
                     continue
             running[po_line.pk] += received
@@ -940,12 +940,13 @@ def _recompute_so_qty_delivered(dry_run, info_fn, warn_fn):
                         line.qty, line.unit, so_line.unit, item=line.item,
                     )
                 except (ValueError, Exception) as exc:
-                    warn_fn(
-                        f'    [QTY-DELIVERED] {doc.document_number} '
-                        f'item {line.item.code}: cannot convert '
-                        f'{line.qty} {getattr(line.unit, "abbreviation", "?")} → '
-                        f'{getattr(so_line.unit, "abbreviation", "?")}: {exc}'
-                    )
+                    _conversion_errors.append(ConversionError(
+                        item_code=line.item.code,
+                        from_unit=getattr(line.unit, 'abbreviation', '?'),
+                        to_unit=getattr(so_line.unit, 'abbreviation', '?'),
+                        label=f'QTY-DELIVERED {doc.document_number}',
+                        message=str(exc),
+                    ))
                     skipped += 1
                     continue
             running[so_line.pk] += delivered
@@ -1080,12 +1081,14 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
                         item=item, use_conversion_price=False,
                         raise_on_missing=True,
                     )
-                except (ValueError, Exception):
-                    warn_fn(
-                        f'    [COST] GRN {grn.document_number} item {item.code}: '
-                        f'no price conversion {getattr(po_unit, "abbreviation", "?")} → '
-                        f'{getattr(stock_unit, "abbreviation", "?")} — line skipped.'
-                    )
+                except (ValueError, Exception) as exc:
+                    _conversion_errors.append(ConversionError(
+                        item_code=item.code,
+                        from_unit=getattr(po_unit, 'abbreviation', '?'),
+                        to_unit=getattr(stock_unit, 'abbreviation', '?'),
+                        label=f'COST GRN {grn.document_number}',
+                        message=str(exc),
+                    ))
                     skipped_lines += 1
                     continue
             else:
@@ -1840,13 +1843,9 @@ class Command(BaseCommand):
         if phase in ('1', 'all'):
             self._run_phase1(dry_run)
 
-        # ── Report conversion errors from Phase 0/1 but continue ──────────
+        # ── Note conversion skips from Phase 0/1 and continue ───────────
         if _conversion_errors and phase in ('2', 'all'):
             self._report_conversion_errors()
-            self.stderr.write(self.style.WARNING(
-                '\n  WARNING: conversion errors found in Phase 0/1 (see above).\n'
-                '  Phase 2 will proceed and skip only the affected items.\n'
-            ))
             # Clear so Phase 2 starts with a fresh error list
             _conversion_errors.clear()
 
@@ -1855,10 +1854,6 @@ class Command(BaseCommand):
 
             if _conversion_errors:
                 self._report_conversion_errors()
-                self.stderr.write(self.style.WARNING(
-                    '\n  WARNING: Phase 2 completed but skipped items with missing conversions.\n'
-                    '  The balances for those items may be inaccurate. Add the conversions and re-run.\n'
-                ))
 
         if phase in ('3', 'all'):
             self._run_phase3()
@@ -1982,7 +1977,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f'  Error creating audit log: {e}'))
 
     def _report_conversion_errors(self):
-        """Print a de-duplicated summary of all conversion errors encountered."""
+        """Print a de-duplicated summary of lines skipped due to missing conversions."""
         seen = set()
         unique_errors = []
         for err in _conversion_errors:
@@ -1990,21 +1985,9 @@ class Command(BaseCommand):
                 seen.add(err.key)
                 unique_errors.append(err)
 
-        self.stdout.write(self.style.ERROR(
-            f'\n{"═"*70}\n'
-            f'  MISSING UNIT CONVERSIONS — {len(unique_errors)} item(s) need attention\n'
-            f'{"═"*70}'
-        ))
-        self.stdout.write(self.style.ERROR(
-            '  These items have documents using a unit that cannot be converted\n'
-            '  to the item\'s inventory unit.  Add the conversion in:\n'
-            '  Catalog → Unit Conversions  (or Admin → Unit Conversions)\n'
-        ))
+        self._info(f'  [SKIP] {len(unique_errors)} item(s) have lines skipped — no unit conversion configured:')
         for err in sorted(unique_errors, key=lambda e: e.item_code):
-            self.stdout.write(self.style.ERROR(
-                f'    {err.item_code:40s}  {err.from_unit} → {err.to_unit}'
-            ))
-        self.stdout.write('')
+            self._info(f'    {err.item_code:40s}  {err.from_unit} → {err.to_unit}')
 
     # ── Phase 0: clean up StockMoves ─────────────────────────────────────────
 

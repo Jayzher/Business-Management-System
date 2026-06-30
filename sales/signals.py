@@ -2,7 +2,7 @@
 Signals to synchronize Sales Order changes to related Invoices, Deliveries, and Pickups.
 """
 from decimal import Decimal
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.db import transaction
 
@@ -46,14 +46,14 @@ def _sync_invoices(sales_order):
     Updates customer info, financial totals, and line items.
     """
     from audit.models import AuditLog
-    
-    # Find all non-void invoices linked to this SO
-    invoices = Invoice.objects.filter(
+
+    # Materialise the queryset once to avoid the exists()+iterate double-query
+    invoice_list = list(Invoice.objects.filter(
         sales_order=sales_order,
         is_void=False
-    ).select_for_update()
-    
-    if not invoices.exists():
+    ).select_for_update())
+
+    if not invoice_list:
         return
     
     # Calculate totals from SO
@@ -71,7 +71,7 @@ def _sync_invoices(sales_order):
     customer_name = sales_order.customer.name if sales_order.customer else ''
     customer_address = getattr(sales_order.customer, 'address', '') if sales_order.customer else ''
     
-    for invoice in invoices:
+    for invoice in invoice_list:
         # Track what changed for audit
         changes = []
         
@@ -125,12 +125,11 @@ def _recreate_invoice_lines(invoice, sales_order):
     """
     Delete existing invoice lines and recreate them from the current Sales Order.
     """
-    # Delete existing lines
     invoice.lines.all().delete()
-    
-    # Recreate from SO lines
+
+    new_lines = []
     for line in sales_order.lines.select_related('item', 'unit').all():
-        InvoiceLine.objects.create(
+        new_lines.append(InvoiceLine(
             invoice=invoice,
             item_code=line.item.code,
             item_name=line.item.name,
@@ -139,11 +138,10 @@ def _recreate_invoice_lines(invoice, sales_order):
             unit_price=line.unit_price,
             discount=line.discount_amount,
             line_total=line.line_total,
-        )
-    
-    # Add bundle lines
+        ))
+
     for bundle in sales_order.price_list_lines.select_related('price_list').all():
-        InvoiceLine.objects.create(
+        new_lines.append(InvoiceLine(
             invoice=invoice,
             item_code='BUNDLE',
             item_name=bundle.price_list.name,
@@ -152,7 +150,10 @@ def _recreate_invoice_lines(invoice, sales_order):
             unit_price=bundle.bundle_subtotal,
             discount=bundle.bundle_discount_amount,
             line_total=bundle.bundle_total,
-        )
+        ))
+
+    if new_lines:
+        InvoiceLine.objects.bulk_create(new_lines)
 
 
 def _sync_deliveries(sales_order):
@@ -163,13 +164,12 @@ def _sync_deliveries(sales_order):
     from audit.models import AuditLog
     from core.models import DocumentStatus
     
-    # Find all draft deliveries linked to this SO
-    deliveries = DeliveryNote.objects.filter(
+    delivery_list = list(DeliveryNote.objects.filter(
         sales_order=sales_order,
         status=DocumentStatus.DRAFT
-    ).select_for_update()
-    
-    if not deliveries.exists():
+    ).select_for_update())
+
+    if not delivery_list:
         return
     
     # Get updated info from SO
@@ -178,7 +178,7 @@ def _sync_deliveries(sales_order):
     customer = sales_order.customer
     warehouse = sales_order.warehouse
     
-    for delivery in deliveries:
+    for delivery in delivery_list:
         changes = []
         
         # Update shipping address
@@ -232,30 +232,27 @@ def _recreate_delivery_lines(delivery, sales_order):
     """
     from warehouses.models import Location
     from sales.models import DeliveryLine
-    
-    # Delete existing lines
+
     delivery.lines.all().delete()
-    
-    # Get default location for the warehouse
+
     default_location = Location.objects.filter(
         warehouse=delivery.warehouse, is_active=True
     ).first()
-    
+
     if not default_location:
         return
-    
-    # Recreate from SO lines
+
+    new_lines = []
     for so_line in sales_order.lines.select_related('item', 'unit').all():
-        DeliveryLine.objects.create(
+        new_lines.append(DeliveryLine(
             delivery=delivery,
             item=so_line.item,
             location=default_location,
             qty=so_line.qty_ordered,
             unit=so_line.unit,
             notes=f'Synced from SO line: {so_line.item.code}',
-        )
-    
-    # Add items from bundles
+        ))
+
     for bundle in sales_order.price_list_lines.select_related('price_list').prefetch_related(
         'price_list__items__item', 'price_list__items__unit'
     ).all():
@@ -263,14 +260,17 @@ def _recreate_delivery_lines(delivery, sales_order):
             qty = pli.min_qty * bundle.qty_multiplier
             if qty <= 0:
                 continue
-            DeliveryLine.objects.create(
+            new_lines.append(DeliveryLine(
                 delivery=delivery,
                 item=pli.item,
                 location=default_location,
                 qty=qty,
                 unit=pli.unit,
                 notes=f'Synced from bundle {bundle.price_list.name}',
-            )
+            ))
+
+    if new_lines:
+        DeliveryLine.objects.bulk_create(new_lines)
 
 
 def _sync_pickups(sales_order):
@@ -281,13 +281,12 @@ def _sync_pickups(sales_order):
     from audit.models import AuditLog
     from core.models import DocumentStatus
     
-    # Find all draft pickups linked to this SO
-    pickups = SalesPickup.objects.filter(
+    pickup_list = list(SalesPickup.objects.filter(
         sales_order=sales_order,
         status=DocumentStatus.DRAFT
-    ).select_for_update()
-    
-    if not pickups.exists():
+    ).select_for_update())
+
+    if not pickup_list:
         return
     
     # Get updated info from SO
@@ -295,7 +294,7 @@ def _sync_pickups(sales_order):
     customer = sales_order.customer
     warehouse = sales_order.warehouse
     
-    for pickup in pickups:
+    for pickup in pickup_list:
         changes = []
         
         # Update pickup date if SO has delivery_date
@@ -343,21 +342,19 @@ def _recreate_pickup_lines(pickup, sales_order):
     """
     from warehouses.models import Location
     from sales.models import SalesPickupLine
-    
-    # Delete existing lines
+
     pickup.lines.all().delete()
-    
-    # Get default location for the warehouse
+
     default_location = Location.objects.filter(
         warehouse=pickup.warehouse, is_active=True
     ).first()
-    
+
     if not default_location:
         return
-    
-    # Recreate from SO lines
+
+    new_lines = []
     for so_line in sales_order.lines.select_related('item', 'unit').all():
-        SalesPickupLine.objects.create(
+        new_lines.append(SalesPickupLine(
             pickup=pickup,
             item=so_line.item,
             location=default_location,
@@ -366,9 +363,8 @@ def _recreate_pickup_lines(pickup, sales_order):
             batch_number=getattr(so_line, 'batch_number', '') or '',
             serial_number=getattr(so_line, 'serial_number', '') or '',
             notes=f'Synced from SO line: {so_line.item.code}',
-        )
-    
-    # Add items from bundles
+        ))
+
     for bundle in sales_order.price_list_lines.select_related('price_list').prefetch_related(
         'price_list__items__item', 'price_list__items__unit'
     ).all():
@@ -376,32 +372,16 @@ def _recreate_pickup_lines(pickup, sales_order):
             qty = pli.min_qty * bundle.qty_multiplier
             if qty <= 0:
                 continue
-            SalesPickupLine.objects.create(
+            new_lines.append(SalesPickupLine(
                 pickup=pickup,
                 item=pli.item,
                 location=default_location,
                 qty=qty,
                 unit=pli.unit,
                 notes=f'Synced from bundle {bundle.price_list.name}',
-            )
+            ))
+
+    if new_lines:
+        SalesPickupLine.objects.bulk_create(new_lines)
 
 
-@receiver(post_save, sender=SalesOrder)
-def log_sales_order_update(sender, instance, created, **kwargs):
-    """
-    Log Sales Order updates to audit trail.
-    """
-    from audit.models import AuditLog
-    
-    if not created:
-        # Log the update
-        AuditLog.objects.create(
-            action='UPDATE',
-            model_name='SalesOrder',
-            object_id=instance.id,
-            object_repr=str(instance),
-            changes={
-                'message': f"Sales Order {instance.document_number} updated - changes will sync to related documents"
-            },
-            user=getattr(instance, 'updated_by', instance.created_by),
-        )

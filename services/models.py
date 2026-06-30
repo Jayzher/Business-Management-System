@@ -27,16 +27,17 @@ class CustomerService(models.Model):
     @staticmethod
     def generate_next_service_number():
         """Generate sequential service numbers like SVC-000001."""
-        import re
-        pattern = re.compile(r'^SVC-(\d+)$')
-        max_num = 0
-        for sn in CustomerService.objects.values_list('service_number', flat=True):
-            if sn:
-                m = pattern.match(sn)
-                if m:
-                    num = int(m.group(1))
-                    if num > max_num:
-                        max_num = num
+        from django.db.models import Max
+        result = CustomerService.objects.filter(
+            service_number__startswith='SVC-'
+        ).aggregate(m=Max('service_number'))['m']
+        if result:
+            try:
+                max_num = int(result.split('-', 1)[1])
+            except (IndexError, ValueError):
+                max_num = 0
+        else:
+            max_num = 0
         return f"SVC-{max_num + 1:06d}"
     service_number = models.CharField(max_length=50, unique=True)
     service_name = models.CharField(max_length=200)
