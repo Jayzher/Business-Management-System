@@ -965,19 +965,22 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
     For every POSTED GoodsReceipt (in receipt_date, posted_at, pk order):
       - For each line: convert qty to stock_unit, convert PO unit_price to
         price per stock_unit (factor-based, NOT conversion_price), distribute
-        delivery_charge proportionally by line value.
+        delivery_charge proportionally by line value (denominated in stock_unit
+        so mixed GRN/PO units don't corrupt the proportion).
       - Apply weighted-average:
           new_cost = (old_qty * old_cost + base_qty * landed_per_stock) / new_qty
 
-    Items with no priceable receipts retain their existing cost_price
-    (catalog-seeded values are preserved). Items whose history is fully
-    re-priceable get a deterministic cost.
+    Items with no priceable receipts (all GRN lines had unit_price=0 on the PO)
+    are SKIPPED at write-back so their existing cost_price is preserved.
+    This prevents the resync from zeroing out manually-assigned cost prices
+    for items whose purchase orders were saved without a unit price.
     """
     from procurement.models import GoodsReceipt
     from catalog.models import Item
     from catalog.utils import convert_price_for_unit
 
-    state = {}  # item_id -> (running_qty_in_stock_unit, cost_per_stock_unit)
+    state = {}           # item_id -> (running_qty_in_stock_unit, cost_per_stock_unit)
+    has_priced_receipt = set()  # item_ids that had at least one non-zero landed cost
 
     grns = (
         _all_manager(GoodsReceipt)
@@ -999,8 +1002,11 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
         po = grn.purchase_order
         delivery_charge = grn.delivery_charge or Decimal('0')
 
+        # ── First pass: resolve PO prices and convert value to stock_unit so
+        # the delivery-charge proportion is in a consistent unit even when the
+        # GRN unit differs from the PO unit (e.g. GRN in bx, PO in pcs).
         per_line = []
-        total_value = Decimal('0')
+        total_value_in_stock = Decimal('0')
         for line in grn.lines.all():
             po_unit_price = Decimal('0')
             po_unit = None
@@ -1012,14 +1018,40 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
                 if po_line is not None:
                     po_unit_price = po_line.unit_price or Decimal('0')
                     po_unit = po_line.unit
-            value = (line.qty or Decimal('0')) * po_unit_price
+
+            stock_unit = line.item.default_unit
+
+            # Convert po_unit_price → price per stock_unit for value calculation.
+            # This keeps all "value" terms in the same unit so proportions are correct.
+            po_price_per_stock_for_value = po_unit_price
+            if po_unit_price > 0 and po_unit is not None and getattr(po_unit, 'pk', None) != stock_unit.pk:
+                try:
+                    po_price_per_stock_for_value = convert_price_for_unit(
+                        po_unit_price, po_unit, stock_unit,
+                        item=line.item, use_conversion_price=False,
+                        raise_on_missing=True,
+                    )
+                except (ValueError, Exception):
+                    po_price_per_stock_for_value = po_unit_price  # fallback; delivery proportion may be off
+
+            # Convert line qty to stock_unit for value computation
+            try:
+                base_qty_for_value = _safe_convert(
+                    line.qty, line.unit, stock_unit,
+                    f'GRN#{grn.pk} value-pass item={line.item.code}',
+                    warn_fn, item=line.item,
+                )
+            except (ValueError, Exception):
+                base_qty_for_value = Decimal('0')
+
+            value_in_stock = (base_qty_for_value or Decimal('0')) * po_price_per_stock_for_value
             per_line.append({
                 'line': line,
                 'po_unit_price': po_unit_price,
                 'po_unit': po_unit,
-                'value': value,
+                'value_in_stock': value_in_stock,
             })
-            total_value += value
+            total_value_in_stock += value_in_stock
 
         n_lines = len(per_line)
         for rec in per_line:
@@ -1059,9 +1091,10 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
             else:
                 po_price_per_stock = po_unit_price
 
+            # Distribute delivery charge proportionally by value (in stock_unit).
             line_delivery_share = Decimal('0')
-            if delivery_charge > 0 and total_value > 0:
-                line_delivery_share = delivery_charge * (rec['value'] / total_value)
+            if delivery_charge > 0 and total_value_in_stock > 0:
+                line_delivery_share = delivery_charge * (rec['value_in_stock'] / total_value_in_stock)
             elif delivery_charge > 0 and n_lines > 0:
                 line_delivery_share = delivery_charge / n_lines
             delivery_per_stock = (line_delivery_share / base_qty) if base_qty else Decimal('0')
@@ -1073,6 +1106,7 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
             if landed_per_stock > 0 and new_qty > 0:
                 new_cost = (old_qty * old_cost + base_qty * landed_per_stock) / new_qty
                 state[item.pk] = (new_qty, new_cost)
+                has_priced_receipt.add(item.pk)
             else:
                 # Free receipt (no PO price) — qty grows, cost unchanged.
                 state[item.pk] = (new_qty, old_cost)
@@ -1080,6 +1114,7 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
 
     updated = 0
     unchanged = 0
+    preserved = 0
     for item_id, (_qty, cost) in state.items():
         try:
             item = Item.objects.only('pk', 'code', 'cost_price').get(pk=item_id)
@@ -1087,6 +1122,22 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
             continue
         new_cost = (cost or Decimal('0')).quantize(Decimal('0.0001'))
         old_cost = (item.cost_price or Decimal('0')).quantize(Decimal('0.0001'))
+
+        # If every GRN for this item had unit_price=0 (no priced receipt), do NOT
+        # overwrite an existing cost_price with 0.  The resync would otherwise
+        # zero out manually-assigned or previously-computed costs every time it
+        # runs for items whose PO lines were saved without a price.
+        if new_cost == Decimal('0') and item_id not in has_priced_receipt:
+            if old_cost > Decimal('0'):
+                info_fn(
+                    f'    [COST] {item.code}: preserved {old_cost} '
+                    f'(all GRN receipts had zero PO price — fill in PO unit_price to update)'
+                )
+                preserved += 1
+            else:
+                unchanged += 1
+            continue
+
         if new_cost == old_cost:
             unchanged += 1
             continue
@@ -1097,9 +1148,10 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
 
     info_fn(
         f'  [COST] Walked {grn_count} GRN(s), {line_count} priceable line(s); '
-        f'updated {updated} item cost(s), unchanged {unchanged}, skipped {skipped_lines}.'
+        f'updated {updated} item cost(s), preserved {preserved} (no PO price), '
+        f'unchanged {unchanged}, skipped {skipped_lines}.'
     )
-    return updated, unchanged, skipped_lines
+    return updated, unchanged, skipped_lines, preserved
 
 
 # ── line-lookup functions per document type ──────────────────────────────────
@@ -1891,6 +1943,8 @@ class Command(BaseCommand):
                 parts.append(f"{changes['so_qty_delivered_lines']} SO line(s) qty_delivered recomputed")
             if changes.get('item_cost_updated'):
                 parts.append(f"{changes['item_cost_updated']} item cost_price recomputed via WAC")
+            if changes.get('item_cost_preserved'):
+                parts.append(f"{changes['item_cost_preserved']} item cost_price preserved (unpriced PO lines)")
             if changes.get('balances_updated'):
                 parts.append(f"{changes['balances_updated']} balances updated")
             if changes.get('balances_created'):
@@ -2414,7 +2468,7 @@ class Command(BaseCommand):
         self._resync_summary['changes']['so_qty_delivered_skipped'] = qd_skipped
 
         with transaction.atomic():
-            cost_updated, cost_unchanged, cost_skipped = _recompute_item_cost_price(
+            cost_updated, cost_unchanged, cost_skipped, cost_preserved = _recompute_item_cost_price(
                 dry_run, self._info, self._warn,
             )
             if dry_run:
@@ -2422,6 +2476,7 @@ class Command(BaseCommand):
         self._resync_summary['changes']['item_cost_updated'] = cost_updated
         self._resync_summary['changes']['item_cost_unchanged'] = cost_unchanged
         self._resync_summary['changes']['item_cost_skipped'] = cost_skipped
+        self._resync_summary['changes']['item_cost_preserved'] = cost_preserved
 
         # Fix reversal moves: their qty should mirror the corrected original
         rev_moves = StockMove.objects.filter(

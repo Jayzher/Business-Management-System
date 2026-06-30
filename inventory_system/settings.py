@@ -38,8 +38,9 @@ ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(',') if h.strip()]
 # ---------------------------------------------------------------------------
 # Application definition
 # ---------------------------------------------------------------------------
+_DAPHNE_APPS = [] if DESKTOP_MODE else ['daphne']
 INSTALLED_APPS = [
-    'daphne',
+    *_DAPHNE_APPS,
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',

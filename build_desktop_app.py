@@ -2,14 +2,41 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 import PyInstaller.__main__
 
 
+def _kill_running_exe(name: str) -> None:
+    """Terminate any running process whose image name matches `name`."""
+    result = subprocess.run(
+        ['taskkill', '/F', '/IM', name],
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        print(f"Stopped running {name}, waiting for it to release files...")
+        time.sleep(2)
+
+
+def _rmtree_retry(path: str, retries: int = 3, delay: float = 2.0) -> None:
+    for attempt in range(retries):
+        try:
+            shutil.rmtree(path)
+            return
+        except PermissionError as exc:
+            if attempt < retries - 1:
+                print(f"Could not remove {path} ({exc}), retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                raise
+
+
 def build():
+    _kill_running_exe('BusinessManagementSystem.exe')
+
     for folder in ('build', 'dist'):
         if os.path.exists(folder):
-            shutil.rmtree(folder)
+            _rmtree_retry(folder)
 
     debug_console = os.environ.get('BMS_DEBUG_CONSOLE') == '1'
 
@@ -25,6 +52,7 @@ def build():
         '--add-data=desktop_app/resources;desktop_app/resources',
         '--collect-all=PyQt5',
         '--collect-all=PyQtWebEngine',
+        '--collect-data=autobahn',
         '--hidden-import=PyQt5.QtWebEngineWidgets',
         '--hidden-import=django.contrib.admin',
         '--hidden-import=django.contrib.auth',
@@ -36,6 +64,10 @@ def build():
         '--hidden-import=inventory_system.urls',
         '--hidden-import=inventory_system.wsgi',
         '--hidden-import=inventory_system.asgi',
+        '--hidden-import=inventory_system.env_middleware',
+        '--hidden-import=inventory_system.db_router',
+        '--hidden-import=inventory_system.settings_desktop',
+        '--hidden-import=accounts.backends',
     ]
 
     print("Running collectstatic...")

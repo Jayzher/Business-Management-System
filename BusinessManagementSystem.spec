@@ -1,9 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_all
 
 datas = [('templates', 'templates'), ('static', 'static'), ('media', 'media'), ('desktop_app/resources', 'desktop_app/resources')]
 binaries = []
-hiddenimports = ['PyQt5.QtWebEngineWidgets', 'django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes', 'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles', 'whitenoise.middleware', 'inventory_system.urls', 'inventory_system.wsgi', 'inventory_system.asgi']
+hiddenimports = ['PyQt5.QtWebEngineWidgets', 'django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes', 'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles', 'whitenoise.middleware', 'inventory_system.urls', 'inventory_system.wsgi', 'inventory_system.asgi', 'inventory_system.env_middleware', 'inventory_system.db_router', 'inventory_system.settings_desktop', 'accounts.backends']
+datas += collect_data_files('autobahn')
 tmp_ret = collect_all('PyQt5')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('PyQtWebEngine')

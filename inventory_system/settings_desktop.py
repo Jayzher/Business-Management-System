@@ -42,6 +42,9 @@ _MEDIA_DIR = _env_dir('BMS_MEDIA_DIR', BASE_DIR / 'media')
 DEBUG = False  # Desktop ships as a release build; keep tracebacks out of the webview.
 ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
 
+# Try local SQLite first; fall back to Neon on first login to cache credentials locally.
+AUTHENTICATION_BACKENDS = ['accounts.backends.NeonFallbackBackend']
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',

@@ -1,66 +1,86 @@
 import os
+import shutil
 import subprocess
 import sys
-import shutil
 
-# Add the current directory to sys.path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from desktop_app.__version__ import VERSION
 
+
 def find_iscc():
-    """Find the Inno Setup Compiler executable."""
-    common_paths = [
+    """Locate the Inno Setup Compiler executable."""
+    candidates = [
         r"C:\Users\Jayzee\AppData\Local\Programs\Inno Setup 6\ISCC.exe",
         r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
         r"C:\Program Files\Inno Setup 6\ISCC.exe",
         r"C:\Program Files (x86)\Inno Setup 5\ISCC.exe",
     ]
-    for path in common_paths:
+    for path in candidates:
         if os.path.exists(path):
             return path
-    
-    # Try finding in PATH
-    iscc = shutil.which("iscc")
-    if iscc:
-        return iscc
-        
-    return None
+    return shutil.which("iscc")
+
+
+def find_build_python():
+    """Return a Python interpreter that has PyInstaller.
+    Prefers the current interpreter; falls back to the system Python 3.13."""
+    try:
+        subprocess.run(
+            [sys.executable, "-c", "import PyInstaller"],
+            check=True, capture_output=True,
+        )
+        return sys.executable
+    except subprocess.CalledProcessError:
+        pass
+
+    fallback = r"C:\Users\Jayzee\AppData\Local\Programs\Python\Python313\python.exe"
+    if os.path.exists(fallback):
+        return fallback
+
+    raise RuntimeError(
+        "PyInstaller not found. Install it with: pip install pyinstaller"
+    )
+
 
 def build_installer():
-    print(f"Building Business Management System Installer v{VERSION}...")
-    
-    # 1. Build the PyInstaller executable
-    print("\n--- Step 1: Building PyInstaller Executable ---")
-    if not os.path.exists("build_desktop_app.py"):
-        print("Error: build_desktop_app.py not found.")
-        return
-    
-    subprocess.run([sys.executable, "build_desktop_app.py"], check=True)
-    
-    # 2. Compile Inno Setup Script
-    print("\n--- Step 2: Compiling Inno Setup Script ---")
-    iscc_path = find_iscc()
-    if not iscc_path:
-        print("Error: Inno Setup Compiler (ISCC.exe) not found.")
-        print("Please install Inno Setup from https://jrsoftware.org/isdl.php")
-        return
-    
+    print(f"Building Business Management System Installer v{VERSION}...\n")
+
+    # ── Step 1: build the app EXE ────────────────────────────────────────────
+    print("--- Step 1: Building PyInstaller Executable ---")
+    python = find_build_python()
+    subprocess.run([python, "build_desktop_app.py"], check=True)
+
+    app_exe = os.path.join("dist", "BusinessManagementSystem.exe")
+    if not os.path.exists(app_exe):
+        print(f"ERROR: Expected {app_exe} after build — aborting.")
+        sys.exit(1)
+
+    # ── Step 2: compile the Inno Setup installer ─────────────────────────────
+    print("\n--- Step 2: Compiling Inno Setup Installer ---")
+    iscc = find_iscc()
+    if not iscc:
+        print("ERROR: Inno Setup Compiler (ISCC.exe) not found.")
+        print("Download from https://jrsoftware.org/isdl.php and install.")
+        sys.exit(1)
+
     iss_script = os.path.join("installer", "business_management_system.iss")
     if not os.path.exists(iss_script):
-        print(f"Error: Installer script not found at {iss_script}")
-        return
-    
-    # Run ISCC
-    cmd = [iscc_path, iss_script]
-    print(f"Running command: {' '.join(cmd)}")
+        print(f"ERROR: Installer script not found at {iss_script}")
+        sys.exit(1)
+
+    # /DMyAppVersion injects the version so the .iss never needs manual edits.
+    cmd = [iscc, f"/DMyAppVersion={VERSION}", iss_script]
+    print(f"Running: {' '.join(cmd)}\n")
     result = subprocess.run(cmd)
-    
+
     if result.returncode == 0:
-        print(f"\nSUCCESS: Installer created in the 'dist' folder.")
-        print(f"File: BMS_Setup_v{VERSION}.exe")
+        output = os.path.join("dist", f"BMS_Setup_v{VERSION}.exe")
+        print(f"\nSUCCESS: Installer ready at {output}")
     else:
         print("\nERROR: Inno Setup compilation failed.")
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     build_installer()
