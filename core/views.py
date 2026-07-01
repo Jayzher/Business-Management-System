@@ -835,10 +835,11 @@ _SYNC_ACTIONS = {
         'label': 'Full Inventory Resync',
         'icon': 'fas fa-sync-alt',
         'color': 'danger',
-        'description': 'Phase 0-3: deduplicate moves, fix quantities, rebuild StockBalance from all posted documents, run integrity audit. This may take a while.',
+        'description': 'Phase 0-3: deduplicate moves, fix quantities, rebuild StockBalance from all posted documents, run integrity audit. This may take a few minutes.',
         'category': 'sync',
         'command': 'resync_inventory',
         'args': ['--quiet'],
+        'confirm': 'This will rebuild all stock balances and fix stock moves. It may take several minutes. Continue?',
     },
     'resync_inventory_dry': {
         'label': 'Inventory Resync (Dry Run)',
@@ -1307,13 +1308,6 @@ def _extract_detect_json(output):
         return _json.loads(payload)
     except ValueError:
         return None
-        output = buf.getvalue()
-        response = {'ok': False, 'output': output, 'error': str(exc)}
-
-        if action_key in ('resync_inventory', 'resync_inventory_dry', 'integrity_audit'):
-            response['resync_results'] = _parse_resync_output(output)
-
-        return JsonResponse(response)
 
 
 def _parse_resync_output(output):

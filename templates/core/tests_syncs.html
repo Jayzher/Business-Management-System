@@ -115,6 +115,10 @@
   .rc-count-badge { background:#e5e7eb; color:#374151; padding:.1rem .5rem; border-radius:10px; font-size:.7rem; font-weight:600; }
   .rc-count-badge.sev-error { background:#fee2e2; color:#991b1b; }
   .rc-count-badge.sev-warning { background:#fef3c7; color:#92400e; }
+  /* Skeleton loader */
+  @keyframes sk-pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .sk-pulse { animation:sk-pulse 1.5s ease-in-out infinite }
+  .sk-slab { background:#e2e8f0; border-radius:6px; display:block }
 </style>
 {% endblock %}
 
@@ -599,10 +603,15 @@
       }
     }
 
-    // Raw output (hidden by default)
-    html += '<div class="resync-raw-output" id="resyncRawOutput">' + escapeHtml(rawOutput) + '</div>';
+    // Raw output placeholder — content set via textContent AFTER innerHTML to avoid
+    // blocking the event loop escaping potentially large strings.
+    html += '<div class="resync-raw-output" id="resyncRawOutput"></div>';
 
     body.innerHTML = html;
+
+    // Set raw output text after the structural HTML is painted.
+    var rawEl = document.getElementById('resyncRawOutput');
+    rawEl.textContent = rawOutput;
 
     // Collapsible detail sections
     body.querySelectorAll('[data-toggle-detail]').forEach(function(hdr){
@@ -617,12 +626,42 @@
     // Toggle raw output button
     var rawBtn = document.getElementById('resyncShowRawBtn');
     rawBtn.onclick = function() {
-      var rawEl = document.getElementById('resyncRawOutput');
       rawEl.classList.toggle('show');
       this.innerHTML = rawEl.classList.contains('show')
         ? '<i class="fas fa-eye-slash me-1"></i>Hide Raw Output'
         : '<i class="fas fa-code me-1"></i>Show Raw Output';
     };
+  }
+
+  function buildResyncSkeleton(action) {
+    var header = document.getElementById('resyncModalHeader');
+    header.className = 'modal-header';
+    header.style.background = '#f8f9fa';
+    header.style.borderBottom = '2px solid #dee2e6';
+    var titleText = action === 'resync_inventory_dry' ? 'Inventory Resync (Dry Run)'
+                  : action === 'integrity_audit'       ? 'Integrity Audit'
+                  :                                      'Inventory Resync';
+    document.getElementById('resyncResultsModalLabel').innerHTML =
+      '<span class="spinner-border spinner-border-sm text-secondary me-2" style="width:.9rem;height:.9rem;border-width:.15em;"></span>' +
+      titleText + ' — Running…';
+    document.getElementById('resyncModalBody').innerHTML =
+      '<div class="sk-pulse">' +
+        '<div class="resync-summary-grid">' +
+          '<div class="resync-summary-item"><div class="sk-slab" style="height:62px;"></div></div>' +
+          '<div class="resync-summary-item"><div class="sk-slab" style="height:62px;"></div></div>' +
+          '<div class="resync-summary-item"><div class="sk-slab" style="height:62px;"></div></div>' +
+          '<div class="resync-summary-item"><div class="sk-slab" style="height:62px;"></div></div>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:.5rem;">' +
+          '<div class="resync-phase"><div class="sk-slab" style="height:13px;width:42%;border-radius:3px;"></div></div>' +
+          '<div class="resync-phase"><div class="sk-slab" style="height:13px;width:57%;border-radius:3px;"></div></div>' +
+          '<div class="resync-phase">' +
+            '<div class="sk-slab" style="height:13px;width:48%;border-radius:3px;margin-bottom:.35rem;"></div>' +
+            '<div class="sk-slab" style="height:11px;width:72%;border-radius:3px;opacity:.6;"></div>' +
+          '</div>' +
+          '<div class="resync-phase"><div class="sk-slab" style="height:13px;width:36%;border-radius:3px;"></div></div>' +
+        '</div>' +
+      '</div>';
   }
 
   function escapeHtml(text) {
@@ -995,17 +1034,25 @@
       // Confirm dangerous actions
       if (confirmMsg) {
         if (!confirm(confirmMsg)) return;
-      } else if (action === 'resync_inventory') {
-        // New two-step flow: detect → review → apply
-        startResyncWithReview(btn, outBox, origHtml);
-        return;
       }
 
       // UI: disable + spinner
       this.disabled = true;
-      this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Running...';
-      outBox.textContent = 'Running...';
+      var runLabel = (action === 'resync_inventory') ? 'Syncing…' : 'Running…';
+      this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> ' + runLabel;
+      outBox.textContent = (action === 'resync_inventory')
+        ? 'Running full inventory resync — this may take several minutes. Please wait…'
+        : 'Running…';
       outBox.classList.add('show');
+
+      // Show modal immediately with skeleton — data fills in when fetch completes
+      if (isResync) {
+        buildResyncSkeleton(action);
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('resyncResultsModal')).show();
+      }
+
+      var abortCtrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      var abortTimer = abortCtrl ? setTimeout(function(){ abortCtrl.abort(); }, 600000) : null;
 
       fetch(runUrl, {
         method: 'POST',
@@ -1014,29 +1061,57 @@
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: 'action=' + encodeURIComponent(action),
+        signal: abortCtrl ? abortCtrl.signal : undefined,
       })
       .then(function(r){ return r.json(); })
       .then(function(data){
         var text = data.output || '';
         if (data.error) text += '\n[ERROR] ' + data.error;
-        outBox.textContent = text || '(no output)';
+        var MAX_OUT = 200000; // 200 KB — avoids blocking the event loop on huge output
+        outBox.textContent = (text.length > MAX_OUT)
+          ? text.slice(0, MAX_OUT) + '\n\n[... output truncated — see raw output in modal for full log ...]'
+          : (text || '(no output)');
         if (data.ok) {
           outBox.style.borderLeft = '3px solid #22c55e';
         } else {
           outBox.style.borderLeft = '3px solid #ef4444';
         }
 
-        // Show modal for resync actions
-        if (isResync && data.resync_results) {
-          buildResyncModal(data, action, data.ok);
-          bootstrap.Modal.getOrCreateInstance(document.getElementById('resyncResultsModal')).show();
+        // Replace skeleton with real results (modal is already open)
+        if (isResync) {
+          try {
+            buildResyncModal(data, action, data.ok);
+          } catch (buildErr) {
+            document.getElementById('resyncModalBody').innerHTML =
+              '<div class="alert alert-warning py-2 px-3 mb-0">' +
+              '<i class="fas fa-exclamation-triangle me-2"></i>Results received but could not render modal: ' +
+              escapeHtml(buildErr.message) + '</div>' +
+              '<pre style="font-size:.75rem;max-height:200px;overflow:auto;margin-top:.5rem;">' +
+              escapeHtml(text) + '</pre>';
+          }
         }
       })
       .catch(function(err){
-        outBox.textContent = '[NETWORK ERROR] ' + err.message;
+        var msg = (err.name === 'AbortError')
+          ? 'Request timed out after 10 minutes. The resync may still be running on the server — check server logs.'
+          : err.message;
+        outBox.textContent = '[NETWORK ERROR] ' + msg;
         outBox.style.borderLeft = '3px solid #ef4444';
+        // Replace skeleton with error state
+        if (isResync) {
+          var header = document.getElementById('resyncModalHeader');
+          header.style.background = 'linear-gradient(135deg,#fef2f2 0%,#fff 100%)';
+          header.style.borderBottom = '2px solid #fecaca';
+          document.getElementById('resyncResultsModalLabel').innerHTML =
+            '<i class="fas fa-exclamation-circle text-danger me-2"></i>Resync Failed';
+          document.getElementById('resyncModalBody').innerHTML =
+            '<div class="alert alert-danger py-2 px-3 mb-0">' +
+            '<i class="fas fa-times-circle me-2"></i><strong>Network error:</strong> ' + escapeHtml(msg) +
+            '</div>';
+        }
       })
       .finally(function(){
+        if (abortTimer) clearTimeout(abortTimer);
         btn.disabled = false;
         btn.innerHTML = origHtml;
       });
