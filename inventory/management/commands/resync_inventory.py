@@ -335,15 +335,27 @@ def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
         )
 
         for m in orphaned_qs.select_related('item').order_by('id')[:200]:  # log up to 200
-            info_fn(
-                f'    [ORPHAN] Move#{m.pk} ref={ref_type}#{m.reference_id} '
-                f'item={m.item.code} qty={m.qty} '
-                f'(source document deleted)'
-            )
+            if ref_type == 'StockAdjustment':
+                info_fn(
+                    f'    [ADJ PRESERVED] Move#{m.pk} ref=StockAdjustment#{m.reference_id} '
+                    f'item={m.item.code} qty={m.qty} '
+                    f'(adjustment document deleted — move kept as intentional correction)'
+                )
+            else:
+                info_fn(
+                    f'    [ORPHAN] Move#{m.pk} ref={ref_type}#{m.reference_id} '
+                    f'item={m.item.code} qty={m.qty} '
+                    f'(source document deleted)'
+                )
 
         count = orphaned_qs.count()
         if count > 200:
             info_fn(f'    [ORPHAN] ... and {count - 200} more orphaned moves for {ref_type}')
+
+        # Manual/force adjustments represent intentional inventory corrections.
+        # Preserve their moves even when the source StockAdjustment was hard-deleted.
+        if ref_type == 'StockAdjustment':
+            continue
 
         if not dry_run:
             orphaned_qs.delete()
@@ -1033,7 +1045,7 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
                         raise_on_missing=True,
                     )
                 except (ValueError, Exception):
-                    po_price_per_stock_for_value = po_unit_price  # fallback; delivery proportion may be off
+                    po_price_per_stock_for_value = Decimal('0')  # no conversion → exclude from delivery proportion
 
             # Convert line qty to stock_unit for value computation
             try:
@@ -2116,11 +2128,15 @@ class Command(BaseCommand):
         self.stdout.write('END_DETECT_JSON')
 
     def _detect_orphan_moves(self):
-        """Return a list of orphan-move records (document no longer exists)."""
+        """Return a list of orphan-move records (document no longer exists).
+
+        StockAdjustment moves are intentionally excluded — manual/force adjustments
+        are always preserved even when their source document was deleted.
+        """
         from procurement.models import GoodsReceipt, PurchaseReturn
         from sales.models import DeliveryNote, SalesPickup, SalesReturn
         from inventory.models import (
-            StockTransfer, StockAdjustment, DamagedReport, InventoryToSupplyTransfer,
+            StockTransfer, DamagedReport, InventoryToSupplyTransfer,
         )
         from pos.models import POSSale, POSRefund
         from services.models import CustomerService
@@ -2130,7 +2146,7 @@ class Command(BaseCommand):
             'DeliveryNote': DeliveryNote,
             'SalesPickup': SalesPickup,
             'StockTransfer': StockTransfer,
-            'StockAdjustment': StockAdjustment,
+            # StockAdjustment excluded — manual adjustments are always preserved
             'DamagedReport': DamagedReport,
             'POSSale': POSSale,
             'POSRefund': POSRefund,
@@ -2325,12 +2341,44 @@ class Command(BaseCommand):
         return groups
 
     def _detect_excess_moves(self):
-        """Return moves whose source document exists but the line is gone."""
+        """Return moves whose source document EXISTS but the matching line is gone.
+
+        StockAdjustment moves are intentionally excluded — manual/force adjustments
+        are always preserved even when their source line was deleted.
+
+        A cross-check verifies the source document still exists before flagging
+        a move as excess — moves whose document is also gone are orphans (handled
+        by Phase 0a) and must not appear as excess candidates.
+        """
+        from procurement.models import GoodsReceipt, PurchaseReturn
+        from sales.models import DeliveryNote, SalesPickup, SalesReturn
+        from inventory.models import StockTransfer, DamagedReport, InventoryToSupplyTransfer
+        from pos.models import POSSale, POSRefund
+        from services.models import CustomerService
+
+        doc_model_map = {
+            'GoodsReceipt': GoodsReceipt,
+            'DeliveryNote': DeliveryNote,
+            'SalesPickup': SalesPickup,
+            'StockTransfer': StockTransfer,
+            'DamagedReport': DamagedReport,
+            'POSSale': POSSale,
+            'POSRefund': POSRefund,
+            'InventoryToSupplyTransfer': InventoryToSupplyTransfer,
+            'PurchaseReturn': PurchaseReturn,
+            'SalesReturn': SalesReturn,
+            'CustomerService': CustomerService,
+        }
+
         records = []
         for ref_type, lookup_factory in REFERENCE_TYPE_LOOKUPS.items():
+            if ref_type == 'StockAdjustment':
+                continue  # Manual adjustments are always preserved
+            Model = doc_model_map.get(ref_type)
             moves = (
                 StockMove.objects
                 .filter(reference_type=ref_type, status=MoveStatus.POSTED)
+                .exclude(reference_id__isnull=True)
                 .exclude(reference_number__startswith='REV-')
                 .exclude(reference_number__startswith='VOID-')
                 .select_related('item', 'unit')
@@ -2339,6 +2387,13 @@ class Command(BaseCommand):
             for move in moves:
                 line = lookup_fn(move)
                 if line is None:
+                    # Cross-check: only flag as excess if the source document
+                    # actually exists. If it's gone too, it's an orphan (Phase 0a),
+                    # not an excess — skip to avoid a false positive.
+                    if Model is not None:
+                        mgr = _all_manager(Model)
+                        if not mgr.filter(pk=move.reference_id).exists():
+                            continue
                     records.append({
                         'move_id': move.pk,
                         'reference_type': ref_type,
@@ -2354,16 +2409,46 @@ class Command(BaseCommand):
 
     def _delete_excess_moves(self, dry_run):
         """
-        Delete POSTED StockMoves whose source document still exists but the
+        Delete POSTED StockMoves whose source document still EXISTS but the
         specific line item was deleted in admin.  The move references a
         (document, item) pair that no longer has a matching line.
+
+        StockAdjustment moves are never deleted — manual corrections are preserved.
+
+        A cross-check verifies the source document exists before deleting.
+        If the document is also gone the move is an orphan (Phase 0a's job),
+        not an excess, and is skipped to avoid an incorrect deletion.
+        Moves with no reference_id are also skipped for the same reason.
         """
+        from procurement.models import GoodsReceipt, PurchaseReturn
+        from sales.models import DeliveryNote, SalesPickup, SalesReturn
+        from inventory.models import StockTransfer, StockAdjustment, DamagedReport, InventoryToSupplyTransfer
+        from pos.models import POSSale, POSRefund
+        from services.models import CustomerService
+
+        doc_model_map = {
+            'GoodsReceipt': GoodsReceipt,
+            'DeliveryNote': DeliveryNote,
+            'SalesPickup': SalesPickup,
+            'StockTransfer': StockTransfer,
+            'StockAdjustment': StockAdjustment,
+            'DamagedReport': DamagedReport,
+            'POSSale': POSSale,
+            'POSRefund': POSRefund,
+            'InventoryToSupplyTransfer': InventoryToSupplyTransfer,
+            'PurchaseReturn': PurchaseReturn,
+            'SalesReturn': SalesReturn,
+            'CustomerService': CustomerService,
+        }
+
         deleted = 0
         for ref_type, lookup_factory in REFERENCE_TYPE_LOOKUPS.items():
+            Model = doc_model_map.get(ref_type)
             moves = (
                 StockMove.objects.filter(
                     reference_type=ref_type, status=MoveStatus.POSTED,
                 )
+                .exclude(reference_id__isnull=True)
                 .exclude(reference_number__startswith='REV-')
                 .exclude(reference_number__startswith='VOID-')
                 .select_related('item')
@@ -2372,8 +2457,29 @@ class Command(BaseCommand):
             for move in moves:
                 line = lookup_fn(move)
                 if line is None:
-                    # The document exists (not orphaned — 0a would have caught it)
-                    # but the specific line is gone.  This move is excess.
+                    if ref_type == 'StockAdjustment':
+                        # Manual/force adjustments are intentional corrections — keep
+                        # the move even when the StockAdjustmentLine was later deleted.
+                        self._info(
+                            f'    [ADJ PRESERVED] Move#{move.pk} StockAdjustment#{move.reference_id} '
+                            f'item={move.item.code} qty={move.qty} — line missing but move kept'
+                        )
+                        continue
+
+                    # Cross-check: confirm the source document still exists.
+                    # If it's gone too, this is an orphan (Phase 0a handles it),
+                    # not a true excess — skip to prevent an incorrect deletion.
+                    if Model is not None:
+                        mgr = _all_manager(Model)
+                        if not mgr.filter(pk=move.reference_id).exists():
+                            self._warn(
+                                f'    [SKIP-ORPHAN] Move#{move.pk} {ref_type}#{move.reference_id} '
+                                f'item={move.item.code} — source document not found; '
+                                f'skipping excess deletion (Phase 0a will clean this)'
+                            )
+                            continue
+
+                    # Source document exists but the specific line is gone — true excess.
                     self._info(
                         f'    [EXCESS] Move#{move.pk} {ref_type}#{move.reference_id} '
                         f'item={move.item.code} qty={move.qty} — line deleted'

@@ -469,8 +469,15 @@
   var applyUrl = "{% url 'resync_apply_with_selection' %}";
   var csrfToken = '{{ csrf_token }}';
   var resyncActions = ['resync_inventory', 'resync_inventory_dry', 'integrity_audit'];
+  var _skeletonTimer = null;
+  var _skeletonStart = 0;
+
+  function _stopSkeletonTimer() {
+    if (_skeletonTimer) { clearInterval(_skeletonTimer); _skeletonTimer = null; }
+  }
 
   function buildResyncModal(data, action, isSuccess) {
+    _stopSkeletonTimer();
     var results = data.resync_results || {};
     var phases = results.phases || [];
     var issues = results.issues || [];
@@ -609,31 +616,40 @@
 
     body.innerHTML = html;
 
-    // Set raw output text after the structural HTML is painted.
-    var rawEl = document.getElementById('resyncRawOutput');
-    rawEl.textContent = rawOutput;
+    // Defer raw-output text and event-listener wiring to the next event-loop
+    // tick so the browser can paint the structural results immediately without
+    // being blocked by a potentially large textContent assignment.
+    var _rawOutput = rawOutput;
+    setTimeout(function() {
+      var rawEl = document.getElementById('resyncRawOutput');
+      if (rawEl) rawEl.textContent = _rawOutput;
 
-    // Collapsible detail sections
-    body.querySelectorAll('[data-toggle-detail]').forEach(function(hdr){
-      hdr.addEventListener('click', function(){
-        var section = hdr.parentElement;
-        var bodyEl = section.querySelector('.resync-detail-body');
-        bodyEl.classList.toggle('collapsed');
-        hdr.classList.toggle('collapsed');
+      // Collapsible detail sections
+      body.querySelectorAll('[data-toggle-detail]').forEach(function(hdr){
+        hdr.addEventListener('click', function(){
+          var section = hdr.parentElement;
+          var bodyEl = section.querySelector('.resync-detail-body');
+          if (bodyEl) bodyEl.classList.toggle('collapsed');
+          hdr.classList.toggle('collapsed');
+        });
       });
-    });
 
-    // Toggle raw output button
-    var rawBtn = document.getElementById('resyncShowRawBtn');
-    rawBtn.onclick = function() {
-      rawEl.classList.toggle('show');
-      this.innerHTML = rawEl.classList.contains('show')
-        ? '<i class="fas fa-eye-slash me-1"></i>Hide Raw Output'
-        : '<i class="fas fa-code me-1"></i>Show Raw Output';
-    };
+      // Toggle raw output button
+      var rawBtn = document.getElementById('resyncShowRawBtn');
+      if (rawBtn) rawBtn.onclick = function() {
+        var rEl = document.getElementById('resyncRawOutput');
+        if (rEl) {
+          rEl.classList.toggle('show');
+          this.innerHTML = rEl.classList.contains('show')
+            ? '<i class="fas fa-eye-slash me-1"></i>Hide Raw Output'
+            : '<i class="fas fa-code me-1"></i>Show Raw Output';
+        }
+      };
+    }, 0);
   }
 
   function buildResyncSkeleton(action) {
+    _stopSkeletonTimer();
     var header = document.getElementById('resyncModalHeader');
     header.className = 'modal-header';
     header.style.background = '#f8f9fa';
@@ -643,7 +659,7 @@
                   :                                      'Inventory Resync';
     document.getElementById('resyncResultsModalLabel').innerHTML =
       '<span class="spinner-border spinner-border-sm text-secondary me-2" style="width:.9rem;height:.9rem;border-width:.15em;"></span>' +
-      titleText + ' — Running…';
+      titleText + ' — Running… <span id="sk-elapsed" class="text-muted" style="font-size:.78rem;font-weight:400;"></span>';
     document.getElementById('resyncModalBody').innerHTML =
       '<div class="sk-pulse">' +
         '<div class="resync-summary-grid">' +
@@ -652,7 +668,7 @@
           '<div class="resync-summary-item"><div class="sk-slab" style="height:62px;"></div></div>' +
           '<div class="resync-summary-item"><div class="sk-slab" style="height:62px;"></div></div>' +
         '</div>' +
-        '<div style="display:flex;flex-direction:column;gap:.5rem;">' +
+        '<div style="display:flex;flex-direction:column;gap:.5rem;margin-top:.75rem;">' +
           '<div class="resync-phase"><div class="sk-slab" style="height:13px;width:42%;border-radius:3px;"></div></div>' +
           '<div class="resync-phase"><div class="sk-slab" style="height:13px;width:57%;border-radius:3px;"></div></div>' +
           '<div class="resync-phase">' +
@@ -661,7 +677,20 @@
           '</div>' +
           '<div class="resync-phase"><div class="sk-slab" style="height:13px;width:36%;border-radius:3px;"></div></div>' +
         '</div>' +
-      '</div>';
+      '</div>' +
+      '<p class="text-muted mt-3 mb-0" style="font-size:.74rem;text-align:center;line-height:1.5;">' +
+        '<i class="fas fa-info-circle me-1"></i>' +
+        'Running phases 0–5: clean moves → fix quantities → rebuild balances → audit → financials.<br>' +
+        'This may take <strong>several minutes</strong> for large datasets. Do not close this window.' +
+      '</p>';
+
+    _skeletonStart = Date.now();
+    _skeletonTimer = setInterval(function() {
+      var el = document.getElementById('sk-elapsed');
+      if (!el) { _stopSkeletonTimer(); return; }
+      var s = Math.floor((Date.now() - _skeletonStart) / 1000);
+      el.textContent = s < 60 ? '(' + s + 's)' : '(' + Math.floor(s / 60) + 'm ' + (s % 60) + 's)';
+    }, 1000);
   }
 
   function escapeHtml(text) {
@@ -1082,35 +1111,50 @@
           try {
             buildResyncModal(data, action, data.ok);
           } catch (buildErr) {
-            document.getElementById('resyncModalBody').innerHTML =
-              '<div class="alert alert-warning py-2 px-3 mb-0">' +
-              '<i class="fas fa-exclamation-triangle me-2"></i>Results received but could not render modal: ' +
-              escapeHtml(buildErr.message) + '</div>' +
-              '<pre style="font-size:.75rem;max-height:200px;overflow:auto;margin-top:.5rem;">' +
-              escapeHtml(text) + '</pre>';
+            _stopSkeletonTimer();
+            var bodyEl = document.getElementById('resyncModalBody');
+            if (bodyEl) {
+              bodyEl.innerHTML =
+                '<div class="alert alert-warning py-2 px-3 mb-0">' +
+                '<i class="fas fa-exclamation-triangle me-2"></i>Results received but could not render: ' +
+                escapeHtml(buildErr && buildErr.message || String(buildErr)) + '</div>' +
+                '<pre style="font-size:.75rem;max-height:200px;overflow:auto;margin-top:.5rem;">' +
+                escapeHtml(text.slice(0, 50000)) + '</pre>';
+            }
           }
         }
       })
       .catch(function(err){
-        var msg = (err.name === 'AbortError')
-          ? 'Request timed out after 10 minutes. The resync may still be running on the server — check server logs.'
-          : err.message;
-        outBox.textContent = '[NETWORK ERROR] ' + msg;
-        outBox.style.borderLeft = '3px solid #ef4444';
+        _stopSkeletonTimer();
+        var msg = err && err.name === 'AbortError'
+          ? 'Request timed out after 10 minutes. The resync may still be running on the server — check the output box below.'
+          : (err && err.message) || 'Unknown network error';
+        if (outBox) {
+          outBox.textContent = '[NETWORK ERROR] ' + msg;
+          outBox.style.borderLeft = '3px solid #ef4444';
+        }
         // Replace skeleton with error state
         if (isResync) {
-          var header = document.getElementById('resyncModalHeader');
-          header.style.background = 'linear-gradient(135deg,#fef2f2 0%,#fff 100%)';
-          header.style.borderBottom = '2px solid #fecaca';
-          document.getElementById('resyncResultsModalLabel').innerHTML =
-            '<i class="fas fa-exclamation-circle text-danger me-2"></i>Resync Failed';
-          document.getElementById('resyncModalBody').innerHTML =
+          var hdr = document.getElementById('resyncModalHeader');
+          if (hdr) {
+            hdr.style.background = 'linear-gradient(135deg,#fef2f2 0%,#fff 100%)';
+            hdr.style.borderBottom = '2px solid #fecaca';
+          }
+          var lbl = document.getElementById('resyncResultsModalLabel');
+          if (lbl) lbl.innerHTML = '<i class="fas fa-exclamation-circle text-danger me-2"></i>Resync Failed';
+          var bdy = document.getElementById('resyncModalBody');
+          if (bdy) bdy.innerHTML =
             '<div class="alert alert-danger py-2 px-3 mb-0">' +
             '<i class="fas fa-times-circle me-2"></i><strong>Network error:</strong> ' + escapeHtml(msg) +
-            '</div>';
+            '</div>' +
+            '<p class="text-muted mt-2 mb-0" style="font-size:.78rem;">' +
+            'If the resync was running for a long time, it may have completed on the server. ' +
+            'Refresh the page or check the output box to see if any output was captured.' +
+            '</p>';
         }
       })
       .finally(function(){
+        _stopSkeletonTimer();
         if (abortTimer) clearTimeout(abortTimer);
         btn.disabled = false;
         btn.innerHTML = origHtml;

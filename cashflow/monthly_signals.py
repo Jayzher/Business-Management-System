@@ -279,30 +279,70 @@ def _calculate_inventory_value(as_of_date):
 
 
 def _get_weighted_avg_cost(item, as_of_date):
-    """Get weighted average cost from GRN data."""
+    """Get weighted average cost from GRN data, with full unit conversion."""
+    import logging
     from procurement.models import GoodsReceiptLine
+    from catalog.models import convert_to_base_unit
+    from catalog.utils import convert_price_for_unit
+
+    logger = logging.getLogger(__name__)
+    stock_unit = item.default_unit
 
     grn_lines = GoodsReceiptLine.objects.filter(
         item=item,
         goods_receipt__status=DocumentStatus.POSTED,
         goods_receipt__receipt_date__lt=as_of_date,
-    ).select_related('goods_receipt__purchase_order')
+    ).select_related('goods_receipt__purchase_order', 'unit')
 
     total_qty = Decimal('0')
     total_cost = Decimal('0')
 
     for grn_line in grn_lines:
+        # Convert GRN qty to item's stock unit — skip line if no conversion exists.
+        try:
+            base_qty = convert_to_base_unit(grn_line.qty, grn_line.unit, stock_unit, item=item)
+        except (ValueError, Exception):
+            logger.warning(
+                'Inventory WAC: no qty conversion from %s to %s for %s — line skipped.',
+                getattr(grn_line.unit, 'abbreviation', grn_line.unit),
+                getattr(stock_unit, 'abbreviation', stock_unit),
+                item.code,
+            )
+            continue
+
+        if base_qty <= 0:
+            continue
+
         unit_price = Decimal('0')
+        po_unit = None
         if grn_line.goods_receipt.purchase_order_id:
-            po_line = grn_line.goods_receipt.purchase_order.lines.filter(
-                item=item
-            ).first()
+            po_line = grn_line.goods_receipt.purchase_order.lines.filter(item=item).first()
             if po_line:
                 unit_price = po_line.unit_price or Decimal('0')
+                po_unit = po_line.unit
+
         if unit_price == 0:
             unit_price = item.cost_price or Decimal('0')
-        total_qty += grn_line.qty
-        total_cost += grn_line.qty * unit_price
+            po_unit = stock_unit
+
+        # Convert PO unit_price to per stock_unit — skip line if no conversion exists.
+        if po_unit is not None and po_unit.pk != stock_unit.pk:
+            try:
+                unit_price = convert_price_for_unit(
+                    unit_price, po_unit, stock_unit, item=item,
+                    use_conversion_price=False, raise_on_missing=True,
+                )
+            except (ValueError, Exception):
+                logger.warning(
+                    'Inventory WAC: no price conversion from %s to %s for %s — line skipped.',
+                    getattr(po_unit, 'abbreviation', po_unit),
+                    getattr(stock_unit, 'abbreviation', stock_unit),
+                    item.code,
+                )
+                continue
+
+        total_qty += base_qty
+        total_cost += base_qty * unit_price
 
     if total_qty > 0:
         return total_cost / total_qty

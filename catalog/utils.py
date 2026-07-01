@@ -244,10 +244,24 @@ def get_item_cogs_for_unit(item, selling_unit) -> Decimal:
     if base_unit.pk == selling_unit.pk:
         return Decimal(str(cost_price))
     
-    # COGS always uses factor-based calculation, never conversion_price
-    return convert_price_for_unit(
-        cost_price, base_unit, selling_unit, item=item, use_conversion_price=False
-    )
+    # COGS always uses factor-based calculation, never conversion_price.
+    # raise_on_missing=True so callers get 0 COGS (via their try/except) instead of
+    # the base price silently used in the wrong unit when no conversion exists.
+    try:
+        return convert_price_for_unit(
+            cost_price, base_unit, selling_unit, item=item,
+            use_conversion_price=False, raise_on_missing=True,
+        )
+    except ValueError:
+        import logging
+        logging.getLogger(__name__).error(
+            'COGS skipped for %s: no unit conversion from %s to %s. '
+            'Add one under Catalog → Unit Conversions.',
+            item.code if item and hasattr(item, 'code') else '?',
+            getattr(base_unit, 'abbreviation', base_unit),
+            getattr(selling_unit, 'abbreviation', selling_unit),
+        )
+        return Decimal('0')
 
 
 def calculate_line_cogs_with_conversion(line_item, qty_ordered, selling_unit, item=None) -> Decimal:
