@@ -86,13 +86,14 @@ def _sync_invoice_from_service(invoice, svc):
     
     # Recreate lines
     invoice.lines.all().delete()
-    
+
+    new_lines = []
     if svc.quotation_amount > 0:
         line_description = svc.service_name or 'Service'
         if partial_paid > 0:
             line_description += f' (Balance after ₱{partial_paid:,.2f} partial payment)'
-        
-        InvoiceLine.objects.create(
+
+        new_lines.append(InvoiceLine(
             invoice=invoice,
             item_code='SVC-QUOT',
             item_name=line_description,
@@ -100,10 +101,13 @@ def _sync_invoice_from_service(invoice, svc):
             unit='svc',
             unit_price=invoice_grand_total,
             line_total=invoice_grand_total,
-        )
+        ))
     else:
-        for line in svc.lines.select_related('item', 'unit').all():
-            InvoiceLine.objects.create(
+        svc_lines = list(svc.lines.select_related('item', 'unit').all())
+        svc_materials = list(svc.other_materials.all())
+
+        for line in svc_lines:
+            new_lines.append(InvoiceLine(
                 invoice=invoice,
                 item_code=line.item.code,
                 item_name=line.item.name,
@@ -111,10 +115,10 @@ def _sync_invoice_from_service(invoice, svc):
                 unit=line.unit.abbreviation,
                 unit_price=line.unit_price,
                 line_total=line.line_total,
-            )
+            ))
 
-        for mat in svc.other_materials.all():
-            InvoiceLine.objects.create(
+        for mat in svc_materials:
+            new_lines.append(InvoiceLine(
                 invoice=invoice,
                 item_code='MAT',
                 item_name=mat.item_name,
@@ -122,10 +126,10 @@ def _sync_invoice_from_service(invoice, svc):
                 unit='unit',
                 unit_price=mat.unit_price,
                 line_total=mat.line_total,
-            )
+            ))
 
-        if not svc.lines.exists() and not svc.other_materials.exists():
-            InvoiceLine.objects.create(
+        if not svc_lines and not svc_materials:
+            new_lines.append(InvoiceLine(
                 invoice=invoice,
                 item_code='SVC',
                 item_name=svc.service_name,
@@ -133,7 +137,10 @@ def _sync_invoice_from_service(invoice, svc):
                 unit='svc',
                 unit_price=grand_total,
                 line_total=grand_total,
-            )
+            ))
+
+    if new_lines:
+        InvoiceLine.objects.bulk_create(new_lines)
 
     # Log the sync
     AuditLog.objects.create(
