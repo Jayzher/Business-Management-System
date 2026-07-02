@@ -24,6 +24,7 @@ from django.utils import timezone
 from cashflow.models import (
     MonthlyCashflowSummary, CashFlowTransaction,
     CashFlowType, CashFlowStatus, CashFlowCategory,
+    clamp_ratio_pct,
 )
 from core.models import Expense, Invoice, InvoicePayment, DocumentStatus
 from pos.models import POSSale, SaleStatus
@@ -123,7 +124,7 @@ def update_monthly_summary(year, month, user=None):
     revenue_sales = _calculate_sales_revenue(start_date, next_month_start, start_dt, end_dt)
 
     gross_profit = revenue_sales - cogs_actual
-    gross_margin_pct = (
+    gross_margin_pct = clamp_ratio_pct(
         (gross_profit / revenue_sales * 100) if revenue_sales > 0 else Decimal('0')
     )
     # Net Profit includes other income (capital injections, purchase returns, etc.)
@@ -139,17 +140,19 @@ def update_monthly_summary(year, month, user=None):
     # ══════════════════════════════════════════════════════════════════════
     # 6. PERFORMANCE METRICS
     # ══════════════════════════════════════════════════════════════════════
-    collection_rate_pct = (
+    collection_rate_pct = clamp_ratio_pct(
         (cash_from_customers / revenue_sales * 100)
         if revenue_sales > 0 else Decimal('0')
     )
-    dso = (
+    dso = clamp_ratio_pct(
         (ar_closing / revenue_sales * last_day)
-        if revenue_sales > 0 else Decimal('0')
+        if revenue_sales > 0 else Decimal('0'),
+        max_digits=8, decimal_places=2,
     )
     avg_inventory = (inventory_opening + inventory_closing) / 2
-    inventory_turnover = (
-        (cogs_actual / avg_inventory) if avg_inventory > 0 else Decimal('0')
+    inventory_turnover = clamp_ratio_pct(
+        (cogs_actual / avg_inventory) if avg_inventory > 0 else Decimal('0'),
+        max_digits=8, decimal_places=2,
     )
     operating_cash_flow = cash_from_customers + other_cash_in - total_cash_out
 

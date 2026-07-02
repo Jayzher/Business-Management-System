@@ -1,6 +1,27 @@
+from decimal import Decimal
+
 from django.db import models
 from django.conf import settings
 from core.models import TimeStampedModel, SoftDeleteModel
+
+
+def clamp_ratio_pct(value, max_digits=9, decimal_places=2):
+    """
+    Clamp a computed ratio/percentage to what a DecimalField(max_digits,
+    decimal_places) can actually store.
+
+    Ratios like collection-rate-% (cash collected / revenue invoiced this
+    month) are unbounded by construction: a month with tiny new revenue but
+    large prior-AR collections can legitimately compute to e.g. 34890%.
+    Without clamping, saving that value raises decimal.InvalidOperation and
+    aborts the whole transaction (see auto_create_invoice_from_pickup).
+    """
+    limit = Decimal(10) ** (max_digits - decimal_places) - Decimal(1).scaleb(-decimal_places)
+    if value > limit:
+        return limit
+    if value < -limit:
+        return -limit
+    return value
 
 
 class CashFlowCategory(models.TextChoices):
@@ -269,14 +290,15 @@ class MonthlyCashflowSummary(TimeStampedModel):
         help_text='Revenue - COGS',
     )
     gross_margin_pct = models.DecimalField(
-        max_digits=5, decimal_places=2, default=0,
+        max_digits=9, decimal_places=2, default=0,
         help_text='Gross profit margin percentage',
     )
-    
+
     # ── Performance Metrics ──────────────────────────────────────────────────
     collection_rate_pct = models.DecimalField(
-        max_digits=5, decimal_places=2, default=0,
-        help_text='Percentage of invoices collected',
+        max_digits=9, decimal_places=2, default=0,
+        help_text='Percentage of invoices collected. Can exceed 100% when a '
+                   'month collects on prior-month AR against little new revenue.',
     )
     days_sales_outstanding = models.DecimalField(
         max_digits=8, decimal_places=2, default=0,

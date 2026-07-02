@@ -302,29 +302,73 @@ def item_inventory_view(request):
     })
 
 
+STOCK_MOVE_SORT_MAP = {
+    'type': 'move_type',
+    'item': 'item__code',
+    'qty': 'qty',
+    'unit': 'unit__abbreviation',
+    'from': 'from_location__code',
+    'to': 'to_location__code',
+    'batch': 'batch_number',
+    'serial': 'serial_number',
+    'reference': 'reference_number',
+    'posted_by': 'created_by__username',
+    'posted_at': 'posted_at',
+}
+
+
 @login_required
 @warehouse_access
 def stock_move_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     moves = StockMove.objects.filter(status='POSTED').select_related(
         'item', 'unit', 'from_location', 'to_location', 'created_by'
-    ).order_by('-posted_at')
-    
+    )
+    moves, sort, direction = sort_queryset(
+        request, moves, STOCK_MOVE_SORT_MAP, default_key='posted_at', default_dir='desc'
+    )
+
     # Get total count (no pagination - DataTables handles it client-side)
     total_count = moves.count()
-    
+
+    page_obj = paginate_queryset(request, moves, per_page=25)
+
     return render(request, 'inventory/stock_move_list.html', {
-        'moves': moves,
+        'moves': page_obj,
         'total_count': total_count,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
     })
+
+
+TRANSFER_SORT_MAP = {
+    'document_number': 'document_number',
+    'from_warehouse': 'from_warehouse__code',
+    'to_warehouse': 'to_warehouse__code',
+    'status': 'status',
+    'created_by': 'created_by__username',
+    'created_at': 'created_at',
+}
 
 
 @login_required
 @warehouse_access
 def transfer_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     transfers = StockTransfer.objects.select_related(
         'from_warehouse', 'to_warehouse', 'created_by'
     ).all()
-    return render(request, 'inventory/transfer_list.html', {'transfers': transfers})
+    transfers, sort, direction = sort_queryset(
+        request, transfers, TRANSFER_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, transfers, per_page=25)
+    return render(request, 'inventory/transfer_list.html', {
+        'transfers': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -337,13 +381,33 @@ def transfer_detail_view(request, pk):
     return render(request, 'inventory/transfer_detail.html', {'transfer': transfer})
 
 
+ADJUSTMENT_SORT_MAP = {
+    'document_number': 'document_number',
+    'warehouse': 'warehouse__code',
+    'reason': 'reason',
+    'status': 'status',
+    'created_by': 'created_by__username',
+    'created_at': 'created_at',
+}
+
+
 @login_required
 @adjustment_access
 def adjustment_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     adjustments = StockAdjustment.objects.select_related(
         'warehouse', 'created_by'
     ).all()
-    return render(request, 'inventory/adjustment_list.html', {'adjustments': adjustments})
+    adjustments, sort, direction = sort_queryset(
+        request, adjustments, ADJUSTMENT_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, adjustments, per_page=25)
+    return render(request, 'inventory/adjustment_list.html', {
+        'adjustments': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -388,13 +452,32 @@ def adjustment_detail_view(request, pk):
     })
 
 
+DAMAGED_SORT_MAP = {
+    'document_number': 'document_number',
+    'warehouse': 'warehouse__code',
+    'status': 'status',
+    'created_by': 'created_by__username',
+    'created_at': 'created_at',
+}
+
+
 @login_required
 @warehouse_access
 def damaged_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     reports = DamagedReport.objects.select_related(
         'warehouse', 'created_by'
     ).all()
-    return render(request, 'inventory/damaged_list.html', {'reports': reports})
+    reports, sort, direction = sort_queryset(
+        request, reports, DAMAGED_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, reports, per_page=25)
+    return render(request, 'inventory/damaged_list.html', {
+        'reports': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -604,13 +687,33 @@ def damaged_delete_view(request, pk):
 
 # ── Inventory-to-Supply Transfer (IST) ─────────────────────────────────────
 
+IST_SORT_MAP = {
+    'document_number': 'document_number',
+    'warehouse': 'warehouse__code',
+    'transfer_date': 'transfer_date',
+    'reason': 'reason',
+    'status': 'status',
+    'created_by': 'created_by__username',
+}
+
+
 @login_required
 @warehouse_access
 def ist_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     transfers = InventoryToSupplyTransfer.objects.select_related(
         'warehouse', 'created_by'
     ).all()
-    return render(request, 'inventory/ist_list.html', {'transfers': transfers})
+    transfers, sort, direction = sort_queryset(
+        request, transfers, IST_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, transfers, per_page=25)
+    return render(request, 'inventory/ist_list.html', {
+        'transfers': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required

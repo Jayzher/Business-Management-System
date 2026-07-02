@@ -233,10 +233,29 @@ def _recalculate_sale_totals(sale):
 
 # ── Template Views ─────────────────────────────────────────────────────────
 
+REGISTER_SORT_MAP = {
+    'name': 'name',
+    'warehouse': 'warehouse__name',
+    'location': 'default_location__name',
+    'price_list': 'price_list__name',
+    'status': 'is_active',
+}
+
+
 @login_required
 def register_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     registers = POSRegister.objects.select_related('warehouse', 'default_location', 'price_list').all()
-    return render(request, 'pos/register_list.html', {'registers': registers})
+    registers, sort, direction = sort_queryset(
+        request, registers, REGISTER_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, registers, per_page=25)
+    return render(request, 'pos/register_list.html', {
+        'registers': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -321,16 +340,28 @@ def shift_close_view(request, pk):
     return render(request, 'pos/shift_close.html', {'form': form, 'shift': shift})
 
 
+SHIFT_SORT_MAP = {
+    'register': 'register__name',
+    'opened_by': 'opened_by__username',
+    'opened_at': 'opened_at',
+    'status': 'status',
+    'cash_sales': 'cash_sales_total',
+}
+
+
 @login_required
 def shift_list_view(request):
-    shifts = POSShift.objects.select_related('register', 'opened_by', 'closed_by').order_by('-opened_at')
-    
-    # Get total count (no pagination - DataTables handles it client-side)
-    total_count = shifts.count()
-    
+    from core.utils import sort_queryset, paginate_queryset
+    shifts = POSShift.objects.select_related('register', 'opened_by', 'closed_by')
+    shifts, sort, direction = sort_queryset(
+        request, shifts, SHIFT_SORT_MAP, default_key='opened_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, shifts, per_page=25)
     return render(request, 'pos/shift_list.html', {
-        'shifts': shifts,
-        'total_count': total_count,
+        'shifts': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
     })
 
 
@@ -391,18 +422,32 @@ def terminal_view(request, shift_id):
     })
 
 
+RECEIPT_SORT_MAP = {
+    'sale_no': 'sale_no',
+    'register': 'register__name',
+    'customer': 'customer__name',
+    'status': 'status',
+    'grand_total': 'grand_total',
+    'created_by': 'created_by__username',
+    'date': 'created_at',
+}
+
+
 @login_required
 def receipt_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     sales = POSSale.objects.filter(
         status__in=[SaleStatus.POSTED, SaleStatus.PAID, SaleStatus.REFUNDED],
-    ).select_related('register', 'customer', 'created_by').order_by('-created_at')
-    
-    # Get total count (no pagination - DataTables handles it client-side)
-    total_count = sales.count()
-    
+    ).select_related('register', 'customer', 'created_by')
+    sales, sort, direction = sort_queryset(
+        request, sales, RECEIPT_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, sales, per_page=25)
     return render(request, 'pos/receipt_list.html', {
-        'sales': sales,
-        'total_count': total_count,
+        'sales': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
     })
 
 

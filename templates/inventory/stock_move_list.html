@@ -8,9 +8,21 @@
 <div class="card">
   <div class="card-header"><h3 class="card-title">Posted Stock Movements</h3></div>
   <div class="card-body table-responsive">
-    <table class="table table-hover text-nowrap wis-table">
+    <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
-        <tr><th>Type</th><th>Item</th><th>Qty</th><th>Unit</th><th>From</th><th>To</th><th>Batch #</th><th>Serial #</th><th>Reference</th><th>Posted By</th><th>Posted At</th></tr>
+        <tr>
+          <th>{% sort_link 'type' 'Type' sort dir %}</th>
+          <th>{% sort_link 'item' 'Item' sort dir %}</th>
+          <th>{% sort_link 'qty' 'Qty' sort dir %}</th>
+          <th>{% sort_link 'unit' 'Unit' sort dir %}</th>
+          <th>{% sort_link 'from' 'From' sort dir %}</th>
+          <th>{% sort_link 'to' 'To' sort dir %}</th>
+          <th>{% sort_link 'batch' 'Batch #' sort dir %}</th>
+          <th>{% sort_link 'serial' 'Serial #' sort dir %}</th>
+          <th>{% sort_link 'reference' 'Reference' sort dir %}</th>
+          <th>{% sort_link 'posted_by' 'Posted By' sort dir %}</th>
+          <th>{% sort_link 'posted_at' 'Posted At' sort dir %}</th>
+        </tr>
       </thead>
       <tbody>
         {% for move in moves %}
@@ -39,6 +51,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="stock movements" %}
   </div>
 </div>
 {% endblock %}

@@ -26,8 +26,15 @@
     <h3 class="card-title"><i class="fas fa-file-invoice mr-1"></i> Invoices</h3>
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-hover table-striped text-nowrap wis-table">
-      <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th class="text-right">Total</th><th>Status</th><th>Source</th><th></th></tr></thead>
+    <table class="table table-hover table-striped text-nowrap wis-table" data-server-paginated="true">
+      <thead><tr>
+        <th>{% sort_link 'invoice_no' 'Invoice #' sort dir %}</th>
+        <th>{% sort_link 'date' 'Date' sort dir %}</th>
+        <th>{% sort_link 'customer' 'Customer' sort dir %}</th>
+        <th class="text-right">{% sort_link 'total' 'Total' sort dir %}</th>
+        <th>{% sort_link 'status' 'Status' sort dir %}</th>
+        <th>Source</th><th></th>
+      </tr></thead>
       <tbody>
         {% for inv in invoices %}
         <tr>
@@ -51,6 +58,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="invoices" %}
   </div>
 </div>
 {% endblock %}

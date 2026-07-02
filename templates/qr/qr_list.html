@@ -13,9 +13,17 @@
     </div>
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-hover text-nowrap wis-table">
+    <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
-        <tr><th>QR UID</th><th>Item</th><th>Location</th><th>Batch</th><th>Serial</th><th>Printed</th><th>Created</th></tr>
+        <tr>
+          <th>{% sort_link 'uid' 'QR UID' sort dir %}</th>
+          <th>{% sort_link 'item' 'Item' sort dir %}</th>
+          <th>{% sort_link 'location' 'Location' sort dir %}</th>
+          <th>{% sort_link 'batch' 'Batch' sort dir %}</th>
+          <th>{% sort_link 'serial' 'Serial' sort dir %}</th>
+          <th>{% sort_link 'printed' 'Printed' sort dir %}</th>
+          <th>{% sort_link 'created' 'Created' sort dir %}</th>
+        </tr>
       </thead>
       <tbody>
         {% for tag in tags %}
@@ -33,6 +41,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="QR tags" %}
   </div>
 </div>
 {% endblock %}

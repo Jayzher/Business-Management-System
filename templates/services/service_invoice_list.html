@@ -30,7 +30,7 @@
     <div class="row text-center">
       <div class="col-md-3">
         <div class="small text-muted">Total Invoices</div>
-        <div class="font-weight-bold">{{ invoices|length }}</div>
+        <div class="font-weight-bold">{{ total_count }}</div>
       </div>
       <div class="col-md-3">
         <div class="small text-muted">Total Revenue</div>
@@ -52,15 +52,15 @@
   </div>
 
   <div class="card-body table-responsive p-0">
-    <table class="table table-hover text-nowrap wis-table">
+    <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
         <tr>
-          <th>Invoice #</th>
-          <th>Date</th>
-          <th>Customer</th>
+          <th>{% sort_link 'invoice_no' 'Invoice #' sort dir %}</th>
+          <th>{% sort_link 'date' 'Date' sort dir %}</th>
+          <th>{% sort_link 'customer' 'Customer' sort dir %}</th>
           <th>Service(s)</th>
-          <th>Status</th>
-          <th class="text-right">Grand Total</th>
+          <th>{% sort_link 'status' 'Status' sort dir %}</th>
+          <th class="text-right">{% sort_link 'total' 'Grand Total' sort dir %}</th>
           <th class="text-right">Balance Due</th>
           <th>Actions</th>
         </tr>
@@ -125,6 +125,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="service invoices" %}
   </div>
   <div class="card-footer">
     <a href="{% url 'service_list' %}" class="btn btn-sm btn-secondary">

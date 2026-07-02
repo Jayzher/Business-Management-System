@@ -410,10 +410,27 @@ def item_delete_view(request, pk):
 
 # ── Category CRUD ──────────────────────────────────────────────────────────
 
+CATEGORY_SORT_MAP = {
+    'code': 'code',
+    'name': 'name',
+    'parent': 'parent__name',
+}
+
+
 @login_required
 def category_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     categories = Category.objects.all()
-    return render(request, 'catalog/category_list.html', {'categories': categories})
+    categories, sort, direction = sort_queryset(
+        request, categories, CATEGORY_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, categories, per_page=25)
+    return render(request, 'catalog/category_list.html', {
+        'categories': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -474,10 +491,26 @@ def category_delete_view(request, pk):
 
 # ── Unit CRUD ──────────────────────────────────────────────────────────────
 
+UNIT_SORT_MAP = {
+    'name': 'name',
+    'abbreviation': 'abbreviation',
+}
+
+
 @login_required
 def unit_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     units = Unit.objects.all()
-    return render(request, 'catalog/unit_list.html', {'units': units})
+    units, sort, direction = sort_queryset(
+        request, units, UNIT_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, units, per_page=25)
+    return render(request, 'catalog/unit_list.html', {
+        'units': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 @login_required
 @write_denied_for_viewer
@@ -521,12 +554,32 @@ def unit_delete_view(request, pk):
 
 # ── Unit Conversion CRUD ─────────────────────────────────────────────
 
+UNIT_CONVERSION_SORT_MAP = {
+    'from_unit': 'from_unit__name',
+    'to_unit': 'to_unit__name',
+    'factor': 'factor',
+    'item': 'item__code',
+    'category': 'from_unit__category',
+    'status': 'is_active',
+}
+
+
 @login_required
 def unit_conversion_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     conversions = UnitConversion.objects.select_related(
         'from_unit', 'to_unit', 'item'
-    ).all().order_by('from_unit__name', 'to_unit__name')
-    return render(request, 'catalog/unit_conversion_list.html', {'conversions': conversions})
+    ).all()
+    conversions, sort, direction = sort_queryset(
+        request, conversions, UNIT_CONVERSION_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, conversions, per_page=25)
+    return render(request, 'catalog/unit_conversion_list.html', {
+        'conversions': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required

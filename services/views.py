@@ -24,6 +24,7 @@ def service_invoice_list(request):
     from django.db.models import Sum, Q
     from django.db.models.functions import Coalesce
     from django.db.models import DecimalField
+    from core.utils import sort_queryset, paginate_queryset
 
     # Invoices that have at least one linked customer service
     invoice_ids = CustomerService.objects.filter(
@@ -32,7 +33,7 @@ def service_invoice_list(request):
 
     qs = Invoice.objects.filter(pk__in=invoice_ids).select_related(
         'created_by'
-    ).prefetch_related('customer_services', 'payments').order_by('-date')
+    ).prefetch_related('customer_services', 'payments')
 
     # Optional filters
     paid_filter = request.GET.get('paid', '')
@@ -41,7 +42,7 @@ def service_invoice_list(request):
     elif paid_filter == '0':
         qs = qs.filter(is_paid=False)
 
-    # Totals - calculated on full queryset (no pagination - DataTables handles it client-side)
+    # Totals - calculated over the full filtered set, before pagination
     agg = qs.aggregate(
         total_revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
     )
@@ -50,8 +51,21 @@ def service_invoice_list(request):
     unpaid_count = qs.filter(is_paid=False).count()
     total_count = qs.count()
 
+    sort_map = {
+        'invoice_no': 'invoice_number',
+        'date': ['date', 'created_at'],
+        'customer': 'customer_name',
+        'total': 'grand_total',
+        'status': 'is_paid',
+    }
+    qs, sort, direction = sort_queryset(request, qs, sort_map, default_key='date', default_dir='desc')
+    page_obj = paginate_queryset(request, qs, per_page=25)
+
     return render(request, 'services/service_invoice_list.html', {
-        'invoices': qs,
+        'invoices': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
         'paid_filter': paid_filter,
         'total_revenue': agg['total_revenue'],
         'paid_count': paid_count,
@@ -162,12 +176,28 @@ def service_invoice_detail(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def service_list(request):
+    from core.utils import sort_queryset, paginate_queryset
     status_filter = request.GET.get('status', '')
     qs = CustomerService.objects.select_related('created_by', 'invoice')
     if status_filter:
         qs = qs.filter(status=status_filter)
+
+    sort_map = {
+        'service_no': 'service_number',
+        'name': 'service_name',
+        'customer': 'customer_name',
+        'date': 'service_date',
+        'status': 'status',
+        'payment': 'payment_status',
+    }
+    qs, sort, direction = sort_queryset(request, qs, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, qs, per_page=25)
+
     return render(request, 'services/service_list.html', {
-        'services': qs,
+        'services': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
         'status_filter': status_filter,
         'statuses': ServiceStatus.choices,
     })

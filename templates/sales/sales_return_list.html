@@ -10,9 +10,17 @@
     {% if not is_view_only and not is_web_version %}<a href="#" data-modal-url="{% url 'sales_return_create' %}" data-modal-size="modal-xl" class="ml-auto btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Return</a>{% endif %}
   </div>
   <div class="card-body table-responsive p-0">
-    <table class="table table-hover text-nowrap wis-table">
+    <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
-        <tr><th>Doc #</th><th>Customer</th><th>Warehouse</th><th>Return Date</th><th>Status</th><th>Created By</th><th></th></tr>
+        <tr>
+          <th>{% sort_link 'doc_number' 'Doc #' sort dir %}</th>
+          <th>{% sort_link 'customer' 'Customer' sort dir %}</th>
+          <th>{% sort_link 'warehouse' 'Warehouse' sort dir %}</th>
+          <th>{% sort_link 'return_date' 'Return Date' sort dir %}</th>
+          <th>{% sort_link 'status' 'Status' sort dir %}</th>
+          <th>{% sort_link 'created_by' 'Created By' sort dir %}</th>
+          <th></th>
+        </tr>
       </thead>
       <tbody>
         {% for r in returns %}
@@ -33,6 +41,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="sales returns" %}
   </div>
 </div>
 {% endblock %}

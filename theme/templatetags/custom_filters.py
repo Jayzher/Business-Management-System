@@ -1,7 +1,34 @@
 from django import template
 from decimal import Decimal
+from django.utils.html import escape
+from django.utils.safestring import mark_safe
 
 register = template.Library()
+
+
+@register.simple_tag(takes_context=True)
+def sort_link(context, field, label, current_sort='', current_dir='desc'):
+    """
+    Render a sortable column header link that preserves all other query
+    params (filters, etc.) and resets pagination to page 1 on re-sort.
+    Usage: {% sort_link 'date' 'Date' sort dir %}
+    """
+    request = context['request']
+    params = request.GET.copy()
+    if current_sort == field:
+        next_dir = 'asc' if current_dir == 'desc' else 'desc'
+        icon = 'fa-sort-up' if current_dir == 'asc' else 'fa-sort-down'
+    else:
+        next_dir = 'desc'
+        icon = 'fa-sort text-muted'
+    params['sort'] = field
+    params['dir'] = next_dir
+    params.pop('page', None)
+    url = f'?{params.urlencode()}'
+    return mark_safe(
+        f'<a href="{escape(url)}" class="text-dark text-decoration-none">'
+        f'{escape(label)} <i class="fas {icon} small"></i></a>'
+    )
 
 
 @register.filter(name='decimal2')

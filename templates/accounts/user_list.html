@@ -43,16 +43,16 @@
 
 <div class="card">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-users mr-1"></i> Users <span class="badge bg-secondary text-white ms-2">{{ users|length }}</span></h3>
+    <h3 class="card-title"><i class="fas fa-users mr-1"></i> Users <span class="badge bg-secondary text-white ms-2">{{ page_obj.paginator.count }}</span></h3>
   </div>
   <div class="card-body table-responsive p-0">
-    <table class="table table-hover table-striped wis-table mb-0">
+    <table class="table table-hover table-striped wis-table mb-0" data-server-paginated="true">
       <thead class="text-nowrap">
         <tr>
-          <th>User</th>
-          <th>Phone</th>
+          <th>{% sort_link 'user' 'User' sort dir %}</th>
+          <th>{% sort_link 'phone' 'Phone' sort dir %}</th>
           <th>Roles</th>
-          <th>Status</th>
+          <th>{% sort_link 'status' 'Status' sort dir %}</th>
           <th class="text-right">Actions</th>
         </tr>
       </thead>
@@ -112,6 +112,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="users" %}
   </div>
 </div>
 

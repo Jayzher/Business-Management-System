@@ -1,4 +1,42 @@
+from django.core.paginator import Paginator
 from django.db.models import ProtectedError
+
+
+def sort_queryset(request, queryset, sort_map, default_key, default_dir='desc'):
+    """
+    Apply server-side ordering to `queryset` based on `?sort=`/`?dir=` query params.
+
+    sort_map: dict mapping a public sort key (used in the URL) to a real model
+    field name, or a list of field names for multi-field ordering (e.g.
+    {'date': ['date', 'created_at']}). Falls back to `default_key`/`default_dir`
+    when no/invalid sort param is given, so tables default to latest-first.
+
+    Returns (ordered_queryset, resolved_sort_key, resolved_dir).
+    """
+    sort_key = request.GET.get('sort') or default_key
+    if sort_key not in sort_map and sort_key != default_key:
+        sort_key = default_key
+    direction = request.GET.get('dir') or (default_dir if sort_key == default_key else 'asc')
+    if direction not in ('asc', 'desc'):
+        direction = 'asc'
+
+    # default_key may be a fallback ordering that isn't exposed as a clickable
+    # column (e.g. 'created_at' used only to make the default "latest first")
+    fields = sort_map.get(sort_key, sort_key)
+    if isinstance(fields, str):
+        fields = [fields]
+    if direction == 'desc':
+        fields = [f if f.startswith('-') else f'-{f}' for f in fields]
+    else:
+        fields = [f[1:] if f.startswith('-') else f for f in fields]
+
+    return queryset.order_by(*fields), sort_key, direction
+
+
+def paginate_queryset(request, queryset, per_page=25, param='page'):
+    """Thin wrapper around Django's Paginator; returns a Page object."""
+    paginator = Paginator(queryset, per_page)
+    return paginator.get_page(request.GET.get(param, 1))
 
 
 def build_relation_summary(obj):

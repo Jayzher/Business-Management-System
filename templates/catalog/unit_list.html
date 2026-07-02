@@ -13,9 +13,13 @@
     </div>{% endif %}
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-hover text-nowrap wis-table">
+    <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
-        <tr><th>Name</th><th>Abbreviation</th><th>Actions</th></tr>
+        <tr>
+          <th>{% sort_link 'name' 'Name' sort dir %}</th>
+          <th>{% sort_link 'abbreviation' 'Abbreviation' sort dir %}</th>
+          <th>Actions</th>
+        </tr>
       </thead>
       <tbody>
         {% for u in units %}
@@ -32,6 +36,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="units" %}
   </div>
 </div>
 {% endblock %}

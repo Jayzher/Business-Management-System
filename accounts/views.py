@@ -89,12 +89,13 @@ def logout_view(request):
 @admin_required
 def user_list(request):
     """List all users with their assigned roles."""
+    from core.utils import sort_queryset, paginate_queryset
     q = (request.GET.get('q') or '').strip()
     role_filter = (request.GET.get('role') or '').strip()
 
     users = User.objects.prefetch_related(
         Prefetch('user_roles', queryset=UserRole.objects.select_related('role'))
-    ).order_by('username')
+    )
 
     if q:
         users = users.filter(
@@ -111,10 +112,21 @@ def user_list(request):
     if role_filter:
         users = users.filter(user_roles__role__name=role_filter).distinct()
 
+    sort_map = {
+        'user': 'username',
+        'phone': 'phone',
+        'status': 'is_active',
+    }
+    users, sort, direction = sort_queryset(request, users, sort_map, default_key='date_joined', default_dir='desc')
+    page_obj = paginate_queryset(request, users, per_page=25)
+
     roles = Role.objects.order_by('name')
 
     return render(request, 'accounts/user_list.html', {
-        'users': users,
+        'users': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
         'roles': roles,
         'q': q,
         'role_filter': role_filter,
@@ -254,10 +266,19 @@ ROLE_MODULES = {
 @login_required
 @admin_required
 def role_list(request):
-    roles = Role.objects.annotate(user_count=Count('role_users')).order_by('name')
-    # Attach display modules for each
+    from core.utils import sort_queryset, paginate_queryset
+    roles = Role.objects.annotate(user_count=Count('role_users'))
+    sort_map = {
+        'name': 'name',
+        'description': 'description',
+        'users': 'user_count',
+    }
+    roles, sort, direction = sort_queryset(request, roles, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, roles, per_page=25)
+
+    # Attach display modules for each (only for the current page)
     role_rows = []
-    for r in roles:
+    for r in page_obj:
         role_rows.append({
             'obj': r,
             'user_count': r.user_count,
@@ -265,6 +286,9 @@ def role_list(request):
         })
     return render(request, 'accounts/role_list.html', {
         'role_rows': role_rows,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
     })
 
 

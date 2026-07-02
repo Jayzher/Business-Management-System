@@ -1,3 +1,5 @@
+import logging
+
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -18,6 +20,8 @@ from inventory.services import post_delivery, reserve_stock, cancel_document, po
 from inventory.services import save_with_document_number
 from core.models import DocumentStatus
 from accounts.decorators import write_denied_for_viewer,  sales_access
+
+logger = logging.getLogger(__name__)
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -235,14 +239,25 @@ def delivery_post_view(request, pk):
                 messages.warning(request, warning)
             else:
                 messages.success(request, f'Delivery Note {dn.document_number} posted. Stock updated.')
-            from inventory.automation import auto_create_invoice_from_delivery
-            inv = auto_create_invoice_from_delivery(dn, request.user)
-            if inv:
-                if getattr(inv, '_was_updated', False):
-                    new_lines = getattr(inv, '_new_lines_count', 0)
-                    messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
-                else:
-                    messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
+            try:
+                from inventory.automation import auto_create_invoice_from_delivery
+                inv = auto_create_invoice_from_delivery(dn, request.user)
+                if inv:
+                    if getattr(inv, '_was_updated', False):
+                        new_lines = getattr(inv, '_new_lines_count', 0)
+                        messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
+                    else:
+                        messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
+            except Exception:
+                logger.exception(
+                    'Invoice auto-creation failed for delivery note %s', dn.document_number,
+                )
+                messages.warning(
+                    request,
+                    f'Delivery Note {dn.document_number} was posted and stock was updated, '
+                    'but the invoice could not be auto-created/synced due to an internal '
+                    'error. This has been logged for an administrator to investigate.',
+                )
         except ValueError as e:
             messages.error(request, str(e))
     return redirect('delivery_detail', pk=pk)
@@ -312,8 +327,25 @@ def delivery_print_view(request, pk):
 @login_required
 @sales_access
 def sales_order_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     orders = SalesOrder.objects.select_related('customer', 'warehouse', 'created_by').all()
-    return render(request, 'sales/sales_order_list.html', {'orders': orders})
+    sort_map = {
+        'so_number': 'document_number',
+        'customer': 'customer__name',
+        'warehouse': 'warehouse__code',
+        'order_date': ['order_date', 'id'],
+        'delivery_date': 'delivery_date',
+        'status': 'status',
+        'created_by': 'created_by__username',
+    }
+    orders, sort, direction = sort_queryset(request, orders, sort_map, default_key='order_date', default_dir='desc')
+    page_obj = paginate_queryset(request, orders, per_page=25)
+    return render(request, 'sales/sales_order_list.html', {
+        'orders': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -390,10 +422,27 @@ def sales_order_detail_view(request, pk):
 @login_required
 @sales_access
 def delivery_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     deliveries = DeliveryNote.objects.select_related(
         'sales_order', 'customer', 'warehouse', 'created_by'
     ).all()
-    return render(request, 'sales/delivery_list.html', {'deliveries': deliveries})
+    sort_map = {
+        'dn_number': 'document_number',
+        'so_number': 'sales_order__document_number',
+        'customer': 'customer__name',
+        'warehouse': 'warehouse__code',
+        'delivery_date': 'delivery_date',
+        'status': 'status',
+        'created_by': 'created_by__username',
+    }
+    deliveries, sort, direction = sort_queryset(request, deliveries, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, deliveries, per_page=25)
+    return render(request, 'sales/delivery_list.html', {
+        'deliveries': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -594,10 +643,27 @@ def _split_pickup_lines(pickup):
 @login_required
 @sales_access
 def pickup_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     pickups = SalesPickup.objects.select_related(
         'sales_order', 'customer', 'warehouse', 'created_by'
     ).all()
-    return render(request, 'sales/pickup_list.html', {'pickups': pickups})
+    sort_map = {
+        'pickup_number': 'document_number',
+        'so_number': 'sales_order__document_number',
+        'customer': 'customer__name',
+        'warehouse': 'warehouse__code',
+        'pickup_date': 'pickup_date',
+        'status': 'status',
+        'created_by': 'created_by__username',
+    }
+    pickups, sort, direction = sort_queryset(request, pickups, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, pickups, per_page=25)
+    return render(request, 'sales/pickup_list.html', {
+        'pickups': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -714,6 +780,7 @@ def pickup_post_view(request, pk):
         except ValueError as e:
             messages.error(request, str(e))
         except Exception as e:
+            logger.exception('Unable to post pickup %s', pickup.document_number)
             messages.error(request, f'Unable to post pickup: {e}')
         else:
             try:
@@ -725,8 +792,17 @@ def pickup_post_view(request, pk):
                         messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
                     else:
                         messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
-            except Exception as e:
-                messages.warning(request, f'Pickup was posted, but invoice auto-creation failed: {e}')
+            except Exception:
+                logger.exception(
+                    'Invoice auto-creation failed for pickup %s', pickup.document_number,
+                )
+                messages.warning(
+                    request,
+                    f'Pickup {pickup.document_number} was posted and stock was updated, '
+                    'but the invoice could not be auto-created/synced due to an internal '
+                    'error. This has been logged for an administrator to investigate. '
+                    'Cancelling and re-posting this pickup will retry the invoice sync.',
+                )
     return redirect('pickup_detail', pk=pk)
 
 
@@ -784,8 +860,24 @@ def pickup_print_view(request, pk):
 @login_required
 @sales_access
 def sales_return_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     returns = SalesReturn.objects.select_related('customer', 'warehouse', 'created_by').all()
-    return render(request, 'sales/sales_return_list.html', {'returns': returns})
+    sort_map = {
+        'doc_number': 'document_number',
+        'customer': 'customer__name',
+        'warehouse': 'warehouse__name',
+        'return_date': 'return_date',
+        'status': 'status',
+        'created_by': 'created_by__username',
+    }
+    returns, sort, direction = sort_queryset(request, returns, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, returns, per_page=25)
+    return render(request, 'sales/sales_return_list.html', {
+        'returns': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required

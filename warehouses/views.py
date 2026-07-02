@@ -43,14 +43,52 @@ class LocationViewSet(viewsets.ModelViewSet):
 
 @login_required
 def warehouse_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     warehouses = Warehouse.objects.all()
-    return render(request, 'warehouses/warehouse_list.html', {'warehouses': warehouses})
+
+    sort_map = {
+        'code': 'code',
+        'name': 'name',
+        'city': 'city',
+        'manager': 'manager__username',
+    }
+    warehouses, sort, direction = sort_queryset(
+        request, warehouses, sort_map, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, warehouses, per_page=25)
+
+    return render(request, 'warehouses/warehouse_list.html', {
+        'warehouses': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
 def location_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     locations = Location.objects.select_related('warehouse', 'parent').all()
-    return render(request, 'warehouses/location_list.html', {'locations': locations})
+
+    sort_map = {
+        'code': 'code',
+        'name': 'name',
+        'warehouse': 'warehouse__code',
+        'parent': 'parent__code',
+        'type': 'location_type',
+        'pickable': 'is_pickable',
+    }
+    locations, sort, direction = sort_queryset(
+        request, locations, sort_map, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, locations, per_page=25)
+
+    return render(request, 'warehouses/location_list.html', {
+        'locations': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required

@@ -51,6 +51,7 @@ from cashflow.models import (
     CashFlowType,
     CashFlowStatus,
     CashFlowCategory,
+    clamp_ratio_pct,
 )
 from core.models import Expense, DocumentStatus, Invoice, InvoicePayment
 from pos.models import POSSale, SaleStatus
@@ -283,7 +284,9 @@ class Command(BaseCommand):
 
         # Gross profit = Revenue - COGS
         gross_profit = revenue_sales - cogs_actual
-        gross_margin_pct = (gross_profit / revenue_sales * 100) if revenue_sales > 0 else Decimal('0')
+        gross_margin_pct = clamp_ratio_pct(
+            (gross_profit / revenue_sales * 100) if revenue_sales > 0 else Decimal('0')
+        )
 
         # Net profit = Gross Profit - Operating Expenses - Other Expenses
         net_profit = gross_profit - expenses_operational - expenses_other
@@ -298,22 +301,24 @@ class Command(BaseCommand):
         # 6. PERFORMANCE METRICS
         # ══════════════════════════════════════════════════════════════════════
         # Collection rate
-        collection_rate_pct = (
+        collection_rate_pct = clamp_ratio_pct(
             (cash_from_customers / revenue_sales * 100)
             if revenue_sales > 0 else Decimal('0')
         )
 
         # Days Sales Outstanding
-        dso = (
+        dso = clamp_ratio_pct(
             (ar_closing / revenue_sales * last_day)
-            if revenue_sales > 0 else Decimal('0')
+            if revenue_sales > 0 else Decimal('0'),
+            max_digits=8, decimal_places=2,
         )
 
         # Inventory turnover
         avg_inventory = (inventory_opening + inventory_closing) / 2
-        inventory_turnover = (
+        inventory_turnover = clamp_ratio_pct(
             (cogs_actual / avg_inventory)
-            if avg_inventory > 0 else Decimal('0')
+            if avg_inventory > 0 else Decimal('0'),
+            max_digits=8, decimal_places=2,
         )
 
         # Operating cash flow (excluding capital injections)

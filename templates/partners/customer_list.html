@@ -11,9 +11,18 @@
     {% if not is_view_only and not is_web_version %}<div class="card-tools"><a href="#" data-modal-url="{% url 'customer_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Customer</a></div>{% endif %}
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-hover text-nowrap wis-table">
+    <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
-        <tr><th>Code</th><th>Name</th><th>Contact</th><th>Email</th><th>Phone</th><th>City</th><th>Status</th><th>Actions</th></tr>
+        <tr>
+          <th>{% sort_link 'code' 'Code' sort dir %}</th>
+          <th>{% sort_link 'name' 'Name' sort dir %}</th>
+          <th>{% sort_link 'contact' 'Contact' sort dir %}</th>
+          <th>{% sort_link 'email' 'Email' sort dir %}</th>
+          <th>{% sort_link 'phone' 'Phone' sort dir %}</th>
+          <th>{% sort_link 'city' 'City' sort dir %}</th>
+          <th>{% sort_link 'status' 'Status' sort dir %}</th>
+          <th>Actions</th>
+        </tr>
       </thead>
       <tbody>
         {% for c in customers %}
@@ -35,6 +44,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="customers" %}
   </div>
 </div>
 {% endblock %}

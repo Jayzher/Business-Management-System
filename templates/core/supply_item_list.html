@@ -15,8 +15,8 @@
     </div>{% endif %}
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-hover table-striped text-nowrap wis-table">
-      <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit</th><th class="text-right">Stock</th><th class="text-right">Min</th><th class="text-right">Cost/Unit</th><th>Status</th><th></th></tr></thead>
+    <table class="table table-hover table-striped text-nowrap wis-table" data-server-paginated="true">
+      <thead><tr><th>{% sort_link 'code' 'Code' sort dir %}</th><th>{% sort_link 'name' 'Name' sort dir %}</th><th>{% sort_link 'category' 'Category' sort dir %}</th><th>{% sort_link 'unit' 'Unit' sort dir %}</th><th class="text-right">{% sort_link 'stock' 'Stock' sort dir %}</th><th class="text-right">{% sort_link 'min' 'Min' sort dir %}</th><th class="text-right">{% sort_link 'cost' 'Cost/Unit' sort dir %}</th><th>Status</th><th></th></tr></thead>
       <tbody>
         {% for item in items %}
         <tr{% if item.current_stock <= item.minimum_stock and item.minimum_stock > 0 %} class="table-danger"{% endif %}>
@@ -44,6 +44,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="supply items" %}
   </div>
   <div class="card-footer">
     <a href="{% url 'supply_movement_list' %}" class="btn btn-sm btn-outline-primary"><i class="fas fa-history mr-1"></i> View Movement Log</a>

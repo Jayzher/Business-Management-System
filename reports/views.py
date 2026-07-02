@@ -1161,6 +1161,7 @@ def financial_statement_view(request):
 @login_required
 def stock_aging_view(request):
     """Shows stock aging based on first RECEIVE move date per item/location."""
+    from core.utils import sort_queryset, paginate_queryset
     today = timezone.now().date()
     warehouse_id = request.GET.get('warehouse', '')
 
@@ -1169,6 +1170,16 @@ def stock_aging_view(request):
     )
     if warehouse_id:
         balances = balances.filter(location__warehouse_id=warehouse_id)
+
+    sort_map = {
+        'item_code': 'item__code',
+        'item_name': 'item__name',
+        'warehouse': 'location__warehouse__name',
+        'location': 'location__code',
+        'qty': 'qty_on_hand',
+        'cost_price': 'item__cost_price',
+    }
+    balances, sort, direction = sort_queryset(request, balances, sort_map, default_key='updated_at', default_dir='desc')
 
     aging_data = []
     for bal in balances:
@@ -1214,7 +1225,8 @@ def stock_aging_view(request):
             'bucket_order': bucket_order,
         })
 
-    aging_data.sort(key=lambda x: (-x['bucket_order'], -x['age_days']))
+    # Row order follows the sort_queryset-driven `balances` ordering above
+    # (defaults to newest-updated stock first; clickable columns re-order it).
 
     # Summary by bucket
     bucket_summary = {}
@@ -1226,9 +1238,14 @@ def stock_aging_view(request):
         bucket_summary[b]['qty'] += row['qty']
         bucket_summary[b]['value'] += row['value']
 
+    page_obj = paginate_queryset(request, aging_data, per_page=25)
+
     warehouses = Warehouse.objects.all()
     return render(request, 'reports/stock_aging.html', {
-        'aging_data': aging_data,
+        'aging_data': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
         'bucket_summary': bucket_summary,
         'warehouses': warehouses,
         'selected_warehouse': warehouse_id,

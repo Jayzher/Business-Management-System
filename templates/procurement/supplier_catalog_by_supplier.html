@@ -45,19 +45,19 @@
     </form>
   </div>
   <div class="card-body table-responsive p-0">
-    <table class="table table-hover table-striped wis-table" id="report-table">
+    <table class="table table-hover table-striped wis-table" id="report-table" data-server-paginated="true">
       <thead>
         <tr>
-          <th>Supplier</th>
-          <th>Item Code</th>
-          <th>Item Name</th>
-          <th>Category</th>
-          <th class="text-right">Unit Price</th>
-          <th>Unit</th>
-          <th>Currency</th>
-          <th>Lead Time</th>
-          <th>Last PO</th>
-          <th>Last PO Date</th>
+          <th>{% sort_link 'supplier' 'Supplier' sort dir %}</th>
+          <th>{% sort_link 'item' 'Item Code' sort dir %}</th>
+          <th>{% sort_link 'name' 'Item Name' sort dir %}</th>
+          <th>{% sort_link 'category' 'Category' sort dir %}</th>
+          <th class="text-right">{% sort_link 'price' 'Unit Price' sort dir %}</th>
+          <th>{% sort_link 'unit' 'Unit' sort dir %}</th>
+          <th>{% sort_link 'currency' 'Currency' sort dir %}</th>
+          <th>{% sort_link 'lead_time' 'Lead Time' sort dir %}</th>
+          <th>{% sort_link 'last_po' 'Last PO' sort dir %}</th>
+          <th>{% sort_link 'last_po_date' 'Last PO Date' sort dir %}</th>
           <th>Notes</th>
           <th>Actions</th>
         </tr>
@@ -88,6 +88,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="catalog entries" %}
   </div>
 </div>
 {% endblock %}

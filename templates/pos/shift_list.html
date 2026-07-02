@@ -12,15 +12,15 @@
 </div>
 <div class="card">
   <div class="card-body table-responsive">
-    <table class="table table-hover table-striped wis-table">
+    <table class="table table-hover table-striped wis-table" data-server-paginated="true">
       <thead>
         <tr>
           <th>#</th>
-          <th>Register</th>
-          <th>Opened By</th>
-          <th>Opened At</th>
-          <th>Status</th>
-          <th>Cash Sales</th>
+          <th>{% sort_link 'register' 'Register' sort dir %}</th>
+          <th>{% sort_link 'opened_by' 'Opened By' sort dir %}</th>
+          <th>{% sort_link 'opened_at' 'Opened At' sort dir %}</th>
+          <th>{% sort_link 'status' 'Status' sort dir %}</th>
+          <th>{% sort_link 'cash_sales' 'Cash Sales' sort dir %}</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -49,6 +49,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="shifts" %}
   </div>
 </div>
 {% endblock %}

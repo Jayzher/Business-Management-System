@@ -27,10 +27,31 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
 # ── Template Views ─────────────────────────────────────────────────────────
 
+SUPPLIER_CUSTOMER_SORT_MAP = {
+    'code': 'code',
+    'name': 'name',
+    'contact': 'contact_person',
+    'email': 'email',
+    'phone': 'phone',
+    'city': 'city',
+    'status': 'is_active',
+}
+
+
 @login_required
 def supplier_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     suppliers = Supplier.objects.all()
-    return render(request, 'partners/supplier_list.html', {'suppliers': suppliers})
+    suppliers, sort, direction = sort_queryset(
+        request, suppliers, SUPPLIER_CUSTOMER_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, suppliers, per_page=25)
+    return render(request, 'partners/supplier_list.html', {
+        'suppliers': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -75,8 +96,18 @@ def supplier_delete_view(request, pk):
 
 @login_required
 def customer_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     customers = Customer.objects.all()
-    return render(request, 'partners/customer_list.html', {'customers': customers})
+    customers, sort, direction = sort_queryset(
+        request, customers, SUPPLIER_CUSTOMER_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, customers, per_page=25)
+    return render(request, 'partners/customer_list.html', {
+        'customers': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required

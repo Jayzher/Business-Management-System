@@ -150,10 +150,29 @@ def models_q_date_range(today):
 
 # ── Template Views ─────────────────────────────────────────────────────────
 
+PRICE_LIST_SORT_MAP = {
+    'name': 'name',
+    'warehouse': 'warehouse__name',
+    'currency': 'currency',
+    'default': 'is_default',
+    'active': 'is_active',
+}
+
+
 @login_required
 def price_list_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     price_lists = PriceList.objects.select_related('warehouse').all()
-    return render(request, 'pricing/price_list_list.html', {'price_lists': price_lists})
+    price_lists, sort, direction = sort_queryset(
+        request, price_lists, PRICE_LIST_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, price_lists, per_page=25)
+    return render(request, 'pricing/price_list_list.html', {
+        'price_lists': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -213,10 +232,28 @@ def price_list_delete_view(request, pk):
 
 # ── Discount Rule Template Views ──────────────────────────────────────────
 
+DISCOUNT_RULE_SORT_MAP = {
+    'name': 'name',
+    'type': 'discount_type',
+    'value': 'value',
+    'scope': 'scope',
+}
+
+
 @login_required
 def discount_rule_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     rules = DiscountRule.objects.filter(is_active=True)
-    return render(request, 'pricing/discount_rule_list.html', {'rules': rules})
+    rules, sort, direction = sort_queryset(
+        request, rules, DISCOUNT_RULE_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, rules, per_page=25)
+    return render(request, 'pricing/discount_rule_list.html', {
+        'rules': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -325,16 +362,33 @@ def customer_catalog_api(request, customer_pk):
 
 # ── Customer Price Catalog Template Views ─────────────────────────────────
 
+CUSTOMER_CATALOG_SORT_MAP = {
+    'customer': 'customer__name',
+    'name': 'name',
+    'notes': 'notes',
+    'active': 'is_active',
+}
+
+
 @login_required
 def customer_catalog_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     catalogs = (
         CustomerPriceCatalog.objects
         .select_related('customer')
         .prefetch_related('items')
         .filter(is_active=True)
-        .order_by('customer__name', 'name')
     )
-    return render(request, 'pricing/customer_catalog_list.html', {'catalogs': catalogs})
+    catalogs, sort, direction = sort_queryset(
+        request, catalogs, CUSTOMER_CATALOG_SORT_MAP, default_key='created_at', default_dir='desc'
+    )
+    page_obj = paginate_queryset(request, catalogs, per_page=25)
+    return render(request, 'pricing/customer_catalog_list.html', {
+        'catalogs': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required

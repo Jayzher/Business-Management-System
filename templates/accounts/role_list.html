@@ -28,13 +28,13 @@
 
 <div class="card">
   <div class="card-body table-responsive p-0">
-    <table class="table table-hover wis-table mb-0">
+    <table class="table table-hover wis-table mb-0" data-server-paginated="true">
       <thead class="text-nowrap">
         <tr>
-          <th>Role</th>
-          <th>Description</th>
+          <th>{% sort_link 'name' 'Role' sort dir %}</th>
+          <th>{% sort_link 'description' 'Description' sort dir %}</th>
           <th>Accessible Modules</th>
-          <th class="text-center">Users</th>
+          <th class="text-center">{% sort_link 'users' 'Users' sort dir %}</th>
           <th class="text-right">Actions</th>
         </tr>
       </thead>
@@ -55,6 +55,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="roles" %}
   </div>
 </div>
 

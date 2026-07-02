@@ -183,8 +183,24 @@ def goods_receipt_print_view(request, pk):
 @login_required
 @procurement_access
 def purchase_order_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     orders = PurchaseOrder.objects.select_related('supplier', 'warehouse', 'created_by').all()
-    return render(request, 'procurement/purchase_order_list.html', {'orders': orders})
+    sort_map = {
+        'number': 'document_number',
+        'supplier': 'supplier__name',
+        'warehouse': 'warehouse__code',
+        'date': 'order_date',
+        'status': 'status',
+        'by': 'created_by__username',
+    }
+    orders, sort, direction = sort_queryset(request, orders, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, orders, per_page=25)
+    return render(request, 'procurement/purchase_order_list.html', {
+        'orders': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -200,10 +216,27 @@ def purchase_order_detail_view(request, pk):
 @login_required
 @procurement_access
 def goods_receipt_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     receipts = GoodsReceipt.objects.select_related(
         'purchase_order', 'supplier', 'warehouse', 'created_by'
     ).all()
-    return render(request, 'procurement/goods_receipt_list.html', {'receipts': receipts})
+    sort_map = {
+        'number': 'document_number',
+        'po': 'purchase_order__document_number',
+        'supplier': 'supplier__name',
+        'warehouse': 'warehouse__code',
+        'date': 'receipt_date',
+        'status': 'status',
+        'by': 'created_by__username',
+    }
+    receipts, sort, direction = sort_queryset(request, receipts, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, receipts, per_page=25)
+    return render(request, 'procurement/goods_receipt_list.html', {
+        'receipts': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -390,8 +423,24 @@ def goods_receipt_delete_view(request, pk):
 @login_required
 @procurement_access
 def purchase_return_list_view(request):
+    from core.utils import sort_queryset, paginate_queryset
     returns = PurchaseReturn.objects.select_related('supplier', 'warehouse', 'created_by').all()
-    return render(request, 'procurement/purchase_return_list.html', {'returns': returns})
+    sort_map = {
+        'number': 'document_number',
+        'supplier': 'supplier__name',
+        'warehouse': 'warehouse__name',
+        'date': 'return_date',
+        'status': 'status',
+        'by': 'created_by__username',
+    }
+    returns, sort, direction = sort_queryset(request, returns, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, returns, per_page=25)
+    return render(request, 'procurement/purchase_return_list.html', {
+        'returns': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -709,13 +758,14 @@ def supplier_catalog_by_supplier_view(request):
     Per-supplier view: lists all catalog entries for a selected supplier.
     """
     from partners.models import Supplier
+    from core.utils import sort_queryset, paginate_queryset
 
     supplier_id = request.GET.get('supplier', '')
     search = request.GET.get('q', '')
 
     entries = SupplierCatalogEntry.objects.select_related(
         'supplier', 'item', 'item__category', 'unit',
-    ).order_by('item__code')
+    )
 
     if supplier_id:
         entries = entries.filter(supplier_id=supplier_id)
@@ -725,10 +775,28 @@ def supplier_catalog_by_supplier_view(request):
             Q(item__code__icontains=search) | Q(item__name__icontains=search)
         )
 
+    sort_map = {
+        'supplier': 'supplier__name',
+        'item': 'item__code',
+        'name': 'item__name',
+        'category': 'item__category__name',
+        'price': 'unit_price',
+        'unit': 'unit__abbreviation',
+        'currency': 'currency',
+        'lead_time': 'lead_time_days',
+        'last_po': 'last_po_number',
+        'last_po_date': 'last_po_date',
+    }
+    entries, sort, direction = sort_queryset(request, entries, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, entries, per_page=25)
+
     all_suppliers = Supplier.objects.order_by('name')
 
     return render(request, 'procurement/supplier_catalog_by_supplier.html', {
-        'entries': entries,
+        'entries': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
         'all_suppliers': all_suppliers,
         'selected_supplier': supplier_id,
         'search': search,

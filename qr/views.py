@@ -145,14 +145,26 @@ def qr_scan(request):
 
 @login_required
 def qr_list_view(request):
-    tags = QRCodeTag.objects.select_related('item', 'location').order_by('-created_at')
-    
-    # Get total count (no pagination - DataTables handles it client-side)
-    total_count = tags.count()
-    
+    from core.utils import sort_queryset, paginate_queryset
+    tags = QRCodeTag.objects.select_related('item', 'location')
+
+    sort_map = {
+        'uid': 'qr_uid',
+        'item': 'item__name',
+        'location': 'location__code',
+        'batch': 'batch_number',
+        'serial': 'serial_number',
+        'printed': 'printed',
+        'created': 'created_at',
+    }
+    tags, sort, direction = sort_queryset(request, tags, sort_map, default_key='created', default_dir='desc')
+    page_obj = paginate_queryset(request, tags, per_page=25)
+
     return render(request, 'qr/qr_list.html', {
-        'tags': tags,
-        'total_count': total_count,
+        'tags': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
     })
 
 

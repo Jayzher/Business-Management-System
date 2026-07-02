@@ -490,30 +490,29 @@ function debounce(fn, delay) {
 
 /* Auto-init DataTables on .wis-table */
 $.fn.dataTable.ext.errMode = 'none';
-$(function(){
-  $('.wis-table').each(function(){
-    var $t = $(this);
-    if ($.fn.DataTable.isDataTable($t)) return;
-    /* Skip tables with only colspan rows (empty state) */
-    var bodyRows = $t.find('tbody tr');
-    if (bodyRows.length === 1 && bodyRows.find('td[colspan]').length > 0 && bodyRows.find('td').length === 1) {
-      bodyRows.remove();
-    }
-    var lengths = [10, 25, 50, 100];
-    var initialLen = parseInt($t.data('page-length'), 10) || lengths[0];
-    if (lengths.indexOf(initialLen) === -1) lengths.unshift(initialLen);
-    var dt = $t.DataTable({
-      pageLength: initialLen,
-      lengthMenu: [lengths, lengths],
-      order: [[0, 'desc']],
-      language: {
-        search: '',
-        searchPlaceholder: 'Search…',
-        emptyTable: 'No records found',
-        info: 'Showing _START_–_END_ of _TOTAL_',
-        lengthMenu: 'Show _MENU_'
-      },
-      dom: "<'row align-items-center mb-2'<'col-sm-6 d-flex align-items-center gap-2'lB><'col-sm-6 text-end'f>>tip",
+
+/* Shared init for a single .wis-table element. Tables marked
+   data-server-paginated="true" are sorted/paginated by Django (real DB-wide
+   sort + pagination); DataTables is kept only for the Excel export button on
+   those, with its own paging/ordering/searching disabled so it doesn't
+   re-shuffle or re-slice the already server-sorted/paginated rows. */
+function wisInitDataTable($t) {
+  if ($.fn.DataTable.isDataTable($t)) return;
+  /* Skip tables with only colspan rows (empty state) */
+  var bodyRows = $t.find('tbody tr');
+  if (bodyRows.length === 1 && bodyRows.find('td[colspan]').length > 0 && bodyRows.find('td').length === 1) {
+    bodyRows.remove();
+  }
+  var isServerPaginated = $t.data('server-paginated') === true || $t.data('server-paginated') === 'true';
+
+  if (isServerPaginated) {
+    var sdt = $t.DataTable({
+      paging: false,
+      ordering: false,
+      searching: false,
+      info: false,
+      language: { emptyTable: 'No records found' },
+      dom: "<'row mb-2'<'col-12 text-end'B>>t",
       buttons: [
         {
           extend: 'excelHtml5',
@@ -521,15 +520,46 @@ $(function(){
           className: 'btn btn-success btn-sm'
         }
       ],
-      exportOptions: { columns: ':not(:last-child)' } 
+      exportOptions: { columns: ':not(:last-child)' }
     });
-    var lenSelect = $(dt.table().container()).find('.dataTables_length select');
-    lenSelect.val(String(initialLen)).addClass('form-select form-select-sm');
-    $(dt.table().container()).find('.dt-buttons').addClass('ms-1');
-    $(dt.table().container()).find('.dataTables_filter input').off().on('input', debounce(function() {
-      dt.search(this.value).draw();
-    }, 300));
+    $(sdt.table().container()).find('.dt-buttons').addClass('ms-1');
+    return;
+  }
+
+  var lengths = [10, 25, 50, 100];
+  var initialLen = parseInt($t.data('page-length'), 10) || lengths[0];
+  if (lengths.indexOf(initialLen) === -1) lengths.unshift(initialLen);
+  var dt = $t.DataTable({
+    pageLength: initialLen,
+    lengthMenu: [lengths, lengths],
+    order: [[0, 'desc']],
+    language: {
+      search: '',
+      searchPlaceholder: 'Search…',
+      emptyTable: 'No records found',
+      info: 'Showing _START_–_END_ of _TOTAL_',
+      lengthMenu: 'Show _MENU_'
+    },
+    dom: "<'row align-items-center mb-2'<'col-sm-6 d-flex align-items-center gap-2'lB><'col-sm-6 text-end'f>>tip",
+    buttons: [
+      {
+        extend: 'excelHtml5',
+        text: '<i class="fas fa-file-export me-1"></i> Export',
+        className: 'btn btn-success btn-sm'
+      }
+    ],
+    exportOptions: { columns: ':not(:last-child)' }
   });
+  var lenSelect = $(dt.table().container()).find('.dataTables_length select');
+  lenSelect.val(String(initialLen)).addClass('form-select form-select-sm');
+  $(dt.table().container()).find('.dt-buttons').addClass('ms-1');
+  $(dt.table().container()).find('.dataTables_filter input').off().on('input', debounce(function() {
+    dt.search(this.value).draw();
+  }, 300));
+}
+
+$(function(){
+  $('.wis-table').each(function(){ wisInitDataTable($(this)); });
 });
 
 /* ── Select2 Auto-init ───────────────────────────────────────────────── */
@@ -710,43 +740,7 @@ WIS.refreshContent = function() {
       });
       curContent.innerHTML = newContent.innerHTML;
       /* Re-init DataTables on refreshed content */
-      $(curContent).find('.wis-table').each(function() {
-        var $t = $(this);
-        var bodyRows = $t.find('tbody tr');
-        if (bodyRows.length === 1 && bodyRows.find('td[colspan]').length > 0 && bodyRows.find('td').length === 1) {
-          bodyRows.remove();
-        }
-        var lengths = [10, 25, 50, 100];
-        var initialLen = parseInt($t.data('page-length'), 10) || lengths[0];
-        if (lengths.indexOf(initialLen) === -1) lengths.unshift(initialLen);
-        var dt = $t.DataTable({
-          pageLength: initialLen,
-          lengthMenu: [lengths, lengths],
-          order: [[0, 'desc']],
-          language: {
-            search: '',
-            searchPlaceholder: 'Search…',
-            emptyTable: 'No records found',
-            info: 'Showing _START_–_END_ of _TOTAL_',
-            lengthMenu: 'Show _MENU_'
-          },
-          dom: "<'row align-items-center mb-2'<'col-sm-6 d-flex align-items-center gap-2'lB><'col-sm-6 text-end'f>>tip",
-          buttons: [
-            {
-              extend: 'excelHtml5',
-              text: '<i class="fas fa-file-export me-1"></i> Export',
-              className: 'btn btn-success btn-sm'
-            }
-          ],
-          exportOptions: { columns: ':not(:last-child)' }
-        });
-        var lenSelect = $(dt.table().container()).find('.dataTables_length select');
-        lenSelect.val(String(initialLen)).addClass('form-select form-select-sm');
-        $(dt.table().container()).find('.dt-buttons').addClass('ms-1');
-        $(dt.table().container()).find('.dataTables_filter input').off().on('input', debounce(function() {
-          dt.search(this.value).draw();
-        }, 300));
-      });
+      $(curContent).find('.wis-table').each(function() { wisInitDataTable($(this)); });
       /* Re-bind modal triggers */
       /* (delegated handler on document already covers new elements) */
       /* Re-init tooltips */

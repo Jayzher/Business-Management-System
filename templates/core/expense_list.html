@@ -32,8 +32,17 @@
     </div>
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-hover table-striped text-nowrap wis-table">
-      <thead><tr><th>Date</th><th>Category</th><th>Amount</th><th>Vendor</th><th>Reference</th><th>Memo</th><th>By</th><th></th></tr></thead>
+    <table class="table table-hover table-striped text-nowrap wis-table" data-server-paginated="true">
+      <thead><tr>
+        <th>{% sort_link 'date' 'Date' sort dir %}</th>
+        <th>{% sort_link 'category' 'Category' sort dir %}</th>
+        <th>{% sort_link 'amount' 'Amount' sort dir %}</th>
+        <th>{% sort_link 'vendor' 'Vendor' sort dir %}</th>
+        <th>{% sort_link 'reference' 'Reference' sort dir %}</th>
+        <th>Memo</th>
+        <th>{% sort_link 'by' 'By' sort dir %}</th>
+        <th></th>
+      </tr></thead>
       <tbody>
         {% for exp in expenses %}
         <tr>
@@ -57,6 +66,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="expenses" %}
   </div>
 </div>
 {% endblock %}

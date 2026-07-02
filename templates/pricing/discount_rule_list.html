@@ -16,13 +16,13 @@
     </div>{% endif %}
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-hover text-nowrap wis-table">
+    <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
         <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Value</th>
-          <th>Scope</th>
+          <th>{% sort_link 'name' 'Name' sort dir %}</th>
+          <th>{% sort_link 'type' 'Type' sort dir %}</th>
+          <th>{% sort_link 'value' 'Value' sort dir %}</th>
+          <th>{% sort_link 'scope' 'Scope' sort dir %}</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -57,6 +57,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="discount rules" %}
   </div>
 </div>
 {% endblock %}

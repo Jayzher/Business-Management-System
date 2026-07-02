@@ -44,8 +44,20 @@ def settings_view(request):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def channel_list(request):
+    from core.utils import sort_queryset, paginate_queryset
     channels = SalesChannel.objects.all()
-    return render(request, 'core/channel_list.html', {'channels': channels})
+    sort_map = {
+        'code': 'code',
+        'name': 'name',
+    }
+    channels, sort, direction = sort_queryset(request, channels, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, channels, per_page=25)
+    return render(request, 'core/channel_list.html', {
+        'channels': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -93,8 +105,21 @@ def channel_delete(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def expense_category_list(request):
+    from core.utils import sort_queryset, paginate_queryset
     categories = ExpenseCategory.objects.all()
-    return render(request, 'core/expense_category_list.html', {'categories': categories})
+    sort_map = {
+        'code': 'code',
+        'name': 'name',
+        'cogs': 'is_cogs',
+    }
+    categories, sort, direction = sort_queryset(request, categories, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, categories, per_page=25)
+    return render(request, 'core/expense_category_list.html', {
+        'categories': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -142,6 +167,7 @@ def expense_category_delete(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def expense_list(request):
+    from core.utils import sort_queryset, paginate_queryset
     qs = Expense.objects.select_related('category', 'created_by')
     cat = request.GET.get('category')
     date_from = request.GET.get('date_from')
@@ -152,15 +178,28 @@ def expense_list(request):
         qs = qs.filter(date__gte=date_from)
     if date_to:
         qs = qs.filter(date__lte=date_to)
-    
-    # Get totals (no pagination - DataTables handles it client-side)
+
+    # Totals over the full filtered set, before pagination
     total = qs.aggregate(total=Coalesce(Sum('amount'), Decimal('0'), output_field=DecimalField()))['total']
     total_count = qs.count()
-    qs = qs.order_by('-date', '-created_at')
-    
+
+    sort_map = {
+        'date': ['date', 'created_at'],
+        'category': 'category__name',
+        'amount': 'amount',
+        'vendor': 'vendor',
+        'reference': 'reference_no',
+        'by': 'created_by__username',
+    }
+    qs, sort, direction = sort_queryset(request, qs, sort_map, default_key='date', default_dir='desc')
+    page_obj = paginate_queryset(request, qs, per_page=25)
+
     categories = ExpenseCategory.objects.all()
     return render(request, 'core/expense_list.html', {
-        'expenses': qs,
+        'expenses': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
         'categories': categories,
         'total': total,
         'total_count': total_count,
@@ -231,22 +270,36 @@ def invoice_list(request):
     from django.db.models import Sum, Count, DecimalField
     from django.db.models.functions import Coalesce
     from decimal import Decimal
+    from core.utils import sort_queryset, paginate_queryset
     # Exclude invoices that belong to a CustomerService (those live in services/)
     service_invoice_ids = Invoice.objects.filter(
         customer_services__isnull=False
     ).values_list('id', flat=True)
     invoices = Invoice.objects.exclude(
         pk__in=service_invoice_ids
-    ).select_related('created_by').order_by('-date', '-created_at')
-    
-    # Get total count and sum (no pagination - DataTables handles it client-side)
+    ).select_related('created_by')
+
+    # Totals computed over the full filtered set, before pagination
     invoice_summary = invoices.aggregate(
         count=Count('id'),
         total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
     )
-    
+
+    sort_map = {
+        'invoice_no': 'invoice_number',
+        'date': ['date', 'created_at'],
+        'customer': 'customer_name',
+        'total': 'grand_total',
+        'status': 'is_paid',
+    }
+    invoices, sort, direction = sort_queryset(request, invoices, sort_map, default_key='date', default_dir='desc')
+    page_obj = paginate_queryset(request, invoices, per_page=25)
+
     return render(request, 'core/invoice_list.html', {
-        'invoices': invoices,
+        'invoices': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
         'invoice_summary': invoice_summary,
     })
 
@@ -563,8 +616,25 @@ def invoice_delete_payment(request, pk, payment_pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def supply_item_list(request):
+    from core.utils import sort_queryset, paginate_queryset
     items = SupplyItem.objects.select_related('category')
-    return render(request, 'core/supply_item_list.html', {'items': items})
+    sort_map = {
+        'code': 'code',
+        'name': 'name',
+        'category': 'category__name',
+        'unit': 'unit',
+        'stock': 'current_stock',
+        'min': 'minimum_stock',
+        'cost': 'cost_per_unit',
+    }
+    items, sort, direction = sort_queryset(request, items, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, items, per_page=25)
+    return render(request, 'core/supply_item_list.html', {
+        'items': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required
@@ -609,6 +679,7 @@ def supply_item_delete(request, pk):
 
 @login_required
 def supply_movement_list(request):
+    from core.utils import sort_queryset, paginate_queryset
     qs = SupplyMovement.objects.select_related('supply_item', 'created_by')
     item_id = request.GET.get('item')
     mtype = request.GET.get('type')
@@ -616,14 +687,27 @@ def supply_movement_list(request):
         qs = qs.filter(supply_item_id=item_id)
     if mtype:
         qs = qs.filter(movement_type=mtype)
-    
-    # Get total count (no pagination - DataTables handles it client-side)
+
+    # Total count over the full filtered set, before pagination
     total_count = qs.count()
-    qs = qs.order_by('-date', '-created_at')
-    
+
+    sort_map = {
+        'date': ['date', 'created_at'],
+        'item': 'supply_item__name',
+        'type': 'movement_type',
+        'qty': 'qty',
+        'cost': 'unit_cost',
+        'by': 'created_by__username',
+    }
+    qs, sort, direction = sort_queryset(request, qs, sort_map, default_key='date', default_dir='desc')
+    page_obj = paginate_queryset(request, qs, per_page=25)
+
     items = SupplyItem.objects.all()
     return render(request, 'core/supply_movement_list.html', {
-        'movements': qs, 
+        'movements': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
         'items': items,
         'total_count': total_count,
         'filters': {'item': item_id or '', 'type': mtype or ''},
@@ -648,8 +732,20 @@ def supply_movement_create(request):
 
 @login_required
 def supply_category_list(request):
+    from core.utils import sort_queryset, paginate_queryset
     cats = SupplyCategory.objects.all()
-    return render(request, 'core/supply_category_list.html', {'categories': cats})
+    sort_map = {
+        'code': 'code',
+        'name': 'name',
+    }
+    cats, sort, direction = sort_queryset(request, cats, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, cats, per_page=25)
+    return render(request, 'core/supply_category_list.html', {
+        'categories': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
+    })
 
 
 @login_required

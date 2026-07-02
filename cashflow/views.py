@@ -514,18 +514,23 @@ def transaction_cancel(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def log_list(request):
-    qs = (
-        CashFlowLog.objects
-        .select_related('transaction', 'performed_by')
-        .order_by('-timestamp')
-    )
-    
-    # Get total count (no pagination - DataTables handles it client-side)
-    total_count = qs.count()
-    
+    from core.utils import sort_queryset, paginate_queryset
+    qs = CashFlowLog.objects.select_related('transaction', 'performed_by')
+
+    sort_map = {
+        'date': 'created_at',
+        'transaction': 'transaction__transaction_number',
+        'action': 'action',
+        'performed_by': 'performed_by__username',
+    }
+    qs, sort, direction = sort_queryset(request, qs, sort_map, default_key='created_at', default_dir='desc')
+    page_obj = paginate_queryset(request, qs, per_page=25)
+
     return render(request, 'cashflow/log_list.html', {
-        'logs': qs,
-        'total_count': total_count,
+        'logs': page_obj,
+        'page_obj': page_obj,
+        'sort': sort,
+        'dir': direction,
     })
 
 

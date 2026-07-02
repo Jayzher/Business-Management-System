@@ -32,8 +32,8 @@
     </form>
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-hover table-striped text-nowrap wis-table">
-      <thead><tr><th>Date</th><th>Item</th><th>Type</th><th class="text-right">Qty</th><th class="text-right">Unit Cost</th><th>Notes</th><th>By</th></tr></thead>
+    <table class="table table-hover table-striped text-nowrap wis-table" data-server-paginated="true">
+      <thead><tr><th>{% sort_link 'date' 'Date' sort dir %}</th><th>{% sort_link 'item' 'Item' sort dir %}</th><th>{% sort_link 'type' 'Type' sort dir %}</th><th class="text-right">{% sort_link 'qty' 'Qty' sort dir %}</th><th class="text-right">{% sort_link 'cost' 'Unit Cost' sort dir %}</th><th>Notes</th><th>{% sort_link 'by' 'By' sort dir %}</th></tr></thead>
       <tbody>
         {% for mv in movements %}
         <tr>
@@ -50,6 +50,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="movements" %}
   </div>
 </div>
 {% endblock %}

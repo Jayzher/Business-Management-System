@@ -10,8 +10,8 @@
     {% if not is_view_only and not is_web_version %}<div class="card-tools"><a href="#" data-modal-url="{% url 'supply_category_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Category</a></div>{% endif %}
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-hover text-nowrap wis-table">
-      <thead><tr><th>Code</th><th>Name</th><th></th></tr></thead>
+    <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
+      <thead><tr><th>{% sort_link 'code' 'Code' sort dir %}</th><th>{% sort_link 'name' 'Name' sort dir %}</th><th></th></tr></thead>
       <tbody>
         {% for cat in categories %}
         <tr>
@@ -27,6 +27,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="categories" %}
   </div>
 </div>
 {% endblock %}

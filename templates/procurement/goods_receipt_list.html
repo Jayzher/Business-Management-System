@@ -11,9 +11,18 @@
     {% if not is_view_only and not is_web_version %}<div class="card-tools"><a href="#" data-modal-url="{% url 'goods_receipt_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New GRN</a></div>{% endif %}
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-hover text-nowrap wis-table">
+    <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
-      <tr><th>GRN #</th><th>PO #</th><th>Supplier</th><th>Warehouse</th><th>Receipt Date</th><th>Status</th><th>Created By</th><th>Actions</th></tr>
+      <tr>
+        <th>{% sort_link 'number' 'GRN #' sort dir %}</th>
+        <th>{% sort_link 'po' 'PO #' sort dir %}</th>
+        <th>{% sort_link 'supplier' 'Supplier' sort dir %}</th>
+        <th>{% sort_link 'warehouse' 'Warehouse' sort dir %}</th>
+        <th>{% sort_link 'date' 'Receipt Date' sort dir %}</th>
+        <th>{% sort_link 'status' 'Status' sort dir %}</th>
+        <th>{% sort_link 'by' 'Created By' sort dir %}</th>
+        <th>Actions</th>
+      </tr>
       </thead>
       <tbody>
       {% for r in receipts %}
@@ -42,6 +51,7 @@
       {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="goods receipts" %}
   </div>
 </div>
 {% endblock %}

@@ -18,15 +18,15 @@
     </div>{% endif %}
   </div>
   <div class="card-body table-responsive p-0">
-    <table class="table table-hover text-nowrap wis-table" id="unit-conv-table">
+    <table class="table table-hover text-nowrap wis-table" id="unit-conv-table" data-server-paginated="true">
       <thead>
         <tr>
-          <th>From Unit</th>
-          <th>To Unit</th>
-          <th>Factor</th>
-          <th>Item (specific)</th>
-          <th>Category</th>
-          <th>Status</th>
+          <th>{% sort_link 'from_unit' 'From Unit' sort dir %}</th>
+          <th>{% sort_link 'to_unit' 'To Unit' sort dir %}</th>
+          <th>{% sort_link 'factor' 'Factor' sort dir %}</th>
+          <th>{% sort_link 'item' 'Item (specific)' sort dir %}</th>
+          <th>{% sort_link 'category' 'Category' sort dir %}</th>
+          <th>{% sort_link 'status' 'Status' sort dir %}</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -82,6 +82,7 @@
         {% endfor %}
       </tbody>
     </table>
+    {% include "theme/partials/pagination.html" with items_name="unit conversions" %}
   </div>
   <div class="card-footer text-muted small">
     <i class="fas fa-info-circle mr-1"></i>
