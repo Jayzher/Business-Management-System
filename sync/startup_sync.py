@@ -65,6 +65,21 @@ def start_background_sync():
 def _run_changelog_sync_delayed():
     """Wrapper that waits for Django to fully initialize before syncing."""
     time.sleep(3)
+
+    # If a foreground long-transaction is holding local_cache (e.g. the
+    # resync_inventory management command — see background_sync.pause_worker),
+    # wait for it to finish first. Without this, this thread's own bulk
+    # writes/hydration race that transaction for SQLite's single write lock
+    # regardless of which one started first, since this 3s timer is
+    # independent of when a foreground command begins.
+    try:
+        from sync.background_sync import _pause_event
+        deadline = time.time() + 300
+        while _pause_event.is_set() and time.time() < deadline:
+            time.sleep(0.25)
+    except Exception:
+        pass
+
     _run_changelog_sync()
 
 

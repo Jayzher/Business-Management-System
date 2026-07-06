@@ -11,7 +11,8 @@ Handles:
   - Changed document status (un-posted, re-posted) → balances rebuilt
   - Duplicate StockMoves → deduplicated
   - Missing StockMoves → backfilled from document lines
-  - Missing unit conversions → hard error (no silent fallback)
+  - Missing unit conversions → hard error, aborts the ENTIRE Phase 0-2 run
+    atomically (no silent fallback, no partial commit)
   - SO bundle components missing from DN/PU → backfilled
   - Financial statements → recalculated after inventory changes
 
@@ -45,10 +46,11 @@ Usage:
     python manage.py resync_inventory --quiet          # suppress per-row output
 """
 from collections import defaultdict
+from contextlib import ExitStack
 from decimal import Decimal, InvalidOperation
 
-from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.core.management.base import BaseCommand, CommandError
+from django.db import connections, transaction
 from django.utils import timezone
 
 from catalog.models import convert_to_base_unit
@@ -1850,22 +1852,61 @@ class Command(BaseCommand):
                 '  No changes will be saved.  Re-run without --dry-run to commit.\n'
             ))
 
-        if phase in ('0', 'all'):
-            self._run_phase0(dry_run)
-        if phase in ('1', 'all'):
-            self._run_phase1(dry_run)
+        # Phases 0-2 mutate StockMove/StockBalance based on unit conversions.
+        # They run inside one shared transaction so that a missing conversion
+        # discovered anywhere among them aborts the WHOLE mutating run —
+        # never partially apply moves/balances derived from a silently
+        # skipped (unconverted) line.
+        #
+        # IMPORTANT: this app's DB router can send writes to 'default' (Neon)
+        # or to 'local_cache' (SQLite mirror) depending on SYNC_MODE — a bare
+        # transaction.atomic() only ever covers 'default' and would silently
+        # let 'local_cache' writes commit even when we mean to abort. Wrap
+        # every alias that's actually configured (desktop-mode settings only
+        # define 'default') so the abort/rollback below is real regardless
+        # of which connection the router picked.
+        write_aliases = [a for a in ('default', 'local_cache') if a in connections.databases]
 
-        # ── Note conversion skips from Phase 0/1 and continue ───────────
-        if _conversion_errors and phase in ('2', 'all'):
-            self._report_conversion_errors()
-            # Clear so Phase 2 starts with a fresh error list
-            _conversion_errors.clear()
+        # This block holds one long transaction on 'local_cache' spanning
+        # thousands of rows. The background sync worker (started for the
+        # live runserver process — see sync/apps.py) runs on its own thread
+        # and would otherwise fight this transaction for SQLite's single
+        # writer lock on every batch, stalling the request for minutes or
+        # raising "database is locked". Pause it for the duration and always
+        # resume it afterward, even on abort.
+        from sync.background_sync import pause_worker, resume_worker
+        pause_worker()
+        try:
+            with ExitStack() as mutation_txn:
+                for alias in write_aliases:
+                    mutation_txn.enter_context(transaction.atomic(using=alias))
 
-        if phase in ('2', 'all'):
-            self._run_phase2(dry_run)
+                if phase in ('0', 'all'):
+                    self._run_phase0(dry_run)
+                if phase in ('1', 'all'):
+                    self._run_phase1(dry_run)
+                if phase in ('2', 'all'):
+                    self._run_phase2(dry_run)
 
-            if _conversion_errors:
-                self._report_conversion_errors()
+                if _conversion_errors:
+                    self._report_conversion_errors()
+                    if not dry_run:
+                        for alias in write_aliases:
+                            transaction.set_rollback(True, using=alias)
+                        raise CommandError(
+                            f'Aborted: {len(_conversion_errors)} unit conversion(s) missing '
+                            '(see [SKIP] lines above). No changes were saved — add the '
+                            'missing UnitConversion record(s), then re-run resync_inventory.'
+                        )
+
+                if dry_run:
+                    # Some sub-steps (e.g. GRN->PO backfill) write unconditionally
+                    # and rely on this outer rollback for dry-run safety — make
+                    # sure that actually covers whichever alias got written to.
+                    for alias in write_aliases:
+                        transaction.set_rollback(True, using=alias)
+        finally:
+            resume_worker()
 
         if phase in ('3', 'all'):
             self._run_phase3()
@@ -1997,9 +2038,10 @@ class Command(BaseCommand):
                 seen.add(err.key)
                 unique_errors.append(err)
 
-        self._info(f'  [SKIP] {len(unique_errors)} item(s) have lines skipped — no unit conversion configured:')
+        # Always print — --quiet must not hide the reason a real run aborted.
+        self._warn(f'  [SKIP] {len(unique_errors)} item(s) have lines skipped — no unit conversion configured:')
         for err in sorted(unique_errors, key=lambda e: e.item_code):
-            self._info(f'    {err.item_code:40s}  {err.from_unit} → {err.to_unit}')
+            self._warn(f'    {err.item_code:40s}  {err.from_unit} → {err.to_unit}')
 
     # ── Phase 0: clean up StockMoves ─────────────────────────────────────────
 

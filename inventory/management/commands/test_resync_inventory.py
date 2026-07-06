@@ -12,6 +12,7 @@ Scenarios covered:
   8.  Phase 2: multiple docs, cumulative balance is accurate.
   9.  Phase 1: existing StockMove with wrong qty gets corrected.
   10. Full cycle: wrong move + wrong balance → both corrected.
+  11. Missing unit conversion aborts the whole Phase 0-2 run (no partial writes).
 """
 import datetime
 from decimal import Decimal
@@ -473,3 +474,39 @@ class ResyncIdempotentTest(TestCase):
 
         self.assertEqual(bal_first, Decimal('60'))
         self.assertEqual(bal_second, Decimal('60'))
+
+
+class ResyncMissingConversionAbortsTest(TestCase):
+    """A line whose unit has no UnitConversion path to the item's default_unit
+    must abort the ENTIRE Phase 0-2 run atomically — never silently fall back
+    to the default unit and commit a wrong qty/balance."""
+
+    @classmethod
+    def setUpTestData(cls):
+        _setup_base(cls)
+        from catalog.models import Unit, UnitCategory
+        # 'gal' has NO UnitConversion registered to/from pcs (item.default_unit)
+        cls.gal = Unit.objects.create(
+            name='RI_Gallon', abbreviation='rigal', category=UnitCategory.QUANTITY)
+
+    def test_missing_conversion_raises_and_writes_nothing(self):
+        from django.core.management.base import CommandError
+        from inventory.models import StockBalance
+
+        _make_posted_grn(self, Decimal('3'), self.gal)  # gal -> pcs: no conversion
+
+        with self.assertRaises(CommandError):
+            _call_resync('--phase', '2')
+
+        # Whole run rolled back — no balance row was created.
+        self.assertEqual(
+            StockBalance.objects.filter(item=self.item, location=self.loc1).count(), 0,
+        )
+
+    def test_dry_run_reports_but_does_not_raise(self):
+        _make_posted_grn(self, Decimal('3'), self.gal)
+
+        # Dry-run never writes, so there's nothing to protect — it should
+        # just report the missing conversion, not raise.
+        output = _call_resync('--phase', '2', '--dry-run')
+        self.assertIn('SKIP', output)

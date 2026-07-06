@@ -41,6 +41,49 @@ _task_queue = queue.Queue()
 _worker_thread = None
 _worker_started = False
 
+# Pause support — lets a long-lived foreground transaction (e.g. the
+# resync_inventory management command holding one transaction across
+# thousands of rows) get exclusive use of the SQLite connection instead of
+# fighting this thread for the write lock on every batch.
+_pause_event = threading.Event()
+_idle_event = threading.Event()
+_idle_event.set()  # idle until the first task arrives
+
+
+def pause_worker(timeout=10.0):
+    """Pause the worker before a long-lived transaction elsewhere.
+
+    Blocks until any in-flight batch finishes (batches are capped at 10 tasks
+    and close their connections immediately after, so this is normally
+    near-instant). Also waits for the separate startup changelog-sync thread
+    (sync/startup_sync.py) to finish if it's mid-run — that thread does its
+    own bulk writes/hydration to local_cache independent of this task queue,
+    and races the same SQLite write lock (e.g. right after a server restart,
+    when it fires ~3s after boot).
+
+    Safe to call even if neither background thread was ever started.
+    Returns True once both are confirmed idle, False on timeout (the caller
+    should treat that as "proceed cautiously" rather than fail).
+    """
+    _pause_event.set()
+    worker_idle = _idle_event.wait(timeout=timeout)
+
+    try:
+        from sync.signals import is_sync_in_progress
+        deadline = time.time() + timeout
+        while is_sync_in_progress() and time.time() < deadline:
+            time.sleep(0.25)
+        startup_sync_idle = not is_sync_in_progress()
+    except Exception:
+        startup_sync_idle = True  # module unavailable — nothing to wait for
+
+    return worker_idle and startup_sync_idle
+
+
+def resume_worker():
+    """Resume a worker previously paused with pause_worker()."""
+    _pause_event.clear()
+
 
 def start_background_worker():
     """Start the background sync worker thread (idempotent)."""
@@ -109,12 +152,18 @@ def _worker_loop():
     would block user requests.
     """
     while True:
+        if _pause_event.is_set():
+            _idle_event.set()
+            time.sleep(0.2)
+            continue
+
         try:
             # Block until a task is available (with timeout for graceful shutdown)
             task = _task_queue.get(timeout=5.0)
         except queue.Empty:
             continue
 
+        _idle_event.clear()
         batch = [task]
         try:
             # Drain additional tasks that arrived while we were processing
@@ -149,6 +198,8 @@ def _worker_loop():
                         pass
             except Exception:
                 pass
+
+            _idle_event.set()
 
 
 def _process_batch(batch: list):
