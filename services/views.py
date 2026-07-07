@@ -341,19 +341,31 @@ def service_create(request):
         mat_valid = mat_formset.is_valid()
         bundle_valid = bundle_formset.is_valid()
         if form_valid and formset_valid and mat_valid and bundle_valid:
-            svc = form.save(commit=False)
-            svc.created_by = request.user
-            if not svc.service_number:
-                svc.service_number = CustomerService.generate_next_service_number()
-            svc.save()
-            formset.instance = svc
-            mat_formset.instance = svc
-            bundle_formset.instance = svc
-            formset.save()
-            mat_formset.save()
-            bundle_formset.save()
-            messages.success(request, f'Service {svc.service_number} created.')
-            return redirect('service_detail', pk=svc.pk)
+            from django.db import IntegrityError
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    with transaction.atomic():
+                        svc = form.save(commit=False)
+                        svc.created_by = request.user
+                        if not svc.service_number:
+                            svc.service_number = CustomerService.generate_next_service_number()
+                        svc.save()
+                        formset.instance = svc
+                        mat_formset.instance = svc
+                        bundle_formset.instance = svc
+                        formset.save()
+                        mat_formset.save()
+                        bundle_formset.save()
+                    messages.success(request, f'Service {svc.service_number} created.')
+                    return redirect('service_detail', pk=svc.pk)
+                except IntegrityError as e:
+                    if 'service_number' in str(e).lower() and attempt < max_retries - 1:
+                        # Duplicate service number, retry with a new one
+                        continue
+                    else:
+                        messages.error(request, f'Error creating service: {e}')
+                        break
         else:
             messages.error(request, 'Please correct the errors below.')
     else:

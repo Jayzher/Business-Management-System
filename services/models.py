@@ -26,19 +26,25 @@ class CustomerService(models.Model):
 
     @staticmethod
     def generate_next_service_number():
-        """Generate sequential service numbers like SVC-000001."""
+        """Generate sequential service numbers like SVC-000001.
+        Uses select_for_update to prevent race conditions."""
         from django.db.models import Max
-        result = CustomerService.objects.filter(
-            service_number__startswith='SVC-'
-        ).aggregate(m=Max('service_number'))['m']
-        if result:
-            try:
-                max_num = int(result.split('-', 1)[1])
-            except (IndexError, ValueError):
+        from django.db import transaction
+        
+        with transaction.atomic():
+            # Lock the rows while we compute the next number
+            result = CustomerService.objects.select_for_update().filter(
+                service_number__startswith='SVC-'
+            ).aggregate(m=Max('service_number'))['m']
+            
+            if result:
+                try:
+                    max_num = int(result.split('-', 1)[1])
+                except (IndexError, ValueError):
+                    max_num = 0
+            else:
                 max_num = 0
-        else:
-            max_num = 0
-        return f"SVC-{max_num + 1:06d}"
+            return f"SVC-{max_num + 1:06d}"
     service_number = models.CharField(max_length=50, unique=True)
     service_name = models.CharField(max_length=200)
     customer_name = models.CharField(max_length=200, help_text='Customer name (free text)')
