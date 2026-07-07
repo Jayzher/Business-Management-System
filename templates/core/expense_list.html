@@ -13,7 +13,7 @@
       <a href="#" data-modal-url="{% url 'expense_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> Record Expense</a>
     </div>{% endif %}
   </div>
-  <div class="card-body">
+  <div class="card-body pb-0">
     <form method="get" class="row g-2 mb-3">
       <div class="col-md-3">
         <select name="category" class="form-control form-control-sm">
@@ -30,8 +30,9 @@
     <div class="alert alert-info py-2 mb-3">
       <strong>Total:</strong> {{ total|floatformat:2|intcomma }}
     </div>
+    {% include "theme/partials/table_toolbar.html" with filters=None search_placeholder="Search vendor, reference, memo…" %}
   </div>
-  <div class="card-body table-responsive">
+  <div class="card-body table-responsive pt-0">
     <table class="table table-hover table-striped text-nowrap wis-table" data-server-paginated="true">
       <thead><tr>
         <th>{% sort_link 'date' 'Date' sort dir %}</th>

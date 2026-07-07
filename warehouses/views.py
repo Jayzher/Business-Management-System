@@ -5,7 +5,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from warehouses.models import Warehouse, Location
+from warehouses.models import Warehouse, Location, LocationType
 from warehouses.serializers import WarehouseSerializer, LocationSerializer
 from warehouses.forms import WarehouseForm, LocationForm
 from inventory.models import StockBalance
@@ -43,8 +43,9 @@ class LocationViewSet(viewsets.ModelViewSet):
 
 @login_required
 def warehouse_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     warehouses = Warehouse.objects.all()
+    warehouses = search_queryset(request, warehouses, ['code', 'name', 'city'])
 
     sort_map = {
         'code': 'code',
@@ -67,8 +68,12 @@ def warehouse_list_view(request):
 
 @login_required
 def location_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     locations = Location.objects.select_related('warehouse', 'parent').all()
+    locations = search_queryset(request, locations, ['code', 'name', 'warehouse__code'])
+    type_filter = (request.GET.get('type') or '').strip()
+    if type_filter:
+        locations = locations.filter(location_type=type_filter)
 
     sort_map = {
         'code': 'code',
@@ -83,9 +88,16 @@ def location_list_view(request):
     )
     page_obj = paginate_queryset(request, locations, per_page=25)
 
+    filters = [{
+        'param': 'type',
+        'label': 'Type',
+        'options': list(LocationType.choices),
+    }]
+
     return render(request, 'warehouses/location_list.html', {
         'locations': page_obj,
         'page_obj': page_obj,
+        'filters': filters,
         'sort': sort,
         'dir': direction,
     })

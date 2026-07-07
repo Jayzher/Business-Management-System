@@ -327,8 +327,12 @@ def delivery_print_view(request, pk):
 @login_required
 @sales_access
 def sales_order_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     orders = SalesOrder.objects.select_related('customer', 'warehouse', 'created_by').all()
+    orders = search_queryset(request, orders, ['document_number', 'customer__name'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        orders = orders.filter(status=status_filter)
     sort_map = {
         'so_number': 'document_number',
         'customer': 'customer__name',
@@ -340,11 +344,17 @@ def sales_order_list_view(request):
     }
     orders, sort, direction = sort_queryset(request, orders, sort_map, default_key='order_date', default_dir='desc')
     page_obj = paginate_queryset(request, orders, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'sales/sales_order_list.html', {
         'orders': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -422,10 +432,14 @@ def sales_order_detail_view(request, pk):
 @login_required
 @sales_access
 def delivery_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     deliveries = DeliveryNote.objects.select_related(
         'sales_order', 'customer', 'warehouse', 'created_by'
     ).all()
+    deliveries = search_queryset(request, deliveries, ['document_number', 'customer__name'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        deliveries = deliveries.filter(status=status_filter)
     sort_map = {
         'dn_number': 'document_number',
         'so_number': 'sales_order__document_number',
@@ -437,11 +451,17 @@ def delivery_list_view(request):
     }
     deliveries, sort, direction = sort_queryset(request, deliveries, sort_map, default_key='created_at', default_dir='desc')
     page_obj = paginate_queryset(request, deliveries, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'sales/delivery_list.html', {
         'deliveries': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -643,10 +663,14 @@ def _split_pickup_lines(pickup):
 @login_required
 @sales_access
 def pickup_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     pickups = SalesPickup.objects.select_related(
         'sales_order', 'customer', 'warehouse', 'created_by'
     ).all()
+    pickups = search_queryset(request, pickups, ['document_number', 'customer__name'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        pickups = pickups.filter(status=status_filter)
     sort_map = {
         'pickup_number': 'document_number',
         'so_number': 'sales_order__document_number',
@@ -658,11 +682,17 @@ def pickup_list_view(request):
     }
     pickups, sort, direction = sort_queryset(request, pickups, sort_map, default_key='created_at', default_dir='desc')
     page_obj = paginate_queryset(request, pickups, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'sales/pickup_list.html', {
         'pickups': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -860,8 +890,12 @@ def pickup_print_view(request, pk):
 @login_required
 @sales_access
 def sales_return_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     returns = SalesReturn.objects.select_related('customer', 'warehouse', 'created_by').all()
+    returns = search_queryset(request, returns, ['document_number', 'customer__name'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        returns = returns.filter(status=status_filter)
     sort_map = {
         'doc_number': 'document_number',
         'customer': 'customer__name',
@@ -872,11 +906,17 @@ def sales_return_list_view(request):
     }
     returns, sort, direction = sort_queryset(request, returns, sort_map, default_key='created_at', default_dir='desc')
     page_obj = paginate_queryset(request, returns, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'sales/sales_return_list.html', {
         'returns': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 

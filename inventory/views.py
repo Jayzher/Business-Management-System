@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from inventory.models import (
-    StockMove, StockBalance,
+    StockMove, StockBalance, MoveType,
     StockAdjustment, StockAdjustmentLine,
     DamagedReport, DamagedReportLine,
     StockTransfer, StockTransferLine,
@@ -320,10 +320,16 @@ STOCK_MOVE_SORT_MAP = {
 @login_required
 @warehouse_access
 def stock_move_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     moves = StockMove.objects.filter(status='POSTED').select_related(
         'item', 'unit', 'from_location', 'to_location', 'created_by'
     )
+    moves = search_queryset(request, moves, [
+        'item__code', 'item__name', 'reference_number', 'batch_number', 'serial_number',
+    ])
+    type_filter = (request.GET.get('type') or '').strip()
+    if type_filter:
+        moves = moves.filter(move_type=type_filter)
     moves, sort, direction = sort_queryset(
         request, moves, STOCK_MOVE_SORT_MAP, default_key='posted_at', default_dir='desc'
     )
@@ -333,12 +339,19 @@ def stock_move_list_view(request):
 
     page_obj = paginate_queryset(request, moves, per_page=25)
 
+    filters = [{
+        'param': 'type',
+        'label': 'Type',
+        'options': list(MoveType.choices),
+    }]
+
     return render(request, 'inventory/stock_move_list.html', {
         'moves': page_obj,
         'total_count': total_count,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -355,19 +368,31 @@ TRANSFER_SORT_MAP = {
 @login_required
 @warehouse_access
 def transfer_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     transfers = StockTransfer.objects.select_related(
         'from_warehouse', 'to_warehouse', 'created_by'
     ).all()
+    transfers = search_queryset(request, transfers, [
+        'document_number', 'from_warehouse__code', 'to_warehouse__code',
+    ])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        transfers = transfers.filter(status=status_filter)
     transfers, sort, direction = sort_queryset(
         request, transfers, TRANSFER_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, transfers, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'inventory/transfer_list.html', {
         'transfers': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -394,19 +419,29 @@ ADJUSTMENT_SORT_MAP = {
 @login_required
 @adjustment_access
 def adjustment_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     adjustments = StockAdjustment.objects.select_related(
         'warehouse', 'created_by'
     ).all()
+    adjustments = search_queryset(request, adjustments, ['document_number', 'warehouse__code'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        adjustments = adjustments.filter(status=status_filter)
     adjustments, sort, direction = sort_queryset(
         request, adjustments, ADJUSTMENT_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, adjustments, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'inventory/adjustment_list.html', {
         'adjustments': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -464,19 +499,29 @@ DAMAGED_SORT_MAP = {
 @login_required
 @warehouse_access
 def damaged_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     reports = DamagedReport.objects.select_related(
         'warehouse', 'created_by'
     ).all()
+    reports = search_queryset(request, reports, ['document_number', 'warehouse__code'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        reports = reports.filter(status=status_filter)
     reports, sort, direction = sort_queryset(
         request, reports, DAMAGED_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, reports, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'inventory/damaged_list.html', {
         'reports': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -700,19 +745,29 @@ IST_SORT_MAP = {
 @login_required
 @warehouse_access
 def ist_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     transfers = InventoryToSupplyTransfer.objects.select_related(
         'warehouse', 'created_by'
     ).all()
+    transfers = search_queryset(request, transfers, ['document_number', 'warehouse__code'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        transfers = transfers.filter(status=status_filter)
     transfers, sort, direction = sort_queryset(
         request, transfers, IST_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, transfers, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'inventory/ist_list.html', {
         'transfers': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 

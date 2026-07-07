@@ -15,7 +15,10 @@
       <a href="#" data-modal-url="{% url 'location_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Location</a>
     </div>{% endif %}
   </div>
-  <div class="card-body table-responsive">
+  <div class="card-body pb-0">
+    {% include "theme/partials/table_toolbar.html" with filters=filters search_placeholder="Search code, name, warehouse…" %}
+  </div>
+  <div class="card-body table-responsive pt-0">
     <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
         <tr>

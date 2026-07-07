@@ -419,8 +419,9 @@ CATEGORY_SORT_MAP = {
 
 @login_required
 def category_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     categories = Category.objects.all()
+    categories = search_queryset(request, categories, ['code', 'name', 'description'])
     categories, sort, direction = sort_queryset(
         request, categories, CATEGORY_SORT_MAP, default_key='created_at', default_dir='desc'
     )
@@ -499,8 +500,9 @@ UNIT_SORT_MAP = {
 
 @login_required
 def unit_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     units = Unit.objects.all()
+    units = search_queryset(request, units, ['name', 'abbreviation'])
     units, sort, direction = sort_queryset(
         request, units, UNIT_SORT_MAP, default_key='created_at', default_dir='desc'
     )
@@ -566,19 +568,31 @@ UNIT_CONVERSION_SORT_MAP = {
 
 @login_required
 def unit_conversion_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     conversions = UnitConversion.objects.select_related(
         'from_unit', 'to_unit', 'item'
     ).all()
+    conversions = search_queryset(request, conversions, [
+        'from_unit__name', 'to_unit__name', 'item__code', 'item__name',
+    ])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        conversions = conversions.filter(is_active=(status_filter == '1'))
     conversions, sort, direction = sort_queryset(
         request, conversions, UNIT_CONVERSION_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, conversions, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': [('1', 'Active'), ('0', 'Inactive')],
+    }]
     return render(request, 'catalog/unit_conversion_list.html', {
         'conversions': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 

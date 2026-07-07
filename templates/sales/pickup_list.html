@@ -10,7 +10,10 @@
     <h3 class="card-title">Pickup List</h3>
     {% if not is_view_only and not is_web_version %}<div class="card-tools"><a href="#" data-modal-url="{% url 'pickup_create' %}" data-modal-size="modal-xl" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Pickup</a></div>{% endif %}
   </div>
-  <div class="card-body table-responsive">
+  <div class="card-body pb-0">
+    {% include "theme/partials/table_toolbar.html" with filters=filters search_placeholder="Search pickup #, customer…" %}
+  </div>
+  <div class="card-body table-responsive pt-0">
     <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
         <tr>

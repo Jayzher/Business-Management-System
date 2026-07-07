@@ -24,7 +24,7 @@ def service_invoice_list(request):
     from django.db.models import Sum, Q
     from django.db.models.functions import Coalesce
     from django.db.models import DecimalField
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
 
     # Invoices that have at least one linked customer service
     invoice_ids = CustomerService.objects.filter(
@@ -34,6 +34,8 @@ def service_invoice_list(request):
     qs = Invoice.objects.filter(pk__in=invoice_ids).select_related(
         'created_by'
     ).prefetch_related('customer_services', 'payments')
+
+    qs = search_queryset(request, qs, ['invoice_number', 'customer_name'])
 
     # Optional filters
     paid_filter = request.GET.get('paid', '')
@@ -176,9 +178,10 @@ def service_invoice_detail(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def service_list(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     status_filter = request.GET.get('status', '')
     qs = CustomerService.objects.select_related('created_by', 'invoice')
+    qs = search_queryset(request, qs, ['service_number', 'service_name', 'customer_name'])
     if status_filter:
         qs = qs.filter(status=status_filter)
 

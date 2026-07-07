@@ -8,7 +8,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from pricing.models import PriceList, PriceListItem, DiscountRule, CustomerPriceCatalog, CustomerPriceCatalogItem
+from pricing.models import PriceList, PriceListItem, DiscountRule, DiscountScope, CustomerPriceCatalog, CustomerPriceCatalogItem
 from pricing.serializers import PriceListSerializer, PriceListItemSerializer, DiscountRuleSerializer
 from accounts.decorators import write_denied_for_viewer
 from pricing.forms import (
@@ -161,17 +161,27 @@ PRICE_LIST_SORT_MAP = {
 
 @login_required
 def price_list_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     price_lists = PriceList.objects.select_related('warehouse').all()
+    price_lists = search_queryset(request, price_lists, ['name', 'warehouse__name'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        price_lists = price_lists.filter(is_active=(status_filter == '1'))
     price_lists, sort, direction = sort_queryset(
         request, price_lists, PRICE_LIST_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, price_lists, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': [('1', 'Active'), ('0', 'Inactive')],
+    }]
     return render(request, 'pricing/price_list_list.html', {
         'price_lists': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -242,17 +252,27 @@ DISCOUNT_RULE_SORT_MAP = {
 
 @login_required
 def discount_rule_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     rules = DiscountRule.objects.filter(is_active=True)
+    rules = search_queryset(request, rules, ['name'])
+    scope_filter = (request.GET.get('scope') or '').strip()
+    if scope_filter:
+        rules = rules.filter(scope=scope_filter)
     rules, sort, direction = sort_queryset(
         request, rules, DISCOUNT_RULE_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, rules, per_page=25)
+    filters = [{
+        'param': 'scope',
+        'label': 'Scope',
+        'options': list(DiscountScope.choices),
+    }]
     return render(request, 'pricing/discount_rule_list.html', {
         'rules': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -372,13 +392,14 @@ CUSTOMER_CATALOG_SORT_MAP = {
 
 @login_required
 def customer_catalog_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     catalogs = (
         CustomerPriceCatalog.objects
         .select_related('customer')
         .prefetch_related('items')
         .filter(is_active=True)
     )
+    catalogs = search_queryset(request, catalogs, ['customer__name', 'name'])
     catalogs, sort, direction = sort_queryset(
         request, catalogs, CUSTOMER_CATALOG_SORT_MAP, default_key='created_at', default_dir='desc'
     )

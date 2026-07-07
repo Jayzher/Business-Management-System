@@ -244,17 +244,27 @@ REGISTER_SORT_MAP = {
 
 @login_required
 def register_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     registers = POSRegister.objects.select_related('warehouse', 'default_location', 'price_list').all()
+    registers = search_queryset(request, registers, ['name', 'warehouse__name'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        registers = registers.filter(is_active=(status_filter == '1'))
     registers, sort, direction = sort_queryset(
         request, registers, REGISTER_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, registers, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': [('1', 'Active'), ('0', 'Inactive')],
+    }]
     return render(request, 'pos/register_list.html', {
         'registers': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -351,17 +361,27 @@ SHIFT_SORT_MAP = {
 
 @login_required
 def shift_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     shifts = POSShift.objects.select_related('register', 'opened_by', 'closed_by')
+    shifts = search_queryset(request, shifts, ['register__name', 'opened_by__username'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        shifts = shifts.filter(status=status_filter)
     shifts, sort, direction = sort_queryset(
         request, shifts, SHIFT_SORT_MAP, default_key='opened_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, shifts, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(ShiftStatus.choices),
+    }]
     return render(request, 'pos/shift_list.html', {
         'shifts': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -435,19 +455,29 @@ RECEIPT_SORT_MAP = {
 
 @login_required
 def receipt_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     sales = POSSale.objects.filter(
         status__in=[SaleStatus.POSTED, SaleStatus.PAID, SaleStatus.REFUNDED],
     ).select_related('register', 'customer', 'created_by')
+    sales = search_queryset(request, sales, ['sale_no', 'customer__name'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        sales = sales.filter(status=status_filter)
     sales, sort, direction = sort_queryset(
         request, sales, RECEIPT_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, sales, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': [(SaleStatus.POSTED, 'Posted'), (SaleStatus.PAID, 'Paid'), (SaleStatus.REFUNDED, 'Refunded')],
+    }]
     return render(request, 'pos/receipt_list.html', {
         'sales': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 

@@ -64,6 +64,109 @@
     #wis-modal-body .btn-danger { background: linear-gradient(135deg, #dc3545, #b02a37); border: none; }
     /* DataTables export button */
     .dt-buttons .btn { font-size: .8rem; padding: .25rem .6rem; border-radius: 5px; }
+    /* ── Generic list-toolbar (search / show-entries / filters) ────────── */
+    [data-wis-toolbar] {
+      --wis-ctl-h: 32px;
+      gap: .6rem;
+      padding: .6rem .75rem;
+      margin-bottom: 1rem;
+      background: #f8f9fb;
+      border: 1px solid #edf1f7;
+      border-radius: 8px;
+    }
+    [data-wis-toolbar] .wis-toolbar-entries,
+    [data-wis-toolbar] .wis-toolbar-actions { gap: .5rem; }
+    /* Force every control in the bar to the exact same height so selects,
+       the search box, and the export button all line up perfectly. */
+    [data-wis-toolbar] select.form-select,
+    [data-wis-toolbar] .wis-toolbar-search .form-control,
+    [data-wis-toolbar] .wis-toolbar-search .input-group-text,
+    [data-wis-toolbar] .wis-toolbar-search .btn,
+    [data-wis-toolbar] .wis-toolbar-export .btn {
+      height: var(--wis-ctl-h);
+      min-height: var(--wis-ctl-h);
+      box-sizing: border-box;
+      font-size: .82rem;
+      line-height: 1;
+    }
+    /* Explicit select styling — don't rely on Bootstrap's own .form-select
+       cascade in case another stylesheet on the page wins specificity;
+       this guarantees a consistent, clearly non-native dropdown. */
+    [data-wis-toolbar] select.form-select {
+      appearance: none;
+      -webkit-appearance: none;
+      background-color: #fff;
+      border: 1px solid #ced4da;
+      border-radius: 6px;
+      color: #33404f;
+      padding: 0 1.75rem 0 .6rem;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23495057' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right .55rem center;
+      background-size: 11px 11px;
+    }
+    [data-wis-toolbar] select.form-select:focus {
+      outline: none;
+      border-color: #86b7fe;
+      box-shadow: 0 0 0 .2rem rgba(13,110,253,.15);
+    }
+    [data-wis-toolbar] .wis-toolbar-filter { min-width: 140px; }
+    [data-wis-toolbar] .wis-toolbar-search { width: 230px; max-width: 100%; }
+    [data-wis-toolbar] .wis-toolbar-search .form-control { padding: 0 .6rem; }
+    [data-wis-toolbar] .wis-toolbar-search .input-group-text {
+      border-right: none;
+      background: #fff;
+      border-color: #ced4da;
+    }
+    [data-wis-toolbar] .wis-toolbar-search .form-control { border-left: none; }
+    [data-wis-toolbar] .wis-toolbar-search .form-control:focus { box-shadow: none; border-color: #ced4da; }
+    [data-wis-toolbar] .wis-toolbar-search .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 .55rem;
+    }
+    [data-wis-toolbar] .wis-toolbar-export { display: flex; margin: 0; }
+    [data-wis-toolbar] .wis-toolbar-export .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 .75rem;
+      white-space: nowrap;
+    }
+    /* ── Sortable column headers (inline-SVG caret, no icon-font dependency) */
+    .wis-sort-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      color: inherit;
+      text-decoration: none;
+    }
+    .wis-sort-link:hover { color: #0d6efd; }
+    .wis-sort-icon { flex-shrink: 0; }
+    .wis-sort-icon path { fill: #ccd2dc; transition: fill .15s ease; }
+    .wis-sort-link:hover .wis-sort-icon path { fill: #9aa5b4; }
+    .wis-sort-icon.asc path.wis-sort-up,
+    .wis-sort-icon.desc path.wis-sort-down { fill: #0d6efd; }
+    .wis-sort-link.active { color: #0d6efd; }
+    /* ── Modern table polish (applies to every .wis-table) ──────────── */
+    table.wis-table thead th {
+      background: #f8f9fb;
+      font-size: .74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: #6c7684;
+      border-bottom: 2px solid #eef0f4;
+      padding-top: .7rem;
+      padding-bottom: .7rem;
+      white-space: nowrap;
+    }
+    table.wis-table tbody td { padding-top: .6rem; padding-bottom: .6rem; vertical-align: middle; }
+    table.wis-table tbody tr { transition: background-color .12s ease; }
+    table.wis-table.table-hover tbody tr:hover { background-color: #f5f8ff; }
+    table.wis-table .btn-xs { padding: .25rem .5rem; border-radius: 5px; font-size: .78rem; }
     /* Dashboard tooltip icon */
     .dash-tip { color: #adb5bd; cursor: help; font-size: .7rem; margin-left: 4px; transition: color .15s; }
     .dash-tip:hover { color: #6c757d; }
@@ -496,6 +599,22 @@ $.fn.dataTable.ext.errMode = 'none';
    sort + pagination); DataTables is kept only for the Excel export button on
    those, with its own paging/ordering/searching disabled so it doesn't
    re-shuffle or re-slice the already server-sorted/paginated rows. */
+/* Move a DataTable's auto-generated Export button into the preceding
+   custom toolbar (theme/partials/table_toolbar.html) so the whole control
+   bar reads as one row instead of two disconnected ones. No-op if the
+   table has no such toolbar (e.g. plain client-side DataTables). */
+function wisRelocateTableButtons($t, dtApi) {
+  var $buttons = $(dtApi.table().container()).find('.dt-buttons');
+  if (!$buttons.length) return;
+  var $toolbarActions = $t.closest('.card-body').prev('.card-body').find('.wis-toolbar-actions');
+  if ($toolbarActions.length) {
+    $buttons.removeClass('ms-1').addClass('wis-toolbar-export');
+    $toolbarActions.append($buttons);
+  } else {
+    $buttons.addClass('ms-1');
+  }
+}
+
 function wisInitDataTable($t) {
   if ($.fn.DataTable.isDataTable($t)) return;
   /* Skip tables with only colspan rows (empty state) */
@@ -512,7 +631,7 @@ function wisInitDataTable($t) {
       searching: false,
       info: false,
       language: { emptyTable: 'No records found' },
-      dom: "<'row mb-2'<'col-12 text-end'B>>t",
+      dom: "Bt",
       buttons: [
         {
           extend: 'excelHtml5',
@@ -522,7 +641,7 @@ function wisInitDataTable($t) {
       ],
       exportOptions: { columns: ':not(:last-child)' }
     });
-    $(sdt.table().container()).find('.dt-buttons').addClass('ms-1');
+    wisRelocateTableButtons($t, sdt);
     return;
   }
 
@@ -552,7 +671,7 @@ function wisInitDataTable($t) {
   });
   var lenSelect = $(dt.table().container()).find('.dataTables_length select');
   lenSelect.val(String(initialLen)).addClass('form-select form-select-sm');
-  $(dt.table().container()).find('.dt-buttons').addClass('ms-1');
+  wisRelocateTableButtons($t, dt);
   $(dt.table().container()).find('.dataTables_filter input').off().on('input', debounce(function() {
     dt.search(this.value).draw();
   }, 300));
@@ -560,6 +679,86 @@ function wisInitDataTable($t) {
 
 $(function(){
   $('.wis-table').each(function(){ wisInitDataTable($(this)); });
+});
+
+/* ── Generic list-toolbar: search / show-entries / filters ───────────── */
+/* Drives any `[data-wis-toolbar]` block (see theme/partials/table_toolbar.html)
+   by navigating with the changed param merged into the current querystring,
+   resetting to page 1, for server-paginated .wis-table lists. */
+function wisToolbarNavigate(params) {
+  var url = new URL(window.location.href);
+  $.each(params, function (k, v) {
+    if (v !== null && v !== undefined && v !== '') {
+      url.searchParams.set(k, v);
+    } else {
+      url.searchParams.delete(k);
+    }
+  });
+  url.searchParams.delete('page');
+  window.location.href = url.toString();
+}
+
+/* Bind the toolbar's live search / entries / filter controls within
+   `container` (defaults to the whole document). Safe to call repeatedly —
+   used at initial page load and again after WIS.refreshContent() replaces
+   the content area, since the old bindings die with the old DOM nodes. */
+function wisBindToolbar(container) {
+  $(container || document).find('[data-wis-toolbar]').each(function () {
+    var $box = $(this);
+    if ($box.data('wis-toolbar-bound')) return;
+    $box.data('wis-toolbar-bound', true);
+
+    $box.find('select[data-toolbar-param]').on('change', function () {
+      var params = {};
+      params[$(this).data('toolbar-param')] = $(this).val();
+      wisToolbarNavigate(params);
+    });
+
+    var searchTimer;
+    var $search = $box.find('input[data-toolbar-param]');
+    $search.on('input', function () {
+      clearTimeout(searchTimer);
+      var el = this, param = $(this).data('toolbar-param');
+      searchTimer = setTimeout(function () {
+        sessionStorage.setItem('wis_toolbar_focus', param);
+        var params = {};
+        params[param] = el.value.trim();
+        wisToolbarNavigate(params);
+      }, 500);
+    });
+    $search.on('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(searchTimer);
+        var param = $(this).data('toolbar-param');
+        sessionStorage.setItem('wis_toolbar_focus', param);
+        var params = {};
+        params[param] = this.value.trim();
+        wisToolbarNavigate(params);
+      }
+    });
+
+    $box.find('[data-toolbar-clear]').on('click', function () {
+      var params = {};
+      params[$(this).data('toolbar-clear')] = '';
+      wisToolbarNavigate(params);
+    });
+  });
+}
+
+$(function () {
+  wisBindToolbar();
+
+  var wisToolbarFocus = sessionStorage.getItem('wis_toolbar_focus');
+  if (wisToolbarFocus) {
+    sessionStorage.removeItem('wis_toolbar_focus');
+    var $focusEl = $('[data-wis-toolbar] input[data-toolbar-param="' + wisToolbarFocus + '"]');
+    if ($focusEl.length) {
+      var focusNode = $focusEl[0];
+      focusNode.focus();
+      focusNode.setSelectionRange(focusNode.value.length, focusNode.value.length);
+    }
+  }
 });
 
 /* ── Select2 Auto-init ───────────────────────────────────────────────── */
@@ -741,6 +940,8 @@ WIS.refreshContent = function() {
       curContent.innerHTML = newContent.innerHTML;
       /* Re-init DataTables on refreshed content */
       $(curContent).find('.wis-table').each(function() { wisInitDataTable($(this)); });
+      /* Re-bind the search/entries/filter toolbar (old bindings died with the old DOM) */
+      wisBindToolbar(curContent);
       /* Re-bind modal triggers */
       /* (delegated handler on document already covers new elements) */
       /* Re-init tooltips */

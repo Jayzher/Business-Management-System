@@ -8,7 +8,10 @@
 
 {% block content %}
 <div class="card">
-  <div class="card-body table-responsive">
+  <div class="card-body pb-0">
+    {% include "theme/partials/table_toolbar.html" with filters=filters search_placeholder="Search sale #, customer…" %}
+  </div>
+  <div class="card-body table-responsive pt-0">
     <table class="table table-hover table-striped wis-table" data-server-paginated="true">
       <thead>
         <tr>

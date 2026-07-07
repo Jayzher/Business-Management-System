@@ -12,7 +12,10 @@
       <a href="#" data-modal-url="{% url 'category_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Category</a>
     </div>{% endif %}
   </div>
-  <div class="card-body table-responsive">
+  <div class="card-body pb-0">
+    {% include "theme/partials/table_toolbar.html" with search_placeholder="Search code, name, description…" %}
+  </div>
+  <div class="card-body table-responsive pt-0">
     <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
         <tr>

@@ -27,7 +27,10 @@
 </div>
 
 <div class="card">
-  <div class="card-body table-responsive p-0">
+  <div class="card-body pb-0">
+    {% include "theme/partials/table_toolbar.html" with search_placeholder="Search role, description…" %}
+  </div>
+  <div class="card-body table-responsive p-0 pt-0">
     <table class="table table-hover wis-table mb-0" data-server-paginated="true">
       <thead class="text-nowrap">
         <tr>

@@ -145,8 +145,15 @@ def qr_scan(request):
 
 @login_required
 def qr_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     tags = QRCodeTag.objects.select_related('item', 'location')
+
+    tags = search_queryset(request, tags, [
+        'qr_uid', 'item__code', 'item__name', 'batch_number', 'serial_number',
+    ])
+    printed_filter = (request.GET.get('printed') or '').strip()
+    if printed_filter:
+        tags = tags.filter(printed=(printed_filter == '1'))
 
     sort_map = {
         'uid': 'qr_uid',
@@ -160,11 +167,18 @@ def qr_list_view(request):
     tags, sort, direction = sort_queryset(request, tags, sort_map, default_key='created', default_dir='desc')
     page_obj = paginate_queryset(request, tags, per_page=25)
 
+    filters = [{
+        'param': 'printed',
+        'label': 'Printed',
+        'options': [('1', 'Printed'), ('0', 'Not Printed')],
+    }]
+
     return render(request, 'qr/qr_list.html', {
         'tags': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 

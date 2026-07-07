@@ -21,30 +21,9 @@
     </div>
   </div>
   <div class="card-body pb-0">
-    <form method="get" class="row g-2 align-items-end mb-3">
-      <div class="col-md-3">
-        <label class="small">Supplier</label>
-        <select name="supplier" class="form-control form-control-sm">
-          <option value="">All Suppliers</option>
-          {% for sup in all_suppliers %}
-          <option value="{{ sup.pk }}" {% if selected_supplier == sup.pk|stringformat:"d" %}selected{% endif %}>{{ sup.code }} - {{ sup.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="small">Search</label>
-        <input type="text" name="q" value="{{ search }}" class="form-control form-control-sm" placeholder="Item name or code...">
-      </div>
-      <div class="col-md-2">
-        <label class="small">&nbsp;</label>
-        <div>
-          <button type="submit" class="btn btn-sm btn-primary mr-1"><i class="fas fa-filter mr-1"></i> Filter</button>
-          <a href="{% url 'supplier_catalog_by_supplier' %}" class="btn btn-sm btn-secondary">Clear</a>
-        </div>
-      </div>
-    </form>
+    {% include "theme/partials/table_toolbar.html" with filters=filters search_placeholder="Search item name or code…" %}
   </div>
-  <div class="card-body table-responsive p-0">
+  <div class="card-body table-responsive p-0 pt-0">
     <table class="table table-hover table-striped wis-table" id="report-table" data-server-paginated="true">
       <thead>
         <tr>

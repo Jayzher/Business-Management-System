@@ -6,28 +6,42 @@ from django.utils.safestring import mark_safe
 register = template.Library()
 
 
+_SORT_ICON_SVG = (
+    '<svg class="wis-sort-icon {state}" width="9" height="11" viewBox="0 0 10 12" '
+    'aria-hidden="true" focusable="false">'
+    '<path class="wis-sort-up" d="M5 0 9.33 5H0.67L5 0Z"></path>'
+    '<path class="wis-sort-down" d="M5 12 0.67 7H9.33L5 12Z"></path>'
+    '</svg>'
+)
+
+
 @register.simple_tag(takes_context=True)
 def sort_link(context, field, label, current_sort='', current_dir='desc'):
     """
     Render a sortable column header link that preserves all other query
     params (filters, etc.) and resets pagination to page 1 on re-sort.
     Usage: {% sort_link 'date' 'Date' sort dir %}
+
+    Renders an inline SVG caret rather than a Font Awesome glyph so the sort
+    indicator always renders crisply regardless of icon-font load state.
     """
     request = context['request']
     params = request.GET.copy()
-    if current_sort == field:
+    is_active = current_sort == field
+    if is_active:
         next_dir = 'asc' if current_dir == 'desc' else 'desc'
-        icon = 'fa-sort-up' if current_dir == 'asc' else 'fa-sort-down'
+        state = 'asc' if current_dir == 'asc' else 'desc'
     else:
         next_dir = 'desc'
-        icon = 'fa-sort text-muted'
+        state = ''
     params['sort'] = field
     params['dir'] = next_dir
     params.pop('page', None)
     url = f'?{params.urlencode()}'
+    icon = _SORT_ICON_SVG.format(state=state)
     return mark_safe(
-        f'<a href="{escape(url)}" class="text-dark text-decoration-none">'
-        f'{escape(label)} <i class="fas {icon} small"></i></a>'
+        f'<a href="{escape(url)}" class="wis-sort-link{" active" if is_active else ""}">'
+        f'<span>{escape(label)}</span>{icon}</a>'
     )
 
 

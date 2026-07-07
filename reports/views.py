@@ -1161,7 +1161,7 @@ def financial_statement_view(request):
 @login_required
 def stock_aging_view(request):
     """Shows stock aging based on first RECEIVE move date per item/location."""
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     today = timezone.now().date()
     warehouse_id = request.GET.get('warehouse', '')
 
@@ -1170,6 +1170,7 @@ def stock_aging_view(request):
     )
     if warehouse_id:
         balances = balances.filter(location__warehouse_id=warehouse_id)
+    balances = search_queryset(request, balances, ['item__code', 'item__name'])
 
     sort_map = {
         'item_code': 'item__code',

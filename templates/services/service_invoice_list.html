@@ -51,7 +51,10 @@
     </div>
   </div>
 
-  <div class="card-body table-responsive p-0">
+  <div class="card-body pb-0">
+    {% include "theme/partials/table_toolbar.html" with filters=None search_placeholder="Search invoice #, customer…" %}
+  </div>
+  <div class="card-body table-responsive p-0 pt-0">
     <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
         <tr>

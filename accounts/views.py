@@ -89,25 +89,14 @@ def logout_view(request):
 @admin_required
 def user_list(request):
     """List all users with their assigned roles."""
-    from core.utils import sort_queryset, paginate_queryset
-    q = (request.GET.get('q') or '').strip()
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     role_filter = (request.GET.get('role') or '').strip()
 
     users = User.objects.prefetch_related(
         Prefetch('user_roles', queryset=UserRole.objects.select_related('role'))
     )
 
-    if q:
-        users = users.filter(
-            username__icontains=q
-        ) | users.filter(
-            first_name__icontains=q
-        ) | users.filter(
-            last_name__icontains=q
-        ) | users.filter(
-            email__icontains=q
-        )
-        users = users.distinct()
+    users = search_queryset(request, users, ['username', 'first_name', 'last_name', 'email'])
 
     if role_filter:
         users = users.filter(user_roles__role__name=role_filter).distinct()
@@ -121,15 +110,18 @@ def user_list(request):
     page_obj = paginate_queryset(request, users, per_page=25)
 
     roles = Role.objects.order_by('name')
+    filters = [{
+        'param': 'role',
+        'label': 'Role',
+        'options': [(r.name, r.name) for r in roles],
+    }]
 
     return render(request, 'accounts/user_list.html', {
         'users': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
-        'roles': roles,
-        'q': q,
-        'role_filter': role_filter,
+        'filters': filters,
     })
 
 
@@ -266,8 +258,9 @@ ROLE_MODULES = {
 @login_required
 @admin_required
 def role_list(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     roles = Role.objects.annotate(user_count=Count('role_users'))
+    roles = search_queryset(request, roles, ['name', 'description'])
     sort_map = {
         'name': 'name',
         'description': 'description',

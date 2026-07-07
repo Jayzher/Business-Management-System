@@ -30,8 +30,9 @@
       </div>
       <div class="col-md-2"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-filter mr-1"></i> Filter</button></div>
     </form>
+    {% include "theme/partials/table_toolbar.html" with filters=None search_placeholder="Search item name/code…" %}
   </div>
-  <div class="card-body table-responsive">
+  <div class="card-body table-responsive pt-0">
     <table class="table table-hover table-striped text-nowrap wis-table" data-server-paginated="true">
       <thead><tr><th>{% sort_link 'date' 'Date' sort dir %}</th><th>{% sort_link 'item' 'Item' sort dir %}</th><th>{% sort_link 'type' 'Type' sort dir %}</th><th class="text-right">{% sort_link 'qty' 'Qty' sort dir %}</th><th class="text-right">{% sort_link 'cost' 'Unit Cost' sort dir %}</th><th>Notes</th><th>{% sort_link 'by' 'By' sort dir %}</th></tr></thead>
       <tbody>

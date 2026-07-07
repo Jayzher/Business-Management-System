@@ -14,7 +14,10 @@
       <a href="{% url 'cashflow:cashflow_list' %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left mr-1"></i> Back to Transactions</a>
     </div>
   </div>
-  <div class="card-body table-responsive p-0">
+  <div class="card-body pb-0">
+    {% include "theme/partials/table_toolbar.html" with filters=filters search_placeholder="Search transaction, user, details…" %}
+  </div>
+  <div class="card-body table-responsive p-0 pt-0">
     <table class="table table-hover table-striped text-nowrap wis-table" data-server-paginated="true">
       <thead>
         <tr>

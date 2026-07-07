@@ -183,8 +183,12 @@ def goods_receipt_print_view(request, pk):
 @login_required
 @procurement_access
 def purchase_order_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     orders = PurchaseOrder.objects.select_related('supplier', 'warehouse', 'created_by').all()
+    orders = search_queryset(request, orders, ['document_number', 'supplier__name'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        orders = orders.filter(status=status_filter)
     sort_map = {
         'number': 'document_number',
         'supplier': 'supplier__name',
@@ -195,11 +199,17 @@ def purchase_order_list_view(request):
     }
     orders, sort, direction = sort_queryset(request, orders, sort_map, default_key='created_at', default_dir='desc')
     page_obj = paginate_queryset(request, orders, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'procurement/purchase_order_list.html', {
         'orders': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -216,10 +226,16 @@ def purchase_order_detail_view(request, pk):
 @login_required
 @procurement_access
 def goods_receipt_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     receipts = GoodsReceipt.objects.select_related(
         'purchase_order', 'supplier', 'warehouse', 'created_by'
     ).all()
+    receipts = search_queryset(request, receipts, [
+        'document_number', 'purchase_order__document_number', 'supplier__name',
+    ])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        receipts = receipts.filter(status=status_filter)
     sort_map = {
         'number': 'document_number',
         'po': 'purchase_order__document_number',
@@ -231,11 +247,17 @@ def goods_receipt_list_view(request):
     }
     receipts, sort, direction = sort_queryset(request, receipts, sort_map, default_key='created_at', default_dir='desc')
     page_obj = paginate_queryset(request, receipts, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'procurement/goods_receipt_list.html', {
         'receipts': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -423,8 +445,12 @@ def goods_receipt_delete_view(request, pk):
 @login_required
 @procurement_access
 def purchase_return_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     returns = PurchaseReturn.objects.select_related('supplier', 'warehouse', 'created_by').all()
+    returns = search_queryset(request, returns, ['document_number', 'supplier__name'])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        returns = returns.filter(status=status_filter)
     sort_map = {
         'number': 'document_number',
         'supplier': 'supplier__name',
@@ -435,11 +461,17 @@ def purchase_return_list_view(request):
     }
     returns, sort, direction = sort_queryset(request, returns, sort_map, default_key='created_at', default_dir='desc')
     page_obj = paginate_queryset(request, returns, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': list(DocumentStatus.choices),
+    }]
     return render(request, 'procurement/purchase_return_list.html', {
         'returns': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -556,14 +588,21 @@ def purchase_return_delete_view(request, pk):
 def _update_item_cost_from_supplier_catalog(item_ids=None):
     """
     Seed Item.cost_price from supplier catalog entries — but ONLY for items
-    that have no posted GRN history yet.
+    that have no *priced* posted GRN history yet.
 
     Rationale: the GRN posting flow (inventory.services.post_goods_receipt)
     maintains a weighted-average cost in stock_unit. That number is the
-    authoritative cost for any item that has actually been received. Letting
-    a catalog-sync overwrite it would clobber real receipt history with a
-    quote-list MAX. So once an item has a posted GRN, the catalog sync
-    leaves its cost_price alone.
+    authoritative cost for any item that has actually been received and
+    priced. Letting a catalog-sync overwrite it would clobber real receipt
+    history with a quote-list MAX. So once an item has a posted GRN that
+    resulted in cost_price > 0, the catalog sync leaves it alone.
+
+    However, "has a posted GRN" isn't the same as "has a priced GRN" — every
+    line on that GRN may have been skipped by the WAC calc (a $0 PO price, or
+    a cross-unit PO price with no UnitConversion available), leaving
+    cost_price at its unpriced 0 default. In that case the item is still
+    treated as unpriced, and the supplier-catalog MAX price is used to
+    rescue it instead of leaving 0 in place forever.
 
     For items with NO posted GRN, we still use the MAX-across-suppliers price
     converted to default_unit, so cost-of-quotation reports have a sensible
@@ -612,7 +651,12 @@ def _update_item_cost_from_supplier_catalog(item_ids=None):
     _updated_pks = []
 
     for item_id, (item, entries) in per_item.items():
-        if item_id in items_with_grn_history:
+        # GRN history only wins if it actually produced a price. If every GRN
+        # line for this item was skipped (e.g. a $0 PO line, or a cross-unit
+        # PO price with no conversion available), cost_price is still sitting
+        # at its unpriced default — in that case fall through and let the
+        # supplier-catalog price rescue it instead of leaving it stuck at 0.
+        if item_id in items_with_grn_history and (item.cost_price or Decimal('0')) > 0:
             skipped_count += 1
             continue
 
@@ -672,12 +716,10 @@ def supplier_catalog_list_view(request):
     """
     from catalog.models import Item
     from partners.models import Supplier
-    from django.db.models import Min
-    from collections import defaultdict
+    from core.utils import search_queryset, paginate_queryset
 
-    supplier_id = request.GET.get('supplier', '')
-    item_type = request.GET.get('type', '')
-    search = request.GET.get('q', '')
+    supplier_id = (request.GET.get('supplier') or '').strip()
+    item_type = (request.GET.get('type') or '').strip()
 
     entries_qs = SupplierCatalogEntry.objects.select_related(
         'supplier', 'item', 'item__category', 'unit',
@@ -687,37 +729,32 @@ def supplier_catalog_list_view(request):
         entries_qs = entries_qs.filter(supplier_id=supplier_id)
     if item_type:
         entries_qs = entries_qs.filter(item__item_type=item_type)
-    if search:
-        from django.db.models import Q
-        entries_qs = entries_qs.filter(
-            Q(item__code__icontains=search) | Q(item__name__icontains=search)
-        )
+    entries_qs = search_queryset(request, entries_qs, ['item__code', 'item__name'])
 
     # Build the matrix data
-    # Collect all suppliers and items that appear in entries
+    # Collect all suppliers and items that appear in entries, and the
+    # cheapest price per item, in a single pass over the (cached) queryset.
     price_map = {}      # {(item_id, supplier_id): entry}
     item_ids = set()
     supplier_ids = set()
+    cheapest_map = {}   # item_id -> min unit_price
 
     for entry in entries_qs:
         price_map[(entry.item_id, entry.supplier_id)] = entry
         item_ids.add(entry.item_id)
         supplier_ids.add(entry.supplier_id)
+        if entry.item_id not in cheapest_map or entry.unit_price < cheapest_map[entry.item_id]:
+            cheapest_map[entry.item_id] = entry.unit_price
 
     # Get ordered objects
     suppliers = Supplier.objects.filter(pk__in=supplier_ids).order_by('name')
-    items = Item.objects.filter(pk__in=item_ids).select_related('category', 'default_unit').order_by('code')
+    items_qs = Item.objects.filter(pk__in=item_ids).select_related('category', 'default_unit').order_by('code')
+    page_obj = paginate_queryset(request, items_qs, per_page=25)
 
-    # Find cheapest per item
-    cheapest_map = {}  # item_id -> min unit_price
-    for entry in entries_qs:
-        key = entry.item_id
-        if key not in cheapest_map or entry.unit_price < cheapest_map[key]:
-            cheapest_map[key] = entry.unit_price
-
-    # Build rows
+    # Build rows (current page of items only; columns stay the full
+    # filtered supplier set so the matrix layout stays consistent)
     rows = []
-    for item in items:
+    for item in page_obj:
         cells = []
         for sup in suppliers:
             entry = price_map.get((item.pk, sup.pk))
@@ -737,15 +774,25 @@ def supplier_catalog_list_view(request):
 
     # For filter dropdowns
     all_suppliers = Supplier.objects.order_by('name')
+    filters = [
+        {
+            'param': 'supplier',
+            'label': 'Supplier',
+            'options': [(s.pk, f'{s.code} - {s.name}') for s in all_suppliers],
+        },
+        {
+            'param': 'type',
+            'label': 'Item Type',
+            'options': [('RAW', 'Raw Material'), ('FINISHED', 'Finished Product'), ('SERVICE', 'Service')],
+        },
+    ]
 
     return render(request, 'procurement/supplier_catalog_list.html', {
         'rows': rows,
+        'page_obj': page_obj,
         'suppliers': suppliers,
-        'all_suppliers': all_suppliers,
-        'selected_supplier': supplier_id,
-        'current_type': item_type,
-        'search': search,
-        'total_items': len(rows),
+        'filters': filters,
+        'total_items': page_obj.paginator.count,
         'total_suppliers': suppliers.count(),
         'total_entries': len(price_map),
     })
@@ -758,10 +805,9 @@ def supplier_catalog_by_supplier_view(request):
     Per-supplier view: lists all catalog entries for a selected supplier.
     """
     from partners.models import Supplier
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
 
-    supplier_id = request.GET.get('supplier', '')
-    search = request.GET.get('q', '')
+    supplier_id = (request.GET.get('supplier') or '').strip()
 
     entries = SupplierCatalogEntry.objects.select_related(
         'supplier', 'item', 'item__category', 'unit',
@@ -769,11 +815,7 @@ def supplier_catalog_by_supplier_view(request):
 
     if supplier_id:
         entries = entries.filter(supplier_id=supplier_id)
-    if search:
-        from django.db.models import Q
-        entries = entries.filter(
-            Q(item__code__icontains=search) | Q(item__name__icontains=search)
-        )
+    entries = search_queryset(request, entries, ['item__code', 'item__name'])
 
     sort_map = {
         'supplier': 'supplier__name',
@@ -791,15 +833,18 @@ def supplier_catalog_by_supplier_view(request):
     page_obj = paginate_queryset(request, entries, per_page=25)
 
     all_suppliers = Supplier.objects.order_by('name')
+    filters = [{
+        'param': 'supplier',
+        'label': 'Supplier',
+        'options': [(s.pk, f'{s.code} - {s.name}') for s in all_suppliers],
+    }]
 
     return render(request, 'procurement/supplier_catalog_by_supplier.html', {
         'entries': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
-        'all_suppliers': all_suppliers,
-        'selected_supplier': supplier_id,
-        'search': search,
+        'filters': filters,
     })
 
 

@@ -44,8 +44,9 @@ def settings_view(request):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def channel_list(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     channels = SalesChannel.objects.all()
+    channels = search_queryset(request, channels, ['code', 'name'])
     sort_map = {
         'code': 'code',
         'name': 'name',
@@ -105,8 +106,12 @@ def channel_delete(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def expense_category_list(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     categories = ExpenseCategory.objects.all()
+    categories = search_queryset(request, categories, ['code', 'name'])
+    cogs_filter = (request.GET.get('cogs') or '').strip()
+    if cogs_filter:
+        categories = categories.filter(is_cogs=(cogs_filter == '1'))
     sort_map = {
         'code': 'code',
         'name': 'name',
@@ -114,11 +119,17 @@ def expense_category_list(request):
     }
     categories, sort, direction = sort_queryset(request, categories, sort_map, default_key='created_at', default_dir='desc')
     page_obj = paginate_queryset(request, categories, per_page=25)
+    filters = [{
+        'param': 'cogs',
+        'label': 'Type',
+        'options': [('1', 'COGS'), ('0', 'OPEX')],
+    }]
     return render(request, 'core/expense_category_list.html', {
         'categories': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -167,8 +178,9 @@ def expense_category_delete(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def expense_list(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     qs = Expense.objects.select_related('category', 'created_by')
+    qs = search_queryset(request, qs, ['vendor', 'reference_no', 'memo', 'category__name'])
     cat = request.GET.get('category')
     date_from = request.GET.get('date_from')
     date_to = request.GET.get('date_to')
@@ -279,6 +291,23 @@ def invoice_list(request):
         pk__in=service_invoice_ids
     ).select_related('created_by')
 
+    # invoice_number is stored without the "INV-" prefix shown on screen
+    # (e.g. field="001288", displayed as "INV-001288") — strip it so users
+    # can search using either the raw number or the on-screen label.
+    search_term = (request.GET.get('q') or '').strip()
+    if search_term:
+        import re
+        from django.db.models import Q
+        stripped = re.sub(r'^inv-?', '', search_term, flags=re.IGNORECASE).strip()
+        invoices = invoices.filter(
+            Q(invoice_number__icontains=search_term)
+            | Q(invoice_number__icontains=stripped)
+            | Q(customer_name__icontains=search_term)
+        ).distinct()
+    paid_filter = (request.GET.get('status') or '').strip()
+    if paid_filter:
+        invoices = invoices.filter(is_paid=(paid_filter == '1'))
+
     # Totals computed over the full filtered set, before pagination
     invoice_summary = invoices.aggregate(
         count=Count('id'),
@@ -295,12 +324,19 @@ def invoice_list(request):
     invoices, sort, direction = sort_queryset(request, invoices, sort_map, default_key='date', default_dir='desc')
     page_obj = paginate_queryset(request, invoices, per_page=25)
 
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': [('1', 'Paid'), ('0', 'Unpaid')],
+    }]
+
     return render(request, 'core/invoice_list.html', {
         'invoices': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
         'invoice_summary': invoice_summary,
+        'filters': filters,
     })
 
 
@@ -616,8 +652,12 @@ def invoice_delete_payment(request, pk, payment_pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def supply_item_list(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     items = SupplyItem.objects.select_related('category')
+    items = search_queryset(request, items, ['code', 'name'])
+    category_filter = (request.GET.get('category') or '').strip()
+    if category_filter:
+        items = items.filter(category_id=category_filter)
     sort_map = {
         'code': 'code',
         'name': 'name',
@@ -629,11 +669,17 @@ def supply_item_list(request):
     }
     items, sort, direction = sort_queryset(request, items, sort_map, default_key='created_at', default_dir='desc')
     page_obj = paginate_queryset(request, items, per_page=25)
+    filters = [{
+        'param': 'category',
+        'label': 'Category',
+        'options': [(c.pk, c.name) for c in SupplyCategory.objects.order_by('name')],
+    }]
     return render(request, 'core/supply_item_list.html', {
         'items': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -679,8 +725,9 @@ def supply_item_delete(request, pk):
 
 @login_required
 def supply_movement_list(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     qs = SupplyMovement.objects.select_related('supply_item', 'created_by')
+    qs = search_queryset(request, qs, ['supply_item__code', 'supply_item__name'])
     item_id = request.GET.get('item')
     mtype = request.GET.get('type')
     if item_id:
@@ -732,8 +779,9 @@ def supply_movement_create(request):
 
 @login_required
 def supply_category_list(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     cats = SupplyCategory.objects.all()
+    cats = search_queryset(request, cats, ['code', 'name'])
     sort_map = {
         'code': 'code',
         'name': 'name',

@@ -1,5 +1,5 @@
 from django.core.paginator import Paginator
-from django.db.models import ProtectedError
+from django.db.models import ProtectedError, Q
 
 
 def sort_queryset(request, queryset, sort_map, default_key, default_dir='desc'):
@@ -33,8 +33,39 @@ def sort_queryset(request, queryset, sort_map, default_key, default_dir='desc'):
     return queryset.order_by(*fields), sort_key, direction
 
 
-def paginate_queryset(request, queryset, per_page=25, param='page'):
-    """Thin wrapper around Django's Paginator; returns a Page object."""
+PER_PAGE_CHOICES = ('10', '25', '50', '100', 'all')
+
+
+def search_queryset(request, queryset, fields, param='q'):
+    """
+    Apply a case-insensitive OR search across `fields` (model field lookups,
+    e.g. 'code', 'name', 'customer__name') using the `?q=` query param.
+
+    Returns the queryset unchanged when no search term is present.
+    """
+    term = request.GET.get(param, '').strip()
+    if not term:
+        return queryset
+    query = Q()
+    for field in fields:
+        query |= Q(**{f'{field}__icontains': term})
+    return queryset.filter(query).distinct()
+
+
+def paginate_queryset(request, queryset, per_page=25, param='page', per_page_param='per_page'):
+    """
+    Thin wrapper around Django's Paginator; returns a Page object.
+
+    Reads `per_page` from the querystring (10/25/50/100/'all') so list views
+    can expose a "Show entries" control without changing call sites — the
+    resolved page size is available to templates via `page_obj.paginator.per_page`.
+    """
+    raw = request.GET.get(per_page_param, '')
+    if raw == 'all':
+        count = queryset.count()
+        per_page = count or 1
+    elif raw.isdigit() and int(raw) > 0:
+        per_page = int(raw)
     paginator = Paginator(queryset, per_page)
     return paginator.get_page(request.GET.get(param, 1))
 

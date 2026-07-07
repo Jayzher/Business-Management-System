@@ -40,17 +40,29 @@ SUPPLIER_CUSTOMER_SORT_MAP = {
 
 @login_required
 def supplier_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     suppliers = Supplier.objects.all()
+    suppliers = search_queryset(request, suppliers, [
+        'code', 'name', 'contact_person', 'email', 'phone', 'city',
+    ])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        suppliers = suppliers.filter(is_active=(status_filter == '1'))
     suppliers, sort, direction = sort_queryset(
         request, suppliers, SUPPLIER_CUSTOMER_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, suppliers, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': [('1', 'Active'), ('0', 'Inactive')],
+    }]
     return render(request, 'partners/supplier_list.html', {
         'suppliers': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 
@@ -96,17 +108,29 @@ def supplier_delete_view(request, pk):
 
 @login_required
 def customer_list_view(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     customers = Customer.objects.all()
+    customers = search_queryset(request, customers, [
+        'code', 'name', 'contact_person', 'email', 'phone', 'city',
+    ])
+    status_filter = (request.GET.get('status') or '').strip()
+    if status_filter:
+        customers = customers.filter(is_active=(status_filter == '1'))
     customers, sort, direction = sort_queryset(
         request, customers, SUPPLIER_CUSTOMER_SORT_MAP, default_key='created_at', default_dir='desc'
     )
     page_obj = paginate_queryset(request, customers, per_page=25)
+    filters = [{
+        'param': 'status',
+        'label': 'Status',
+        'options': [('1', 'Active'), ('0', 'Inactive')],
+    }]
     return render(request, 'partners/customer_list.html', {
         'customers': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 

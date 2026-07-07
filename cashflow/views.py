@@ -514,8 +514,15 @@ def transaction_cancel(request, pk):
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
 def log_list(request):
-    from core.utils import sort_queryset, paginate_queryset
+    from core.utils import sort_queryset, paginate_queryset, search_queryset
     qs = CashFlowLog.objects.select_related('transaction', 'performed_by')
+
+    qs = search_queryset(request, qs, [
+        'transaction__transaction_number', 'performed_by__username', 'details',
+    ])
+    action_filter = (request.GET.get('action') or '').strip()
+    if action_filter:
+        qs = qs.filter(action=action_filter)
 
     sort_map = {
         'date': 'created_at',
@@ -526,11 +533,18 @@ def log_list(request):
     qs, sort, direction = sort_queryset(request, qs, sort_map, default_key='created_at', default_dir='desc')
     page_obj = paginate_queryset(request, qs, per_page=25)
 
+    filters = [{
+        'param': 'action',
+        'label': 'Action',
+        'options': list(CashFlowLogAction.choices),
+    }]
+
     return render(request, 'cashflow/log_list.html', {
         'logs': page_obj,
         'page_obj': page_obj,
         'sort': sort,
         'dir': direction,
+        'filters': filters,
     })
 
 

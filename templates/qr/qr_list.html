@@ -12,7 +12,10 @@
       <a href="{% url 'qr_print' %}" class="btn btn-sm btn-primary"><i class="fas fa-print"></i> Print Labels</a>
     </div>
   </div>
-  <div class="card-body table-responsive">
+  <div class="card-body pb-0">
+    {% include "theme/partials/table_toolbar.html" with filters=filters search_placeholder="Search UID, item, batch, serial…" %}
+  </div>
+  <div class="card-body table-responsive pt-0">
     <table class="table table-hover text-nowrap wis-table" data-server-paginated="true">
       <thead>
         <tr>

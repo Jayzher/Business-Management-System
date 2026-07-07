@@ -14,7 +14,10 @@
       <a href="#" data-modal-url="{% url 'supply_item_create' %}" class="btn btn-sm btn-primary"><i class="fas fa-plus mr-1"></i> New Item</a>
     </div>{% endif %}
   </div>
-  <div class="card-body table-responsive">
+  <div class="card-body pb-0">
+    {% include "theme/partials/table_toolbar.html" with filters=filters search_placeholder="Search code, name…" %}
+  </div>
+  <div class="card-body table-responsive pt-0">
     <table class="table table-hover table-striped text-nowrap wis-table" data-server-paginated="true">
       <thead><tr><th>{% sort_link 'code' 'Code' sort dir %}</th><th>{% sort_link 'name' 'Name' sort dir %}</th><th>{% sort_link 'category' 'Category' sort dir %}</th><th>{% sort_link 'unit' 'Unit' sort dir %}</th><th class="text-right">{% sort_link 'stock' 'Stock' sort dir %}</th><th class="text-right">{% sort_link 'min' 'Min' sort dir %}</th><th class="text-right">{% sort_link 'cost' 'Cost/Unit' sort dir %}</th><th>Status</th><th></th></tr></thead>
       <tbody>
