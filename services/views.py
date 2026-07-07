@@ -348,8 +348,8 @@ def service_create(request):
                     with transaction.atomic():
                         svc = form.save(commit=False)
                         svc.created_by = request.user
-                        if not svc.service_number:
-                            svc.service_number = CustomerService.generate_next_service_number()
+                        # Always generate a fresh service number inside the transaction
+                        svc.service_number = CustomerService.generate_next_service_number()
                         svc.save()
                         formset.instance = svc
                         mat_formset.instance = svc
@@ -367,9 +367,50 @@ def service_create(request):
                         messages.error(request, f'Error creating service: {e}')
                         break
         else:
-            messages.error(request, 'Please correct the errors below.')
+            # Collect all error messages for better debugging
+            error_msgs = []
+            if not form_valid:
+                for field, errors in form.errors.items():
+                    for error in errors:
+                        error_msgs.append(f"{field}: {error}")
+            if not formset_valid:
+                for i, form_errors in enumerate(formset.errors):
+                    if form_errors:
+                        error_msgs.append(f"Product Line {i+1}: {form_errors}")
+            if not mat_valid:
+                for i, form_errors in enumerate(mat_formset.errors):
+                    if form_errors:
+                        error_msgs.append(f"Material {i+1}: {form_errors}")
+            if not bundle_valid:
+                for i, form_errors in enumerate(bundle_formset.errors):
+                    if form_errors:
+                        error_msgs.append(f"Bundle {i+1}: {form_errors}")
+            
+            if error_msgs:
+                messages.error(request, 'Validation errors: ' + '; '.join(error_msgs))
+            else:
+                messages.error(request, 'Please correct the errors below.')
     else:
-        next_number = CustomerService.generate_next_service_number()
+        # Preview next number for display only (not guaranteed)
+        try:
+            all_numbers = CustomerService.objects.filter(
+                service_number__startswith='SVC-'
+            ).values_list('service_number', flat=True)
+            
+            max_num = 0
+            for svc_num in all_numbers:
+                try:
+                    num_part = svc_num.split('-', 1)[1]
+                    num_value = int(num_part)
+                    if num_value > max_num:
+                        max_num = num_value
+                except (IndexError, ValueError):
+                    continue
+            
+            next_number = f"SVC-{max_num + 1:06d}"
+        except Exception:
+            next_number = "SVC-000001"
+        
         form = CustomerServiceForm(initial={'service_number': next_number})
         formset = ServiceLineFormSet(prefix='lines')
         mat_formset = ServiceOtherMaterialFormSet(prefix='mats')
