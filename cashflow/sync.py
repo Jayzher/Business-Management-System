@@ -26,8 +26,17 @@ sync_all:
 from decimal import Decimal
 from datetime import timedelta, date
 
-from django.db import transaction as db_transaction
+from django.db import transaction as db_transaction, router
 from django.utils import timezone
+
+from cashflow.models import CashFlowTransaction
+
+# This project runs a local-first DB router (inventory_system.db_router) that
+# can route all writes to a 'local_cache' alias distinct from 'default'. A
+# bare @transaction.atomic() only wraps the 'default' connection, so on a
+# partial failure the deletes/creates below would NOT roll back together —
+# resolve the alias the router actually writes to so atomicity is real.
+_WRITE_DB = router.db_for_write(CashFlowTransaction) or 'default'
 
 
 def _monday_of(d):
@@ -54,7 +63,7 @@ def _day_source_id(d):
     return d.year * 10000 + d.month * 100 + d.day
 
 
-@db_transaction.atomic
+@db_transaction.atomic(using=_WRITE_DB)
 def sync_daily_sales_revenue(user):
     """
     Recalculate daily revenue and replace ALL DailySalesRevenue entries.
@@ -269,7 +278,7 @@ def _manual_entry_exists(amount, txn_date, flow_type, reference_no=''):
     return qs.exists()
 
 
-@db_transaction.atomic
+@db_transaction.atomic(using=_WRITE_DB)
 def sync_procurement_cashflow(user):
     """
     Delete all auto-generated GoodsReceipt / PurchaseReturn entries and
@@ -417,7 +426,7 @@ def sync_procurement_cashflow(user):
 # EXPENSE SYNC — rebuild paid Expenses
 # ═══════════════════════════════════════════════════════════════════════════
 
-@db_transaction.atomic
+@db_transaction.atomic(using=_WRITE_DB)
 def sync_expense_cashflow(user):
     """
     Delete all auto-generated Expense entries and rebuild them.

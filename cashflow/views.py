@@ -66,6 +66,11 @@ def transaction_list(request):
         next_month = date(year, month + 1, 1)
     start_date = date(year, month, 1)
     end_date = next_month
+    # Timezone-aware bounds for POSSale.posted_at — must match the field used
+    # by cashflow.monthly_signals so this page's breakdown always agrees
+    # with the summary card totals shown alongside it.
+    start_dt = timezone.make_aware(datetime.combine(start_date, datetime.min.time()))
+    end_dt = timezone.make_aware(datetime.combine(end_date, datetime.min.time()))
     
     # ── Filters & Search ─────────────────────────────────────────────────
     search_query = request.GET.get('search', '').strip()
@@ -78,8 +83,8 @@ def transaction_list(request):
     
     pos_sales_qs = POSSale.objects.filter(
         status=SaleStatus.POSTED,
-        created_at__gte=start_date,
-        created_at__lt=end_date,
+        posted_at__gte=start_dt,
+        posted_at__lt=end_dt,
     ).select_related('created_by').prefetch_related('lines__item', 'lines__unit', 'bundle_lines__price_list__items')
     
     invoices_qs = Invoice.objects.filter(
@@ -101,8 +106,12 @@ def transaction_list(request):
         )
     
     # Capital - Other Cash In
+    # Status filter matches cashflow.monthly_signals._calculate_other_cash_in /
+    # _calculate_capital_injections (both include PENDING) so the "Total"
+    # footer — which reads summary.capital_other — always equals the sum of
+    # the rows actually listed here.
     cash_in_txns_qs = CashFlowTransaction.objects.filter(
-        status=CashFlowStatus.APPROVED,
+        status__in=[CashFlowStatus.APPROVED, CashFlowStatus.PENDING],
         flow_type=CashFlowType.CASH_IN,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
@@ -147,15 +156,41 @@ def transaction_list(request):
             Q(vendor__icontains=search_query) |
             Q(category__name__icontains=search_query)
         )
+
+    # summary.expenses_operational (cashflow.monthly_signals) is Expense-model
+    # rows PLUS any CashFlowTransaction EXPENSES/SUPPLIES entries. Surface
+    # those CF entries here too so the section "Total Operational" footer
+    # isn't inflated by rows the page never actually shows.
+    cf_operational_txns_qs = CashFlowTransaction.objects.filter(
+        status__in=[CashFlowStatus.APPROVED, CashFlowStatus.PENDING],
+        flow_type=CashFlowType.CASH_OUT,
+        category__in=[CashFlowCategory.EXPENSES, CashFlowCategory.SUPPLIES],
+        transaction_date__gte=start_date,
+        transaction_date__lt=end_date,
+    ).select_related('created_by', 'approved_by')
+
+    if search_query and filter_type in ['all', 'expenses']:
+        cf_operational_txns_qs = cf_operational_txns_qs.filter(
+            Q(transaction_number__icontains=search_query) |
+            Q(reason__icontains=search_query) |
+            Q(reference_no__icontains=search_query)
+        )
     
-    # Expenses - Other Cash Out (EXCLUDE Procurement and Expenses categories)
+    # Expenses - Other Cash Out (EXCLUDE Procurement, Expenses, Supplies categories)
+    # Status + category filters match cashflow.monthly_signals._calculate_other_cash_out
+    # exactly so the "Total Other Cash Out" footer (summary.expenses_other)
+    # always equals the sum of the rows listed here.
     cash_out_txns_qs = CashFlowTransaction.objects.filter(
-        status=CashFlowStatus.APPROVED,
+        status__in=[CashFlowStatus.APPROVED, CashFlowStatus.PENDING],
         flow_type=CashFlowType.CASH_OUT,
         transaction_date__gte=start_date,
         transaction_date__lt=end_date,
     ).exclude(
-        category__in=[CashFlowCategory.PROCUREMENT, CashFlowCategory.EXPENSES]
+        category__in=[
+            CashFlowCategory.PROCUREMENT,
+            CashFlowCategory.EXPENSES,
+            CashFlowCategory.SUPPLIES,
+        ]
     ).select_related('created_by', 'approved_by')
     
     # Apply search to cash out
@@ -180,7 +215,7 @@ def transaction_list(request):
                 sales_breakdown.append({
                     'type': 'POS Sale',
                     'number': sale.sale_no,
-                    'date': sale.created_at,
+                    'date': sale.posted_at or sale.created_at,
                     'revenue': revenue,
                     'cogs': cogs,
                     'gross_profit': gross_profit,
@@ -191,7 +226,7 @@ def transaction_list(request):
                 sales_breakdown.append({
                     'type': 'POS Sale',
                     'number': sale.sale_no,
-                    'date': sale.created_at,
+                    'date': sale.posted_at or sale.created_at,
                     'revenue': sale.grand_total or Decimal('0'),
                     'cogs': Decimal('0'),
                     'gross_profit': sale.grand_total or Decimal('0'),
@@ -216,7 +251,60 @@ def transaction_list(request):
             except Exception:
                 # Skip invoices with errors
                 continue
-    
+
+        # Sales Returns — reduce revenue/COGS, matching cashflow.monthly_signals
+        # (_calculate_sales_returns_revenue/_cogs) and cashflow.sync so this
+        # table's total always agrees with summary.revenue_accrual/cogs_actual.
+        from sales.models import SalesReturn
+        from catalog.utils import calculate_line_cogs_with_conversion, convert_price_for_unit
+
+        returns_qs = SalesReturn.objects.filter(
+            status=DocumentStatus.POSTED,
+            return_date__gte=start_date,
+            return_date__lt=end_date,
+        ).select_related('sales_order').prefetch_related('lines__item', 'lines__unit')
+
+        if search_query and filter_type in ['all', 'sales']:
+            returns_qs = returns_qs.filter(
+                Q(document_number__icontains=search_query)
+            )
+
+        for sr in returns_qs:
+            try:
+                revenue = Decimal('0')
+                cogs = Decimal('0')
+                for line in sr.lines.all():
+                    cogs += calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
+                    unit_price = Decimal('0')
+                    if sr.sales_order_id:
+                        so_line = (
+                            sr.sales_order.lines
+                            .filter(item=line.item)
+                            .select_related('unit')
+                            .first()
+                        )
+                        if so_line:
+                            if so_line.unit_id == line.unit_id:
+                                unit_price = so_line.unit_price
+                            else:
+                                unit_price = convert_price_for_unit(
+                                    so_line.unit_price, so_line.unit, line.unit, item=line.item,
+                                )
+                    if unit_price == 0:
+                        unit_price = line.item.selling_price or Decimal('0')
+                    revenue += unit_price * line.qty
+
+                sales_breakdown.append({
+                    'type': 'Sales Return',
+                    'number': sr.document_number,
+                    'date': sr.return_date,
+                    'revenue': -revenue,
+                    'cogs': -cogs,
+                    'gross_profit': -revenue - (-cogs),
+                })
+            except Exception:
+                continue
+
     procurement_breakdown = []
     if filter_type in ['all', 'procurement']:
         for grn in grns_qs:
@@ -299,6 +387,17 @@ def transaction_list(request):
         cash_out_txns = cash_out_paginator.page(1)
     except EmptyPage:
         cash_out_txns = cash_out_paginator.page(cash_out_paginator.num_pages)
+
+    # Paginate CashFlowTransaction EXPENSES/SUPPLIES entries (part of
+    # "Operational Expenses" for footer-total purposes — see cf_operational_txns_qs above)
+    cf_operational_paginator = Paginator(cf_operational_txns_qs, per_page)
+    cf_operational_page = request.GET.get('cf_operational_page', 1)
+    try:
+        cf_operational_txns = cf_operational_paginator.page(cf_operational_page)
+    except PageNotAnInteger:
+        cf_operational_txns = cf_operational_paginator.page(1)
+    except EmptyPage:
+        cf_operational_txns = cf_operational_paginator.page(cf_operational_paginator.num_pages)
     
     # Available months for navigation
     available_months = []
@@ -323,6 +422,7 @@ def transaction_list(request):
         'cash_in_txns': cash_in_txns,
         'procurement_breakdown': procurement_breakdown_paginated,
         'expenses': expenses,
+        'cf_operational_txns': cf_operational_txns,
         'cash_out_txns': cash_out_txns,
         'search_query': search_query,
         'filter_type': filter_type,

@@ -1005,17 +1005,14 @@ def supplier_catalog_sync_grn_view(request):
             .order_by('goods_receipt__receipt_date')
         )
 
-        from catalog.utils import convert_price_for_unit
-
         created_count = 0
         updated_count = 0
-        cross_unit_count = 0
-        skipped_no_conv = 0
+        fallback_unit_count = 0
         touched_items = set()
 
         for grn_line in grn_lines:
             grn = grn_line.goods_receipt
-            # Match by item AND unit first; fall back to item only and convert
+            # Match by item AND unit first; fall back to any other PO line for the item.
             po_line = (
                 PurchaseOrderLine.objects
                 .filter(
@@ -1025,13 +1022,21 @@ def supplier_catalog_sync_grn_view(request):
                 )
                 .first()
             )
-            entry_unit = grn_line.unit
-            entry_price = None
 
             if po_line and po_line.unit_price and po_line.unit_price > 0:
+                entry_unit = grn_line.unit
                 entry_price = po_line.unit_price  # GRN unit == PO unit
             else:
-                # Try any PO line for this item; convert PO price → GRN unit
+                # No PO line in the GRN's receiving unit. Record the entry in
+                # the PO's OWN unit with its own exact price rather than
+                # converting into the GRN's unit here — that conversion would
+                # be undone (and re-rounded) a moment later when
+                # _update_item_cost_from_supplier_catalog() converts
+                # entry.unit -> item.default_unit anyway. Chaining two
+                # independently-rounded conversions can drift the final cost
+                # by a centavo even when the underlying supplier price was a
+                # clean whole number. Storing the PO's original unit+price
+                # keeps this down to the one conversion that's unavoidable.
                 fallback_po = (
                     PurchaseOrderLine.objects
                     .filter(purchase_order=grn.purchase_order, item=grn_line.item)
@@ -1041,18 +1046,9 @@ def supplier_catalog_sync_grn_view(request):
                 )
                 if not fallback_po:
                     continue
-                try:
-                    entry_price = convert_price_for_unit(
-                        fallback_po.unit_price,
-                        fallback_po.unit, grn_line.unit,
-                        item=grn_line.item,
-                        use_conversion_price=False,
-                        raise_on_missing=True,
-                    )
-                    cross_unit_count += 1
-                except ValueError:
-                    skipped_no_conv += 1
-                    continue
+                entry_unit = fallback_po.unit
+                entry_price = fallback_po.unit_price
+                fallback_unit_count += 1
 
             existing = SupplierCatalogEntry.objects.filter(
                 supplier=grn.supplier,
@@ -1089,18 +1085,12 @@ def supplier_catalog_sync_grn_view(request):
             request,
             f'GRN Sync complete: {created_count} new entries created, '
             f'{updated_count} entries updated from Goods Receipts '
-            f'({cross_unit_count} via unit conversion). '
+            f'({fallback_unit_count} recorded in their original PO unit — '
+            f'no matching PO line in the GRN\'s receiving unit). '
             f'Item costs updated: {cost_stats["updated_count"]} '
             f'(unchanged: {cost_stats["unchanged_count"]}, '
             f'skipped: {cost_stats["skipped_count"]}).',
         )
-        if skipped_no_conv:
-            messages.warning(
-                request,
-                f'{skipped_no_conv} GRN line(s) skipped — no unit conversion '
-                f'between GRN and PO units. Add the missing conversions under '
-                f'Catalog → Unit Conversions.',
-            )
         return redirect('supplier_catalog_list')
 
     # GET: show confirmation page

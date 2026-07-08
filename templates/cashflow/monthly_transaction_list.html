@@ -1232,6 +1232,84 @@
         </div>
         {% endif %}
 
+        <!-- Operational (recorded via Cash Flow Transactions: Expenses/Supplies categories) -->
+        <p style="font-size: 11px; color: #666; margin: 10px 0;">
+            <i class="fas fa-info-circle"></i> Operational expenses recorded directly as Cash Flow Transactions
+            (Expenses / Supplies categories) — included in the "Total Operational" figure above.
+        </p>
+        {% if cf_operational_txns %}
+        <div class="table-responsive">
+            <table class="breakdown-table">
+                <thead>
+                    <tr>
+                        <th>Transaction #</th>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Reason</th>
+                        <th class="text-right">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for txn in cf_operational_txns %}
+                    <tr>
+                        <td><a href="{% url 'cashflow:cashflow_detail' txn.pk %}" class="text-primary"><strong>{{ txn.transaction_number }}</strong></a></td>
+                        <td><i class="far fa-calendar"></i> {{ txn.transaction_date|date:"M d, Y" }}</td>
+                        <td><span class="badge badge-warning">{{ txn.get_category_display }}</span></td>
+                        <td>{{ txn.reason }}</td>
+                        <td class="text-right text-danger"><strong>₱{{ txn.amount|floatformat:2|intcomma }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if cf_operational_txns.has_other_pages %}
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                <i class="fas fa-info-circle"></i>
+                Showing <strong>{{ cf_operational_txns.start_index }}</strong> to <strong>{{ cf_operational_txns.end_index }}</strong> of <strong>{{ cf_operational_txns.paginator.count }}</strong> transactions
+            </div>
+            <nav>
+                <ul class="pagination">
+                    {% if cf_operational_txns.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&cf_operational_page={{ cf_operational_txns.previous_page_number }}">
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link"><i class="fas fa-chevron-left"></i> Previous</span></li>
+                    {% endif %}
+
+                    {% for num in cf_operational_txns.paginator.page_range %}
+                        {% if cf_operational_txns.number == num %}
+                        <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                        {% elif num > cf_operational_txns.number|add:'-3' and num < cf_operational_txns.number|add:'3' %}
+                        <li class="page-item">
+                            <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&cf_operational_page={{ num }}">{{ num }}</a>
+                        </li>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if cf_operational_txns.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?year={{ year }}&month={{ month }}&search={{ search_query }}&filter_type={{ filter_type }}&per_page={{ per_page }}&cf_operational_page={{ cf_operational_txns.next_page_number }}">
+                            Next <i class="fas fa-chevron-right"></i>
+                        </a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled"><span class="page-link">Next <i class="fas fa-chevron-right"></i></span></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> No cash-flow-transaction operational expenses found for this period.
+        </div>
+        {% endif %}
+
         <!-- Other Cash Out (Capital Expenditures, Investments, etc.) -->
         <h6 class="mt-4 mb-2"><strong><i class="fas fa-money-bill-wave text-danger"></i> Other Cash Out</strong></h6>
         <p style="font-size: 11px; color: #666; margin-bottom: 10px;">

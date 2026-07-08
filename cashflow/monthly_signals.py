@@ -80,7 +80,15 @@ def update_monthly_summary(year, month, user=None):
     # 1. INVENTORY (Formula-based: Closing = Opening + Purchased - COGS)
     # ══════════════════════════════════════════════════════════════════════
     inventory_purchased = _calculate_procurement_costs(start_date, next_month_start)
-    cogs_actual = _calculate_actual_cogs(start_date, next_month_start, start_dt, end_dt)
+    # Sales Returns reverse both revenue and COGS — reflect that here so the
+    # Monthly Summary matches the daily cashflow ledger (cashflow/sync.py),
+    # which already nets returns into its per-day revenue/COGS buckets.
+    sales_returns_revenue = _calculate_sales_returns_revenue(start_date, next_month_start)
+    sales_returns_cogs = _calculate_sales_returns_cogs(start_date, next_month_start)
+    cogs_actual = (
+        _calculate_actual_cogs(start_date, next_month_start, start_dt, end_dt)
+        - sales_returns_cogs
+    )
 
     if prev_summary:
         inventory_opening = prev_summary.inventory_value_closing
@@ -101,8 +109,9 @@ def update_monthly_summary(year, month, user=None):
     # ══════════════════════════════════════════════════════════════════════
     # 3. CASH FLOW (Cash Basis)
     # ══════════════════════════════════════════════════════════════════════
-    cash_from_customers = _calculate_cash_from_customers(
-        start_date, next_month_start, start_dt, end_dt
+    cash_from_customers = (
+        _calculate_cash_from_customers(start_date, next_month_start, start_dt, end_dt)
+        - sales_returns_revenue
     )
     capital_injections = _calculate_capital_injections(start_date, next_month_start)
     other_cash_in = _calculate_other_cash_in(start_date, next_month_start)
@@ -121,7 +130,10 @@ def update_monthly_summary(year, month, user=None):
     # ══════════════════════════════════════════════════════════════════════
     # 4. P&L (Accrual Basis)
     # ══════════════════════════════════════════════════════════════════════
-    revenue_sales = _calculate_sales_revenue(start_date, next_month_start, start_dt, end_dt)
+    revenue_sales = (
+        _calculate_sales_revenue(start_date, next_month_start, start_dt, end_dt)
+        - sales_returns_revenue
+    )
 
     gross_profit = revenue_sales - cogs_actual
     gross_margin_pct = clamp_ratio_pct(
@@ -406,6 +418,58 @@ def _calculate_sales_revenue(start_date, end_date, start_dt, end_dt):
     return pos_rev + inv_rev
 
 
+def _calculate_sales_returns_revenue(start_date, end_date):
+    """Total revenue reversed by posted Sales Returns in the period.
+
+    Mirrors the per-line pricing logic in cashflow.sync.sync_daily_sales_revenue:
+    prefer the original sales-order unit price (converted to the return's
+    unit if needed), falling back to the item's current selling price.
+    """
+    from sales.models import SalesReturn
+    from catalog.utils import convert_price_for_unit
+
+    total = Decimal('0')
+    for sr in SalesReturn.objects.filter(
+        status=DocumentStatus.POSTED,
+        return_date__gte=start_date, return_date__lt=end_date,
+    ).select_related('sales_order').prefetch_related('lines__item', 'lines__unit'):
+        for line in sr.lines.all():
+            unit_price = Decimal('0')
+            if sr.sales_order_id:
+                so_line = (
+                    sr.sales_order.lines
+                    .filter(item=line.item)
+                    .select_related('unit')
+                    .first()
+                )
+                if so_line:
+                    if so_line.unit_id == line.unit_id:
+                        unit_price = so_line.unit_price
+                    else:
+                        unit_price = convert_price_for_unit(
+                            so_line.unit_price, so_line.unit, line.unit, item=line.item,
+                        )
+            if unit_price == 0:
+                unit_price = line.item.selling_price or Decimal('0')
+            total += unit_price * line.qty
+    return total
+
+
+def _calculate_sales_returns_cogs(start_date, end_date):
+    """Total COGS reversed by posted Sales Returns in the period."""
+    from sales.models import SalesReturn
+    from catalog.utils import calculate_line_cogs_with_conversion
+
+    total = Decimal('0')
+    for sr in SalesReturn.objects.filter(
+        status=DocumentStatus.POSTED,
+        return_date__gte=start_date, return_date__lt=end_date,
+    ).prefetch_related('lines__item', 'lines__unit'):
+        for line in sr.lines.all():
+            total += calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
+    return total
+
+
 def _calculate_cash_from_customers(start_date, end_date, start_dt, end_dt):
     """Calculate actual cash received from customers.
 
@@ -652,7 +716,12 @@ def update_summary_on_expense(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=CashFlowTransaction)
 def update_summary_on_cashflow(sender, instance, created, **kwargs):
-    if instance.status in (CashFlowStatus.APPROVED, 'PENDING') and instance.transaction_date:
+    # Recalculate regardless of status: the aggregate helpers only include
+    # APPROVED/PENDING rows, so a transition to REJECTED/CANCELLED must also
+    # trigger a recalc to drop the amount back out of the cached summary —
+    # otherwise a previously-PENDING transaction stays baked into the totals
+    # forever after being rejected or cancelled.
+    if instance.transaction_date:
         update_monthly_summary(
             instance.transaction_date.year, instance.transaction_date.month,
             user=getattr(instance, 'approved_by', None) or getattr(instance, 'created_by', None),

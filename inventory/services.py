@@ -4,7 +4,7 @@ All stock changes go through this service to ensure consistency.
 """
 import logging
 from decimal import Decimal
-from django.db import transaction
+from django.db import transaction, router
 from django.utils import timezone
 
 from inventory.models import (
@@ -14,6 +14,14 @@ from inventory.models import (
 from audit.models import AuditLog
 from catalog.models import convert_to_base_unit
 from catalog.utils import convert_price_for_unit
+
+# This project's local-first DB router can route all writes to a
+# 'local_cache' alias distinct from 'default'. A bare @transaction.atomic()
+# only wraps 'default', so on a partial failure mid-posting the StockMoves/
+# balance updates already applied would NOT roll back together. Resolve the
+# alias the router actually writes to so every @transaction.atomic below is
+# a real, all-or-nothing transaction.
+_WRITE_DB = router.db_for_write(StockMove) or 'default'
 
 
 def _convert_qty_safe(qty, from_unit, to_unit, item):
@@ -96,6 +104,44 @@ def _try_convert(qty, from_unit, to_unit, item, line, skipped):
             exc,
         )
         return None
+
+
+def _validate_lines_convertible(lines):
+    """
+    Verify every line's unit converts to its item's stock unit BEFORE any
+    stock or cost mutation happens for this document. Raises one ValueError
+    naming every line whose unit has no conversion path, if any.
+
+    This replaces silently skipping unconvertible lines mid-posting — which
+    left the lines that DID convert applied to stock/cost with no forcing
+    function for anyone to notice the ones that didn't — with a hard block:
+    the whole document refuses to post until every line has a valid Unit
+    Conversion under Catalog → Unit Conversions. Callers should run this
+    first, before creating any StockMove or touching any balance, so a
+    missing conversion never results in a partially-applied document.
+    """
+    problems = []
+    seen = set()
+    for line in lines:
+        item = line.item
+        unit = line.unit
+        stock_unit = item.stock_unit
+        if unit is None or stock_unit is None:
+            continue
+        key = (item.pk, unit.pk)
+        if key in seen or unit.pk == stock_unit.pk:
+            continue
+        seen.add(key)
+        if _convert_qty_safe(Decimal('1'), unit, stock_unit, item) is None:
+            problems.append(
+                f"{item.code} ({getattr(unit, 'abbreviation', unit)} → "
+                f"{getattr(stock_unit, 'abbreviation', stock_unit)})"
+            )
+    if problems:
+        raise ValueError(
+            'Cannot post — missing Unit Conversion for: ' + '; '.join(problems) +
+            '. Add the conversion(s) under Catalog → Unit Conversions, then try again.'
+        )
 
 
 def format_skipped_lines_message(doc, doc_label=None):
@@ -229,22 +275,24 @@ def _create_audit(user, action, obj, changes=None):
     )
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_goods_receipt(grn, user):
     """
     Post a GRN: creates RECEIVE StockMoves and updates balances.
 
-    Lines whose unit is incompatible with the item's stock_unit (no
-    UnitConversion exists) are **skipped** — they do not block the rest
-    of the GRN from posting.  The returned object carries a
-    ``skipped_lines`` attribute (list of dicts) describing every line
-    that was skipped so the caller / view can display them.
+    Every line's unit is verified convertible to the item's stock_unit
+    *before* any StockMove/balance is touched — if any line's unit has no
+    UnitConversion, the whole GRN is rejected (no partial posting) so a
+    missing conversion can never silently exclude a receipt from stock/cost.
     """
     from procurement.models import GoodsReceipt
     from core.models import DocumentStatus
 
     if grn.status != DocumentStatus.DRAFT:
         raise ValueError(f"GRN {grn.document_number} is not in DRAFT status.")
+
+    lines = list(grn.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all())
+    _validate_lines_convertible(lines)
 
     now = timezone.now()
     moves = []
@@ -261,7 +309,7 @@ def post_goods_receipt(grn, user):
     line_ctx = {}
     po_line_updates = {}  # po_line.pk → po_line (with accumulated qty_received)
 
-    for line in grn.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+    for line in lines:
         stock_unit = line.item.stock_unit
         base_qty = _try_convert(line.qty, line.unit, stock_unit, line.item, line, skipped)
         if base_qty is None:
@@ -557,7 +605,7 @@ def _ensure_so_bundle_lines_on_pickup(pickup):
             existing_items.add(pli.item_id)
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_delivery(delivery, user):
     """
     Post a Delivery Note: creates DELIVER StockMoves and updates balances.
@@ -582,6 +630,9 @@ def post_delivery(delivery, user):
         status=MoveStatus.POSTED,
     ).values_list('item_id', flat=True))
 
+    lines = list(delivery.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all())
+    _validate_lines_convertible([l for l in lines if l.item_id not in existing_item_ids])
+
     # ── Pre-load SO lines once to avoid N+1 per delivery line ──────────
     so_lines_by_item = {}
     if delivery.sales_order:
@@ -594,7 +645,7 @@ def post_delivery(delivery, user):
     skipped_existing = []
     so_line_updates = {}  # so_line.pk → so_line (with accumulated qty_delivered)
 
-    for line in delivery.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+    for line in lines:
         if line.item_id in existing_item_ids:
             skipped_existing.append(f"{line.item.code} (already moved)")
             continue
@@ -675,7 +726,7 @@ def post_delivery(delivery, user):
     return delivery
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_sales_pickup(pickup, user):
     """
     Post a Sales Pickup: behaves like a Delivery Note but for PICKUP fulfillment.
@@ -701,6 +752,9 @@ def post_sales_pickup(pickup, user):
         status=MoveStatus.POSTED,
     ).values_list('item_id', flat=True))
 
+    lines = list(pickup.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all())
+    _validate_lines_convertible([l for l in lines if l.item_id not in existing_item_ids])
+
     # ── Pre-load SO lines once to avoid N+1 per pickup line ────────────
     so_lines_by_item = {}
     if pickup.sales_order:
@@ -713,7 +767,7 @@ def post_sales_pickup(pickup, user):
     skipped_existing = []
     so_line_updates = {}  # so_line.pk → so_line (with accumulated qty_delivered)
 
-    for line in pickup.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+    for line in lines:
         if line.item_id in existing_item_ids:
             skipped_existing.append(f"{line.item.code} (already moved)")
             continue
@@ -794,7 +848,7 @@ def post_sales_pickup(pickup, user):
     return pickup
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_transfer(transfer, user):
     """
     Post a Stock Transfer: creates TRANSFER StockMoves (out + in) and updates balances.
@@ -804,11 +858,14 @@ def post_transfer(transfer, user):
     if transfer.status != DocumentStatus.DRAFT:
         raise ValueError(f"Transfer {transfer.document_number} is not in DRAFT status.")
 
+    lines = list(transfer.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all())
+    _validate_lines_convertible(lines)
+
     now = timezone.now()
     moves = []
     skipped = []
 
-    for line in transfer.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+    for line in lines:
         # Validate locations belong to correct warehouses
         if line.from_location.warehouse_id != transfer.from_warehouse_id:
             raise ValueError(
@@ -856,7 +913,7 @@ def post_transfer(transfer, user):
     return transfer
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_adjustment(adjustment, user):
     """
     Post a Stock Adjustment: sets stock directly TO the new qty (qty_counted).
@@ -868,11 +925,14 @@ def post_adjustment(adjustment, user):
     if adjustment.status not in (DocumentStatus.DRAFT, DocumentStatus.APPROVED):
         raise ValueError(f"Adjustment {adjustment.document_number} cannot be posted from {adjustment.status}.")
 
+    lines = list(adjustment.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all())
+    _validate_lines_convertible(lines)
+
     now = timezone.now()
     moves = []
     skipped = []
 
-    for line in adjustment.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+    for line in lines:
         # Convert the new counted qty to base/stock units
         new_qty = _try_convert(line.qty_counted, line.unit, line.item.stock_unit, line.item, line, skipped)
         if new_qty is None:
@@ -932,7 +992,7 @@ def post_adjustment(adjustment, user):
     return adjustment
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_damaged_report(report, user):
     """
     Post a Damaged Report: creates DAMAGE StockMoves and decreases balances.
@@ -942,11 +1002,14 @@ def post_damaged_report(report, user):
     if report.status != DocumentStatus.DRAFT:
         raise ValueError(f"Damaged report {report.document_number} is not in DRAFT status.")
 
+    lines = list(report.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all())
+    _validate_lines_convertible(lines)
+
     now = timezone.now()
     moves = []
     skipped = []
 
-    for line in report.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+    for line in lines:
         base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
         if base_qty is None:
             continue
@@ -981,7 +1044,7 @@ def post_damaged_report(report, user):
     return report
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def reserve_stock(item, location, qty, reference_type, reference_id, user):
     """Reserve stock for a sales order or other purpose."""
     from inventory.models import StockReservation
@@ -1011,7 +1074,7 @@ def reserve_stock(item, location, qty, reference_type, reference_id, user):
     return reservation
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def cancel_document(doc, user):
     """
     Cancel a transactional document.
@@ -1068,7 +1131,7 @@ def cancel_document(doc, user):
     return doc
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_purchase_return(pr, user):
     """Post a Purchase Return: creates RETURN_OUT StockMoves and decreases balances."""
     from procurement.models import PurchaseReturn
@@ -1077,11 +1140,14 @@ def post_purchase_return(pr, user):
     if pr.status != DocumentStatus.DRAFT:
         raise ValueError(f"Purchase Return {pr.document_number} is not in DRAFT status.")
 
+    lines = list(pr.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all())
+    _validate_lines_convertible(lines)
+
     now = timezone.now()
     moves = []
     skipped = []
 
-    for line in pr.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+    for line in lines:
         base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
         if base_qty is None:
             continue
@@ -1116,7 +1182,7 @@ def post_purchase_return(pr, user):
     return pr
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_sales_return(sr, user):
     """Post a Sales Return: creates RETURN_IN StockMoves and increases balances."""
     from sales.models import SalesReturn
@@ -1125,11 +1191,14 @@ def post_sales_return(sr, user):
     if sr.status != DocumentStatus.DRAFT:
         raise ValueError(f"Sales Return {sr.document_number} is not in DRAFT status.")
 
+    lines = list(sr.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all())
+    _validate_lines_convertible(lines)
+
     now = timezone.now()
     moves = []
     skipped = []
 
-    for line in sr.lines.select_related('item__default_unit', 'item__selling_unit', 'unit').all():
+    for line in lines:
         base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
         if base_qty is None:
             continue
@@ -1164,7 +1233,7 @@ def post_sales_return(sr, user):
     return sr
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_inventory_to_supply(ist, user):
     """
     Post an Inventory-to-Supply Transfer (IST).
@@ -1181,12 +1250,15 @@ def post_inventory_to_supply(ist, user):
     if ist.status != DocumentStatus.DRAFT:
         raise ValueError(f"IST {ist.document_number} is not in DRAFT status.")
 
+    lines = list(ist.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all())
+    _validate_lines_convertible(lines)
+
     now = timezone.now()
     moves = []
     supply_movements = []
     skipped = []
 
-    for line in ist.lines.select_related('item__default_unit', 'item__selling_unit', 'unit', 'location').all():
+    for line in lines:
         base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
         if base_qty is None:
             continue
@@ -1266,7 +1338,7 @@ def post_inventory_to_supply(ist, user):
     return ist
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def cancel_inventory_to_supply(ist, user):
     """
     Cancel an Inventory-to-Supply Transfer.
