@@ -15,9 +15,10 @@ from sales.forms import (
     SalesPickupForm, SalesPickupLineFormSet,
     SalesReturnForm, SalesReturnLineFormSet,
 )
+from django.db import transaction
 from django.utils import timezone
 from inventory.services import post_delivery, reserve_stock, cancel_document, post_sales_pickup
-from inventory.services import save_with_document_number
+from inventory.services import save_with_document_number, _WRITE_DB
 from core.models import DocumentStatus
 from accounts.decorators import write_denied_for_viewer,  sales_access
 
@@ -169,18 +170,25 @@ class SalesPickupViewSet(viewsets.ModelViewSet):
     def post_pickup(self, request, pk=None):
         pickup = self.get_object()
         try:
-            post_sales_pickup(pickup, request.user)
-            from inventory.automation import auto_create_invoice_from_pickup
-            inv = auto_create_invoice_from_pickup(pickup, request.user)
-            data = {'status': 'posted', 'document_number': pickup.document_number}
-            if inv:
-                data['invoice_number'] = inv.invoice_number
-                data['invoice_was_updated'] = getattr(inv, '_was_updated', False)
-                if data['invoice_was_updated']:
-                    data['new_lines_count'] = getattr(inv, '_new_lines_count', 0)
-            return Response(data)
+            with transaction.atomic(using=_WRITE_DB):
+                post_sales_pickup(pickup, request.user)
+                from inventory.automation import auto_create_invoice_from_pickup
+                inv = auto_create_invoice_from_pickup(pickup, request.user)
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception('Unable to post pickup %s', pickup.document_number)
+            return Response(
+                {'error': f'Unable to post pickup: {e}. No changes were made.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        data = {'status': 'posted', 'document_number': pickup.document_number}
+        if inv:
+            data['invoice_number'] = inv.invoice_number
+            data['invoice_was_updated'] = getattr(inv, '_was_updated', False)
+            if data['invoice_was_updated']:
+                data['new_lines_count'] = getattr(inv, '_new_lines_count', 0)
+        return Response(data)
 
 
 # ── Template Views ─────────────────────────────────────────────────────────
@@ -232,34 +240,36 @@ def delivery_post_view(request, pk):
     dn = get_object_or_404(DeliveryNote, pk=pk)
     if request.method == 'POST':
         try:
-            post_delivery(dn, request.user)
+            with transaction.atomic(using=_WRITE_DB):
+                post_delivery(dn, request.user)
+                from inventory.automation import auto_create_invoice_from_delivery
+                inv = auto_create_invoice_from_delivery(dn, request.user)
+        except ValueError as e:
+            messages.error(request, str(e))
+        except Exception as e:
+            logger.exception(
+                'Unable to post delivery note %s (invoice sync failed)', dn.document_number,
+            )
+            messages.error(
+                request,
+                f'Delivery Note {dn.document_number} was NOT posted: an internal error '
+                'occurred while creating/syncing the invoice, so the entire post was '
+                'cancelled and no stock was changed. This has been logged for an '
+                'administrator to investigate. Please try again or contact support.',
+            )
+        else:
             from inventory.services import format_skipped_lines_message
             warning = format_skipped_lines_message(dn)
             if warning:
                 messages.warning(request, warning)
             else:
                 messages.success(request, f'Delivery Note {dn.document_number} posted. Stock updated.')
-            try:
-                from inventory.automation import auto_create_invoice_from_delivery
-                inv = auto_create_invoice_from_delivery(dn, request.user)
-                if inv:
-                    if getattr(inv, '_was_updated', False):
-                        new_lines = getattr(inv, '_new_lines_count', 0)
-                        messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
-                    else:
-                        messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
-            except Exception:
-                logger.exception(
-                    'Invoice auto-creation failed for delivery note %s', dn.document_number,
-                )
-                messages.warning(
-                    request,
-                    f'Delivery Note {dn.document_number} was posted and stock was updated, '
-                    'but the invoice could not be auto-created/synced due to an internal '
-                    'error. This has been logged for an administrator to investigate.',
-                )
-        except ValueError as e:
-            messages.error(request, str(e))
+            if inv:
+                if getattr(inv, '_was_updated', False):
+                    new_lines = getattr(inv, '_new_lines_count', 0)
+                    messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
+                else:
+                    messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
     return redirect('delivery_detail', pk=pk)
 
 
@@ -800,39 +810,36 @@ def pickup_post_view(request, pk):
     pickup = get_object_or_404(SalesPickup, pk=pk)
     if request.method == 'POST':
         try:
-            post_sales_pickup(pickup, request.user)
+            with transaction.atomic(using=_WRITE_DB):
+                post_sales_pickup(pickup, request.user)
+                from inventory.automation import auto_create_invoice_from_pickup
+                inv = auto_create_invoice_from_pickup(pickup, request.user)
+        except ValueError as e:
+            messages.error(request, str(e))
+        except Exception as e:
+            logger.exception(
+                'Unable to post pickup %s (invoice sync failed)', pickup.document_number,
+            )
+            messages.error(
+                request,
+                f'Pickup {pickup.document_number} was NOT posted: an internal error '
+                'occurred while creating/syncing the invoice, so the entire post was '
+                'cancelled and no stock was changed. This has been logged for an '
+                'administrator to investigate. Please try again or contact support.',
+            )
+        else:
             from inventory.services import format_skipped_lines_message
             warning = format_skipped_lines_message(pickup)
             if warning:
                 messages.warning(request, warning)
             else:
                 messages.success(request, f'Pickup {pickup.document_number} posted. Stock updated.')
-        except ValueError as e:
-            messages.error(request, str(e))
-        except Exception as e:
-            logger.exception('Unable to post pickup %s', pickup.document_number)
-            messages.error(request, f'Unable to post pickup: {e}')
-        else:
-            try:
-                from inventory.automation import auto_create_invoice_from_pickup
-                inv = auto_create_invoice_from_pickup(pickup, request.user)
-                if inv:
-                    if getattr(inv, '_was_updated', False):
-                        new_lines = getattr(inv, '_new_lines_count', 0)
-                        messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
-                    else:
-                        messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
-            except Exception:
-                logger.exception(
-                    'Invoice auto-creation failed for pickup %s', pickup.document_number,
-                )
-                messages.warning(
-                    request,
-                    f'Pickup {pickup.document_number} was posted and stock was updated, '
-                    'but the invoice could not be auto-created/synced due to an internal '
-                    'error. This has been logged for an administrator to investigate. '
-                    'Cancelling and re-posting this pickup will retry the invoice sync.',
-                )
+            if inv:
+                if getattr(inv, '_was_updated', False):
+                    new_lines = getattr(inv, '_new_lines_count', 0)
+                    messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
+                else:
+                    messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
     return redirect('pickup_detail', pk=pk)
 
 

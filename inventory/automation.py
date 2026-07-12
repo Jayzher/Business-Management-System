@@ -22,7 +22,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from django.db.models import Max
-from inventory.services import generate_document_number
+from inventory.services import generate_document_number, _WRITE_DB
 
 
 def _generate_invoice_number():
@@ -38,7 +38,7 @@ def _generate_invoice_number():
     return f"{next_num:06d}"
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def auto_create_grn_from_po(po, user):
     """
     When a PO is approved, auto-create a Goods Receipt Note (DRAFT)
@@ -87,7 +87,7 @@ def auto_create_grn_from_po(po, user):
     return grn
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def auto_create_delivery_from_so(so, user):
     """
     When an SO is approved, auto-create a Delivery Note (DRAFT)
@@ -156,7 +156,7 @@ def auto_create_delivery_from_so(so, user):
     return dn
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def auto_create_pickup_from_so(so, user):
     """
     When an SO is approved with PICKUP fulfillment, auto-create a SalesPickup (DRAFT)
@@ -225,7 +225,7 @@ def auto_create_pickup_from_so(so, user):
     return pickup
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def auto_create_invoice_from_so(so, user):
     """
     Auto-create an Invoice directly from a Sales Order (standalone / on-demand).
@@ -283,7 +283,7 @@ def auto_create_invoice_from_so(so, user):
     return inv
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def auto_create_invoice_from_pickup(pickup, user):
     """
     Auto-create or UPDATE an Invoice when a Sales Pickup is posted.
@@ -427,7 +427,7 @@ def auto_create_invoice_from_pickup(pickup, user):
     return inv
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def auto_create_invoice_from_delivery(delivery, user):
     """
     Auto-create or UPDATE an Invoice when a Delivery Note is posted.
@@ -579,7 +579,7 @@ def auto_create_invoice_from_delivery(delivery, user):
     return inv
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def auto_create_invoice_from_pos_sale(sale, user):
     """
     Auto-create an Invoice when a POS Sale is posted.
