@@ -88,6 +88,9 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'theme.middleware.ModalFormMiddleware',
+    # Prevents "database is locked" on Django Admin deletes with large
+    # cascades — see sync/middleware.py for details.
+    'sync.middleware.PauseSyncForAdminDeleteMiddleware',
 ]
 
 ROOT_URLCONF = 'inventory_system.urls'
