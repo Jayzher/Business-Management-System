@@ -47,8 +47,8 @@
           <td>
             <a href="{% url 'purchase_order_detail' order.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
             {% if not is_view_only and not is_web_version %}{% if order.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'purchase_order_edit' order.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
-            <form method="post" action="{% url 'purchase_order_approve' order.pk %}" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-xs btn-info" title="Approve" onclick="return confirm('Approve this PO?')"><i class="fas fa-thumbs-up"></i></button></form>{% endif %}
-            {% if order.status == 'APPROVED' %}<form method="post" action="{% url 'purchase_order_approve' order.pk %}" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-xs btn-success" title="Post" onclick="return confirm('Post this PO? This will update stock.')"><i class="fas fa-check-circle"></i></button></form>{% endif %}
+            <form method="post" action="{% url 'purchase_order_approve' order.pk %}" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-xs btn-info" title="Approve" data-confirm="Approve this PO?"><i class="fas fa-thumbs-up"></i></button></form>{% endif %}
+            {% if order.status == 'APPROVED' %}<form method="post" action="{% url 'purchase_order_approve' order.pk %}" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-xs btn-success" title="Post" data-confirm="Post this PO? This will update stock."><i class="fas fa-check-circle"></i></button></form>{% endif %}
             <a href="#" data-modal-url="{% url 'purchase_order_delete' order.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>{% endif %}
           </td>
         </tr>

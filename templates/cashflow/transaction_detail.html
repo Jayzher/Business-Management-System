@@ -99,14 +99,14 @@
         {% if txn.status == 'PENDING' %}
         <form method="post" action="{% url 'cashflow:cashflow_approve' txn.pk %}" class="mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-success btn-block"><i class="fas fa-check mr-1"></i> Approve</button>
+          <button type="submit" class="btn btn-success btn-block" data-confirm="Approve this transaction?"><i class="fas fa-check mr-1"></i> Approve</button>
         </form>
         <form method="post" action="{% url 'cashflow:cashflow_reject' txn.pk %}" class="mb-2" id="reject-form">
           {% csrf_token %}
           <div class="form-group mb-2">
             {{ reject_form.rejection_reason }}
           </div>
-          <button type="submit" class="btn btn-danger btn-block"><i class="fas fa-times mr-1"></i> Reject</button>
+          <button type="submit" class="btn btn-danger btn-block" data-confirm="Reject this transaction?"><i class="fas fa-times mr-1"></i> Reject</button>
         </form>
         <hr>
         <a href="#" data-modal-url="{% url 'cashflow:cashflow_edit' txn.pk %}" class="btn btn-info btn-block mb-2"><i class="fas fa-edit mr-1"></i> Edit</a>
@@ -122,7 +122,7 @@
         <form method="post" action="{% url 'cashflow:cashflow_cancel' txn.pk %}">
           {% csrf_token %}
           <button type="submit" class="btn btn-outline-secondary btn-block"
-                  onclick="return confirm('Cancel this transaction?');">
+                  data-confirm="Cancel this transaction?">
             <i class="fas fa-ban mr-1"></i> Cancel Transaction
           </button>
         </form>

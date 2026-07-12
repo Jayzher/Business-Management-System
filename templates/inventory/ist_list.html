@@ -49,7 +49,7 @@
             <a href="{% url 'ist_detail' t.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
             {% if not is_view_only and not is_web_version %}{% if t.status == 'DRAFT' %}
             <a href="#" data-modal-url="{% url 'ist_edit' t.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
-            <form method="post" action="{% url 'ist_post' t.pk %}" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-xs btn-success" title="Post" onclick="return confirm('Post this transfer? This will update stock balances.')"><i class="fas fa-check-circle"></i></button></form>
+            <form method="post" action="{% url 'ist_post' t.pk %}" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-xs btn-success" title="Post" data-confirm="Post this transfer? This will update stock balances."><i class="fas fa-check-circle"></i></button></form>
             {% endif %}
             <a href="#" data-modal-url="{% url 'ist_delete' t.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>{% endif %}
           </td>

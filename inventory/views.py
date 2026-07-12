@@ -32,6 +32,7 @@ from inventory.services import (
     save_with_document_number,
 )
 from core.models import DocumentStatus
+from core.utils import redirect_back
 from accounts.decorators import write_denied_for_viewer, warehouse_access, adjustment_access
 
 
@@ -135,7 +136,7 @@ def transfer_post_view(request, pk):
                 messages.success(request, f'Transfer {obj.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('transfer_detail', pk=pk)
+    return redirect_back(request, 'transfer_detail', pk=pk)
 
 
 @login_required
@@ -149,7 +150,7 @@ def transfer_cancel_view(request, pk):
             messages.success(request, f'Transfer {obj.document_number} cancelled.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('transfer_detail', pk=pk)
+    return redirect_back(request, 'transfer_detail', pk=pk)
 
 
 @login_required
@@ -166,7 +167,7 @@ def adjustment_approve_view(request, pk):
             obj.approved_at = timezone.now()
             obj.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
             messages.success(request, f'Adjustment {obj.document_number} approved.')
-    return redirect('adjustment_detail', pk=pk)
+    return redirect_back(request, 'adjustment_detail', pk=pk)
 
 
 @login_required
@@ -185,7 +186,7 @@ def adjustment_post_view(request, pk):
                 messages.success(request, f'Adjustment {obj.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('adjustment_detail', pk=pk)
+    return redirect_back(request, 'adjustment_detail', pk=pk)
 
 
 @login_required
@@ -199,7 +200,7 @@ def adjustment_cancel_view(request, pk):
             messages.success(request, f'Adjustment {obj.document_number} cancelled.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('adjustment_detail', pk=pk)
+    return redirect_back(request, 'adjustment_detail', pk=pk)
 
 
 @login_required
@@ -218,7 +219,7 @@ def damaged_post_view(request, pk):
                 messages.success(request, f'Damaged Report {obj.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('damaged_detail', pk=pk)
+    return redirect_back(request, 'damaged_detail', pk=pk)
 
 
 @login_required
@@ -232,7 +233,7 @@ def damaged_cancel_view(request, pk):
             messages.success(request, f'Damaged Report {obj.document_number} cancelled.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('damaged_detail', pk=pk)
+    return redirect_back(request, 'damaged_detail', pk=pk)
 
 
 # ── Template Views ─────────────────────────────────────────────────────────
@@ -869,7 +870,7 @@ def ist_post_view(request, pk):
                 )
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('ist_detail', pk=pk)
+    return redirect_back(request, 'ist_detail', pk=pk)
 
 
 @login_required
@@ -883,4 +884,4 @@ def ist_cancel_view(request, pk):
             messages.success(request, f'Transfer {obj.document_number} cancelled. Inventory and supply stock reversed.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('ist_detail', pk=pk)
+    return redirect_back(request, 'ist_detail', pk=pk)

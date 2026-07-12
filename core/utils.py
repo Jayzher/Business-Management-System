@@ -1,5 +1,26 @@
 from django.core.paginator import Paginator
 from django.db.models import ProtectedError, Q
+from django.shortcuts import redirect
+from django.utils.http import url_has_allowed_host_and_scheme
+
+
+def redirect_back(request, fallback_url_name, pk=None):
+    """
+    Redirect back to whichever page submitted the form (a list table's
+    in-row action or a detail page), falling back to the object's detail
+    view when there's no safe referer to use.
+
+    Keeps in-row table actions (Approve/Post/Cancel/etc.) on the table
+    instead of always jumping to the detail page.
+    """
+    referer = request.META.get('HTTP_REFERER')
+    if referer and url_has_allowed_host_and_scheme(
+        referer, allowed_hosts={request.get_host()}, require_https=request.is_secure(),
+    ):
+        return redirect(referer)
+    if pk is not None:
+        return redirect(fallback_url_name, pk=pk)
+    return redirect(fallback_url_name)
 
 
 def sort_queryset(request, queryset, sort_map, default_key, default_dir='desc'):

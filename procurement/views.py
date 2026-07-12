@@ -22,6 +22,7 @@ from django.utils import timezone
 from inventory.services import post_goods_receipt, cancel_document
 from inventory.services import save_with_document_number
 from core.models import DocumentStatus
+from core.utils import redirect_back
 from accounts.decorators import write_denied_for_viewer,  procurement_access
 from django.http import HttpResponseRedirect
 
@@ -102,7 +103,7 @@ def purchase_order_approve_view(request, pk):
             grn = auto_create_grn_from_po(po, request.user)
             if grn:
                 messages.info(request, f'Goods Receipt {grn.document_number} auto-created.')
-    return redirect('purchase_order_detail', pk=pk)
+    return redirect_back(request, 'purchase_order_detail', pk=pk)
 
 
 @login_required
@@ -116,7 +117,7 @@ def purchase_order_cancel_view(request, pk):
             messages.success(request, f'Purchase Order {po.document_number} cancelled.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('purchase_order_detail', pk=pk)
+    return redirect_back(request, 'purchase_order_detail', pk=pk)
 
 
 @login_required
@@ -135,7 +136,7 @@ def goods_receipt_post_view(request, pk):
                 messages.success(request, f'Goods Receipt {grn.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('goods_receipt_detail', pk=pk)
+    return redirect_back(request, 'goods_receipt_detail', pk=pk)
 
 
 @login_required
@@ -149,7 +150,7 @@ def goods_receipt_cancel_view(request, pk):
             messages.success(request, f'Goods Receipt {grn.document_number} cancelled.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('goods_receipt_detail', pk=pk)
+    return redirect_back(request, 'goods_receipt_detail', pk=pk)
 
 
 @login_required
@@ -553,7 +554,7 @@ def purchase_return_post_view(request, pk):
                 messages.success(request, f'Purchase Return {pr.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('purchase_return_detail', pk=pk)
+    return redirect_back(request, 'purchase_return_detail', pk=pk)
 
 
 @login_required
@@ -567,7 +568,7 @@ def purchase_return_cancel_view(request, pk):
             messages.success(request, f'Purchase Return {pr.document_number} cancelled.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('purchase_return_detail', pk=pk)
+    return redirect_back(request, 'purchase_return_detail', pk=pk)
 
 
 @login_required

@@ -538,12 +538,6 @@
     <div class="spinner-border text-primary" style="width:3rem; height:3rem;" role="status"></div>
     <span style="font-size:.95rem; font-weight:600; color:#374151;">Processing...</span>
   </div>
-  <div id="wis-loading-success" style="display:none; flex-direction:column; align-items:center; gap:8px; animation:wis-pop-in .3s ease;">
-    <div style="width:56px; height:56px; border-radius:50%; background:#d1fae5; display:flex; align-items:center; justify-content:center;">
-      <i class="fas fa-check" style="font-size:1.5rem; color:#065f46;"></i>
-    </div>
-    <span style="font-size:.95rem; font-weight:600; color:#065f46;">Done!</span>
-  </div>
 </div>
 
 <!-- Reusable Modal Shell -->
@@ -2877,30 +2871,57 @@ $(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
 (function(){
   var overlay = document.getElementById('wis-loading-overlay');
   var spinner = document.getElementById('wis-loading-spinner');
-  var success = document.getElementById('wis-loading-success');
 
   /* Show loading overlay */
   window.WIS = window.WIS || {};
   WIS.showLoading = function(message) {
     spinner.querySelector('span').textContent = message || 'Processing...';
     spinner.style.display = 'flex';
-    success.style.display = 'none';
     overlay.style.display = 'flex';
   };
 
-  /* Show success state briefly then hide */
+  /* Hide the loading overlay, then show a SweetAlert2 success popup */
   WIS.showSuccess = function(message) {
-    spinner.style.display = 'none';
-    success.querySelector('span').textContent = message || 'Done!';
-    success.style.display = 'flex';
-    overlay.style.display = 'flex';
-    setTimeout(function(){ overlay.style.display = 'none'; }, 1200);
+    overlay.style.display = 'none';
+    Swal.fire({
+      icon: 'success',
+      title: 'Success',
+      text: message || 'Done!',
+      timer: 1500,
+      showConfirmButton: false,
+    });
   };
 
   /* Hide overlay */
   WIS.hideLoading = function() {
     overlay.style.display = 'none';
   };
+
+  /* ── SweetAlert2 confirmation for [data-confirm] submit buttons ───── */
+  /* Usage: <button type="submit" data-confirm="Approve this document?">  */
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-confirm]');
+    if (!btn) return;
+    var form = btn.closest('form');
+    if (!form) return;
+
+    /* Respect native required-field validation (e.g. a rejection reason)
+       before showing the confirm dialog, same as a normal submit would. */
+    if (form.reportValidity && !form.reportValidity()) return;
+
+    e.preventDefault();
+    Swal.fire({
+      title: 'Are you sure?',
+      text: btn.getAttribute('data-confirm'),
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes',
+      confirmButtonColor: '#007bff',
+      cancelButtonColor: '#6c757d',
+    }).then(function(result) {
+      if (result.isConfirmed) form.requestSubmit ? form.requestSubmit(btn) : form.submit();
+    });
+  });
 
   /* ── Intercept all non-modal, non-AJAX form submissions ──────────── */
   document.addEventListener('submit', function(e) {
@@ -2941,16 +2962,9 @@ $(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
     window.history.replaceState({}, '', cleanUrl);
   }
 
-  /* Also trigger success overlay briefly for Django messages with 'success' tag */
+  /* Django messages with the 'success' tag also get a SweetAlert2 popup */
   {% if messages %}{% for message in messages %}{% if 'success' in message.tags %}
-  (function(){
-    /* Show the success overlay briefly, then let the toast handle the message */
-    spinner.style.display = 'none';
-    success.querySelector('span').textContent = 'Done!';
-    success.style.display = 'flex';
-    overlay.style.display = 'flex';
-    setTimeout(function(){ overlay.style.display = 'none'; }, 800);
-  })();
+  WIS.showSuccess('{{ message|escapejs }}');
   {% endif %}{% endfor %}{% endif %}
 
   /* ── Safety: hide overlay if page loads without redirect (back button, error) ── */

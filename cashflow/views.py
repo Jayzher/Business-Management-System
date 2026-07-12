@@ -12,6 +12,7 @@ from cashflow.models import (
 )
 from cashflow.forms import CashFlowTransactionForm, CashFlowRejectForm
 from accounts.decorators import write_denied_for_viewer
+from core.utils import redirect_back
 
 
 def _log(transaction, action, user, details='', old_values=None, new_values=None):
@@ -547,10 +548,10 @@ def transaction_delete(request, pk):
 def transaction_approve(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if request.method != 'POST':
-        return redirect('cashflow:cashflow_detail', pk=pk)
+        return redirect_back(request, 'cashflow:cashflow_detail', pk=pk)
     if txn.status != CashFlowStatus.PENDING:
         messages.warning(request, 'Only Pending transactions can be approved.')
-        return redirect('cashflow:cashflow_detail', pk=pk)
+        return redirect_back(request, 'cashflow:cashflow_detail', pk=pk)
 
     txn.status = CashFlowStatus.APPROVED
     txn.approved_by = request.user
@@ -559,7 +560,7 @@ def transaction_approve(request, pk):
     _log(txn, CashFlowLogAction.APPROVED, request.user,
          f'Transaction {txn.transaction_number} approved.')
     messages.success(request, f'Transaction {txn.transaction_number} approved.')
-    return redirect('cashflow:cashflow_detail', pk=pk)
+    return redirect_back(request, 'cashflow:cashflow_detail', pk=pk)
 
 
 @login_required
@@ -567,10 +568,10 @@ def transaction_approve(request, pk):
 def transaction_reject(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if request.method != 'POST':
-        return redirect('cashflow:cashflow_detail', pk=pk)
+        return redirect_back(request, 'cashflow:cashflow_detail', pk=pk)
     if txn.status != CashFlowStatus.PENDING:
         messages.warning(request, 'Only Pending transactions can be rejected.')
-        return redirect('cashflow:cashflow_detail', pk=pk)
+        return redirect_back(request, 'cashflow:cashflow_detail', pk=pk)
 
     form = CashFlowRejectForm(request.POST)
     reason = ''
@@ -587,7 +588,7 @@ def transaction_reject(request, pk):
     _log(txn, CashFlowLogAction.REJECTED, request.user,
          f'Transaction {txn.transaction_number} rejected. Reason: {reason}')
     messages.success(request, f'Transaction {txn.transaction_number} rejected.')
-    return redirect('cashflow:cashflow_detail', pk=pk)
+    return redirect_back(request, 'cashflow:cashflow_detail', pk=pk)
 
 
 @login_required
@@ -595,10 +596,10 @@ def transaction_reject(request, pk):
 def transaction_cancel(request, pk):
     txn = get_object_or_404(CashFlowTransaction, pk=pk)
     if request.method != 'POST':
-        return redirect('cashflow:cashflow_detail', pk=pk)
+        return redirect_back(request, 'cashflow:cashflow_detail', pk=pk)
     if txn.status == CashFlowStatus.CANCELLED:
         messages.warning(request, 'Transaction is already cancelled.')
-        return redirect('cashflow:cashflow_detail', pk=pk)
+        return redirect_back(request, 'cashflow:cashflow_detail', pk=pk)
 
     old_status = txn.status
     txn.status = CashFlowStatus.CANCELLED
@@ -606,7 +607,7 @@ def transaction_cancel(request, pk):
     _log(txn, CashFlowLogAction.CANCELLED, request.user,
          f'Transaction {txn.transaction_number} cancelled (was {old_status}).')
     messages.success(request, f'Transaction {txn.transaction_number} cancelled.')
-    return redirect('cashflow:cashflow_detail', pk=pk)
+    return redirect_back(request, 'cashflow:cashflow_detail', pk=pk)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

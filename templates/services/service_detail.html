@@ -411,7 +411,8 @@
         {% if service.status == 'DRAFT' %}
         <form method="post" action="{% url 'service_start' service.pk %}" class="mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-warning btn-block">
+          <button type="submit" class="btn btn-warning btn-block"
+            data-confirm="Mark this service In Progress? This will deduct inventory.">
             <i class="fas fa-play mr-1"></i>Mark In Progress
           </button>
         </form>
@@ -421,7 +422,7 @@
         <form method="post" action="{% url 'service_complete' service.pk %}" class="mb-2">
           {% csrf_token %}
           <button type="submit" class="btn btn-success btn-block"
-            onclick="return confirm('Complete this service? This will generate an invoice.')">
+            data-confirm="Complete this service? This will generate an invoice.">
             <i class="fas fa-check-circle mr-1"></i>Complete Service
           </button>
         </form>
@@ -435,7 +436,7 @@
         <form method="post" action="{% url 'service_cancel' service.pk %}" class="mb-2">
           {% csrf_token %}
           <button type="submit" class="btn btn-outline-danger btn-block"
-            onclick="return confirm('Cancel this service? This cannot be undone.')">
+            data-confirm="Cancel this service? This cannot be undone.">
             <i class="fas fa-ban mr-1"></i>Cancel Service
           </button>
         </form>

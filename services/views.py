@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from services.models import CustomerService, ServiceLine, ServiceOtherMaterial, ServiceBundle, ServiceStatus, ServicePaymentStatus
 from accounts.decorators import write_denied_for_viewer
+from core.utils import redirect_back
 from services.forms import (
     CustomerServiceForm, CustomerServiceEditForm,
     ServiceLineFormSet, ServiceOtherMaterialFormSet, ServiceBundleFormSet,
@@ -492,11 +493,11 @@ def service_delete(request, pk):
 def service_start(request, pk):
     svc = get_object_or_404(CustomerService, pk=pk)
     if request.method != 'POST':
-        return redirect('service_detail', pk=pk)
+        return redirect_back(request, 'service_detail', pk=pk)
 
     if svc.status != ServiceStatus.DRAFT:
         messages.error(request, 'Only DRAFT services can be started.')
-        return redirect('service_detail', pk=pk)
+        return redirect_back(request, 'service_detail', pk=pk)
 
     now = timezone.now()
     lines = list(svc.lines.select_related(
@@ -625,12 +626,12 @@ def service_start(request, pk):
         except ValueError as exc:
             transaction.set_rollback(True)
             messages.error(request, f'Stock error: {exc}')
-            return redirect('service_detail', pk=pk)
+            return redirect_back(request, 'service_detail', pk=pk)
 
     svc.status = ServiceStatus.IN_PROGRESS
     svc.save(update_fields=['status', 'updated_at'])
     messages.success(request, f'Service {svc.service_number} marked as In Progress. Inventory deducted.')
-    return redirect('service_detail', pk=pk)
+    return redirect_back(request, 'service_detail', pk=pk)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -642,11 +643,11 @@ def service_start(request, pk):
 def service_complete(request, pk):
     svc = get_object_or_404(CustomerService, pk=pk)
     if request.method != 'POST':
-        return redirect('service_detail', pk=pk)
+        return redirect_back(request, 'service_detail', pk=pk)
 
     if svc.status != ServiceStatus.IN_PROGRESS:
         messages.error(request, 'Service must be marked In Progress before it can be completed.')
-        return redirect('service_detail', pk=pk)
+        return redirect_back(request, 'service_detail', pk=pk)
 
     now = timezone.now()
     lines = list(svc.lines.select_related(
@@ -944,7 +945,7 @@ def service_complete(request, pk):
                 request,
                 f'Service {svc.service_number} completed. Invoice {inv.invoice_number} generated.'
             )
-    return redirect('service_detail', pk=pk)
+    return redirect_back(request, 'service_detail', pk=pk)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -961,4 +962,4 @@ def service_cancel(request, pk):
             messages.success(request, f'Service {svc.service_number} cancelled.')
         else:
             messages.error(request, 'Cannot cancel a Completed service.')
-    return redirect('service_detail', pk=pk)
+    return redirect_back(request, 'service_detail', pk=pk)

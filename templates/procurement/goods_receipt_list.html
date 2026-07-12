@@ -45,7 +45,7 @@
         <td>
         <a href="{% url 'goods_receipt_detail' r.pk %}" class="btn btn-xs btn-info" title="View"><i class="fas fa-eye"></i></a>
         {% if not is_view_only and not is_web_version %}{% if r.status == 'DRAFT' %}<a href="#" data-modal-url="{% url 'goods_receipt_edit' r.pk %}" data-modal-size="modal-xl" class="btn btn-xs btn-warning" title="Edit"><i class="fas fa-edit"></i></a>
-        <form method="post" action="{% url 'goods_receipt_post' r.pk %}" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-xs btn-success" title="Post" onclick="return confirm('Post this GRN? This will update stock balances.')"><i class="fas fa-check-circle"></i></button></form>{% endif %}
+        <form method="post" action="{% url 'goods_receipt_post' r.pk %}" class="d-inline">{% csrf_token %}<button type="submit" class="btn btn-xs btn-success" title="Post" data-confirm="Post this GRN? This will update stock balances."><i class="fas fa-check-circle"></i></button></form>{% endif %}
         <a href="#" data-modal-url="{% url 'goods_receipt_delete' r.pk %}" class="btn btn-xs btn-danger" title="Delete"><i class="fas fa-trash"></i></a>{% endif %}
         </td>
       </tr>

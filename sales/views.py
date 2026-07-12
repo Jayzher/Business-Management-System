@@ -20,6 +20,7 @@ from django.utils import timezone
 from inventory.services import post_delivery, reserve_stock, cancel_document, post_sales_pickup
 from inventory.services import save_with_document_number, _WRITE_DB
 from core.models import DocumentStatus
+from core.utils import redirect_back
 from accounts.decorators import write_denied_for_viewer,  sales_access
 
 logger = logging.getLogger(__name__)
@@ -216,7 +217,7 @@ def sales_order_approve_view(request, pk):
                 pickup = auto_create_pickup_from_so(so, request.user)
                 if pickup:
                     messages.info(request, f'Pickup {pickup.document_number} auto-created.')
-    return redirect('sales_order_detail', pk=pk)
+    return redirect_back(request, 'sales_order_detail', pk=pk)
 
 
 @login_required
@@ -230,7 +231,7 @@ def sales_order_cancel_view(request, pk):
             messages.success(request, f'Sales Order {so.document_number} cancelled.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('sales_order_detail', pk=pk)
+    return redirect_back(request, 'sales_order_detail', pk=pk)
 
 
 @login_required
@@ -270,7 +271,7 @@ def delivery_post_view(request, pk):
                     messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
                 else:
                     messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
-    return redirect('delivery_detail', pk=pk)
+    return redirect_back(request, 'delivery_detail', pk=pk)
 
 
 @login_required
@@ -303,7 +304,7 @@ def delivery_cancel_view(request, pk):
                     messages.warning(request, f'Invoice {inv.invoice_number} voided (delivery cancelled).')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('delivery_detail', pk=pk)
+    return redirect_back(request, 'delivery_detail', pk=pk)
 
 
 @login_required
@@ -840,7 +841,7 @@ def pickup_post_view(request, pk):
                     messages.info(request, f'Invoice {inv.invoice_number} updated with {new_lines} new item(s).')
                 else:
                     messages.info(request, f'Invoice {inv.invoice_number} auto-created.')
-    return redirect('pickup_detail', pk=pk)
+    return redirect_back(request, 'pickup_detail', pk=pk)
 
 
 @login_required
@@ -873,7 +874,7 @@ def pickup_cancel_view(request, pk):
                     messages.warning(request, f'Invoice {inv.invoice_number} voided (pickup cancelled).')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('pickup_detail', pk=pk)
+    return redirect_back(request, 'pickup_detail', pk=pk)
 
 
 @login_required
@@ -981,7 +982,7 @@ def sales_return_post_view(request, pk):
                 messages.success(request, f'Sales Return {sr.document_number} posted. Stock updated.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('sales_return_detail', pk=pk)
+    return redirect_back(request, 'sales_return_detail', pk=pk)
 
 
 @login_required
@@ -995,7 +996,7 @@ def sales_return_cancel_view(request, pk):
             messages.success(request, f'Sales Return {sr.document_number} cancelled.')
         except ValueError as e:
             messages.error(request, str(e))
-    return redirect('sales_return_detail', pk=pk)
+    return redirect_back(request, 'sales_return_detail', pk=pk)
 
 
 @login_required

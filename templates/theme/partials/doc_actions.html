@@ -36,7 +36,7 @@ Required context:
           <i class="fas fa-thumbs-up me-1"></i> Approve
         </button>
         {% else %}
-        <button type="submit" class="btn btn-info" onclick="return confirm('Approve this document?')">
+        <button type="submit" class="btn btn-info" data-confirm="Approve this document?">
           <i class="fas fa-thumbs-up me-1"></i> Approve
         </button>
         {% endif %}
@@ -47,14 +47,14 @@ Required context:
       {% if obj.status == 'DRAFT' and not approve_url_name %}
         <form method="post" action="{% url post_url_name obj.pk %}" class="d-inline mr-2 mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-success" onclick="return confirm('Post this document? This will update stock balances.')">
+          <button type="submit" class="btn btn-success" data-confirm="Post this document? This will update stock balances.">
             <i class="fas fa-check-circle me-1"></i> Post
           </button>
         </form>
       {% elif obj.status == 'APPROVED' %}
         <form method="post" action="{% url post_url_name obj.pk %}" class="d-inline mr-2 mb-2">
           {% csrf_token %}
-          <button type="submit" class="btn btn-success" onclick="return confirm('Post this document? This will update stock balances.')">
+          <button type="submit" class="btn btn-success" data-confirm="Post this document? This will update stock balances.">
             <i class="fas fa-check-circle me-1"></i> Post
           </button>
         </form>
@@ -64,7 +64,7 @@ Required context:
     {% if cancel_url_name and obj.status != 'CANCELLED' %}
       <form method="post" action="{% url cancel_url_name obj.pk %}" class="d-inline mr-2 mb-2">
         {% csrf_token %}
-        <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Cancel this document? This action cannot be undone.')">
+        <button type="submit" class="btn btn-outline-danger" data-confirm="Cancel this document? This action cannot be undone.">
           <i class="fas fa-ban me-1"></i> Cancel
         </button>
       </form>
@@ -95,12 +95,19 @@ document.addEventListener('DOMContentLoaded', function() {
     btn.addEventListener('click', function(e) {
       e.preventDefault();
       var pending = btn.getAttribute('data-pending');
-      var msg = 'WARNING: There are pending stock movements that have not been posted yet:\n\n'
-              + pending + '\n\n'
-              + 'These may affect stock balances. Are you sure you want to approve this adjustment?';
-      if (confirm(msg)) {
-        btn.closest('form').submit();
-      }
+      Swal.fire({
+        title: 'Pending stock movements',
+        html: 'There are pending stock movements that have not been posted yet:<br><br>' +
+              '<strong>' + pending + '</strong><br><br>' +
+              'These may affect stock balances. Are you sure you want to approve this adjustment?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, approve',
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#6c757d',
+      }).then(function(result) {
+        if (result.isConfirmed) btn.closest('form').submit();
+      });
     });
   }
 });
