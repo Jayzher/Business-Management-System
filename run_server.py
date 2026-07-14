@@ -44,6 +44,19 @@ def start_server():
     if result.returncode != 0:
         print("ERROR: migrate failed. Fix the error above before starting the server.")
         sys.exit(result.returncode)
+    # local_cache (the SQLite mirror used in SYNC_MODE=neon_primary) has its
+    # own independent migration state — `migrate` above only applies to the
+    # default (Neon) database. Skipping this step is exactly what left
+    # local_cache missing two migrations after a prior session, causing a
+    # 500 the first time anything touched the new columns. Always run it;
+    # it's a no-op (and harmless) when local_cache isn't actually in use.
+    result_local = subprocess.run(
+        [str(python_exe), str(MANAGE_PY), "migrate", "--no-input", "--database=local_cache"],
+        cwd=str(BASE_DIR),
+    )
+    if result_local.returncode != 0:
+        print("ERROR: migrate --database=local_cache failed. Fix the error above before starting the server.")
+        sys.exit(result_local.returncode)
     check = subprocess.run(
         [str(python_exe), str(MANAGE_PY), "shell", "--no-input", "-c",
          "from django.conf import settings; print('1' if getattr(settings, 'NEON_INITIAL_SYNC', True) else '0')"],

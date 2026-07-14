@@ -37,7 +37,7 @@ _ROLE_MAP = {
     'Cash Flow':   _ADMIN_MANAGER_WEB,
     'Services':    {*_ADMIN_MANAGER, 'Sales Officer', 'Web Version', 'Checker', 'Encoder'},
     'Inventory':   {*_ADMIN_MANAGER, 'Procurement Officer', *_WAREHOUSE_ROLES, 'Web Version', 'Checker'},
-    'POS':         {*_ADMIN_MANAGER, 'POS Cashier', 'Sales Officer'},  # Web Version and Checker excluded
+    'POS':         {*_ADMIN_MANAGER, 'POS Cashier', 'Sales Officer', 'Viewer'},  # Web Version and Checker excluded
     'Pricing':     {*_ADMIN_MANAGER, 'Sales Officer', 'Web Version', 'Checker'},
     'QR Codes':    {*_ADMIN_MANAGER, *_WAREHOUSE_ROLES, 'Web Version', 'Checker'},
     'Reports':     {*_ADMIN_MANAGER, 'Sales Officer', 'Procurement Officer', 'Web Version', 'Checker'},
@@ -244,22 +244,25 @@ def sidebar_menu(request):
     ]
 
     # ── Filter menu by user role ────────────────────────────────────────
-    if user_roles:
-        filtered = []
-        for item in menu:
-            allowed = _ROLE_MAP.get(item['label'], _ALL)
-            if allowed is _ALL or user_roles & allowed:
-                # Special handling for Web Version and Checker roles - exclude specific submenu items
-                if ('Web Version' in user_roles or 'Checker' in user_roles) and 'children' in item:
-                    # Filter out Adjustments submenu from Inventory module
-                    if item['label'] == 'Inventory':
-                        item = item.copy()
-                        item['children'] = [
-                            child for child in item['children']
-                            if child['label'] != 'Adjustments'
-                        ]
-                filtered.append(item)
-        menu = filtered
+    # Always filter, even when user_roles is empty (an orphaned account or a
+    # role deleted out from under a user) — default to the most restrictive
+    # menu (only _ALL items) rather than falling through to the full,
+    # unfiltered menu including Settings/POS.
+    filtered = []
+    for item in menu:
+        allowed = _ROLE_MAP.get(item['label'], _ALL)
+        if allowed is _ALL or user_roles & allowed:
+            # Special handling for Web Version and Checker roles - exclude specific submenu items
+            if ('Web Version' in user_roles or 'Checker' in user_roles) and 'children' in item:
+                # Filter out Adjustments submenu from Inventory module
+                if item['label'] == 'Inventory':
+                    item = item.copy()
+                    item['children'] = [
+                        child for child in item['children']
+                        if child['label'] != 'Adjustments'
+                    ]
+            filtered.append(item)
+    menu = filtered
 
     # Mark active items
     path = request.path if hasattr(request, 'path') else ''

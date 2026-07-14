@@ -37,7 +37,7 @@ DEFAULT_ROLES = [
     },
     {
         'name': 'Viewer',
-        'description': 'Read-only access to catalog items only. Cannot access dashboard, reports, or any other module.',
+        'description': 'Read-only access to catalog items only, plus full POS access (can process sales, open/close shifts, issue refunds). Cannot access dashboard, reports, or any other module.',
     },
     {
         'name': 'Web Version',

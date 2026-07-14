@@ -13,6 +13,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Sum, Q
 from django.http import JsonResponse
+from accounts.decorators import write_denied_for_viewer
 from django.core.management import call_command
 from io import StringIO
 
@@ -313,6 +314,7 @@ def monthly_detail(request, year, month):
 
 
 @login_required
+@write_denied_for_viewer
 def recalculate_month(request, year, month):
     """Recalculate a specific month's summary."""
     from cashflow.monthly_signals import update_monthly_summary

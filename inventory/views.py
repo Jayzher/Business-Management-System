@@ -33,7 +33,7 @@ from inventory.services import (
 )
 from core.models import DocumentStatus
 from core.utils import redirect_back
-from accounts.decorators import write_denied_for_viewer, warehouse_access, adjustment_access
+from accounts.decorators import write_denied_for_viewer, warehouse_access, adjustment_access, HasRole
 
 
 # ── API Views ──────────────────────────────────────────────────────────────
@@ -66,13 +66,15 @@ class StockTransferViewSet(viewsets.ModelViewSet):
     def post_transfer(self, request, pk=None):
         transfer = self.get_object()
         try:
-            post_transfer(transfer, request.user)
+            transfer = post_transfer(transfer, request.user)
             return Response({'status': 'posted', 'document_number': transfer.document_number})
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class StockAdjustmentViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, HasRole]
+    required_roles = ['Admin', 'Manager', 'Manager (View Only)', 'Warehouse Staff']
     queryset = StockAdjustment.objects.select_related(
         'warehouse', 'created_by'
     ).prefetch_related('lines').all()
@@ -95,7 +97,7 @@ class StockAdjustmentViewSet(viewsets.ModelViewSet):
     def post_adjustment(self, request, pk=None):
         adjustment = self.get_object()
         try:
-            post_adjustment(adjustment, request.user)
+            adjustment = post_adjustment(adjustment, request.user)
             return Response({'status': 'posted', 'document_number': adjustment.document_number})
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -112,7 +114,7 @@ class DamagedReportViewSet(viewsets.ModelViewSet):
     def post_report(self, request, pk=None):
         report = self.get_object()
         try:
-            post_damaged_report(report, request.user)
+            report = post_damaged_report(report, request.user)
             return Response({'status': 'posted', 'document_number': report.document_number})
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -127,7 +129,7 @@ def transfer_post_view(request, pk):
     obj = get_object_or_404(StockTransfer, pk=pk)
     if request.method == 'POST':
         try:
-            post_transfer(obj, request.user)
+            obj = post_transfer(obj, request.user)
             from inventory.services import format_skipped_lines_message
             warning = format_skipped_lines_message(obj)
             if warning:
@@ -177,7 +179,7 @@ def adjustment_post_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
     if request.method == 'POST':
         try:
-            post_adjustment(obj, request.user)
+            obj = post_adjustment(obj, request.user)
             from inventory.services import format_skipped_lines_message
             warning = format_skipped_lines_message(obj)
             if warning:
@@ -210,7 +212,7 @@ def damaged_post_view(request, pk):
     obj = get_object_or_404(DamagedReport, pk=pk)
     if request.method == 'POST':
         try:
-            post_damaged_report(obj, request.user)
+            obj = post_damaged_report(obj, request.user)
             from inventory.services import format_skipped_lines_message
             warning = format_skipped_lines_message(obj)
             if warning:
@@ -857,7 +859,7 @@ def ist_post_view(request, pk):
     obj = get_object_or_404(InventoryToSupplyTransfer, pk=pk)
     if request.method == 'POST':
         try:
-            post_inventory_to_supply(obj, request.user)
+            obj = post_inventory_to_supply(obj, request.user)
             from inventory.services import format_skipped_lines_message
             warning = format_skipped_lines_message(obj)
             if warning:

@@ -264,6 +264,7 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
+        'accounts.decorators.BlockRestrictedRoleWrites',
     ],
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',

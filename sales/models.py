@@ -51,6 +51,11 @@ class SalesOrder(TransactionalDocument):
         max_digits=15, decimal_places=2, default=0,
         help_text='Delivery/shipping fee charged to the customer.',
     )
+    discount_rule = models.ForeignKey(
+        'pricing.DiscountRule', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='sales_orders',
+        help_text='Optional promotional discount applied to this order.',
+    )
 
     class Meta:
         ordering = ['-order_date', '-id']
@@ -105,9 +110,29 @@ class SalesOrder(TransactionalDocument):
         return sum((bundle.bundle_total for bundle in self.price_list_lines.all()), Decimal('0'))
 
     @property
+    def discount_rule_order_amount(self):
+        """
+        Amount subtracted by an ORDER-scope `discount_rule`, applied once
+        against the order subtotal. ITEM-scope rules are instead applied
+        per-line (see SalesOrderLine.discount_rule_amount) and already
+        flow into line_amount_total, so they return 0 here to avoid
+        double-applying the discount.
+        """
+        from decimal import Decimal
+        rule = self.discount_rule
+        if not rule or rule.scope != 'ORDER':
+            return Decimal('0')
+        base = self.line_amount_total + self.bundle_amount_total
+        if rule.discount_type == 'PERCENT':
+            return (base * rule.value / Decimal('100')).quantize(Decimal('0.01'))
+        return min(rule.value, base)
+
+    @property
     def grand_total(self):
         from decimal import Decimal
-        return self.line_amount_total + self.bundle_amount_total + (self.delivery_charge or Decimal('0'))
+        base = self.line_amount_total + self.bundle_amount_total
+        base = max(base - self.discount_rule_order_amount, Decimal('0'))
+        return base + (self.delivery_charge or Decimal('0'))
 
     @property
     def partial_payment_amount_value(self):
@@ -157,8 +182,24 @@ class SalesOrderLine(models.Model):
         return subtotal * (self.discount_value / Decimal('100'))
 
     @property
+    def discount_rule_amount(self):
+        """ITEM-scope order-level discount_rule, applied per line."""
+        from decimal import Decimal
+        rule = self.sales_order.discount_rule if self.sales_order_id else None
+        if not rule or rule.scope != 'ITEM':
+            return Decimal('0')
+        subtotal = self.qty_ordered * self.unit_price
+        if rule.discount_type == 'PERCENT':
+            return subtotal * (rule.value / Decimal('100'))
+        return min(rule.value, subtotal)
+
+    @property
     def line_total(self):
-        return self.qty_ordered * self.unit_price - self.discount_amount
+        from decimal import Decimal
+        return max(
+            self.qty_ordered * self.unit_price - self.discount_amount - self.discount_rule_amount,
+            Decimal('0'),
+        )
 
     def __str__(self):
         return f"SO Line: {self.item.code} x{self.qty_ordered}"
@@ -209,7 +250,8 @@ class SalesOrderPriceListLine(models.Model):
 
     @property
     def bundle_total(self):
-        return self.bundle_subtotal - self.bundle_discount_amount
+        from decimal import Decimal
+        return max(self.bundle_subtotal - self.bundle_discount_amount, Decimal('0'))
 
     def __str__(self):
         return f"Bundle: {self.price_list.name} x{self.qty_multiplier}"
@@ -242,6 +284,13 @@ class DeliveryLine(models.Model):
     batch_number = models.CharField(max_length=100, blank=True, default='')
     serial_number = models.CharField(max_length=100, blank=True, default='')
     notes = models.TextField(blank=True, default='')
+    sales_order_line = models.ForeignKey(
+        'sales.SalesOrderLine', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='delivery_lines',
+        help_text='The specific SO line this delivery line fulfilled, set at posting time — '
+                   'lets cancellation reverse qty_delivered on exactly that line, even when '
+                   'the SO has more than one line for the same item.',
+    )
 
     def __str__(self):
         return f"Delivery Line: {self.item.code} x{self.qty}"
@@ -275,6 +324,13 @@ class SalesPickupLine(models.Model):
     batch_number = models.CharField(max_length=100, blank=True, default='')
     serial_number = models.CharField(max_length=100, blank=True, default='')
     notes = models.TextField(blank=True, default='')
+    sales_order_line = models.ForeignKey(
+        'sales.SalesOrderLine', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='pickup_lines',
+        help_text='The specific SO line this pickup line fulfilled, set at posting time — '
+                   'lets cancellation reverse qty_delivered on exactly that line, even when '
+                   'the SO has more than one line for the same item.',
+    )
 
     def __str__(self):
         return f"Pickup Line: {self.item.code} x{self.qty}"

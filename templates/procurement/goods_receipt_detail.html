@@ -83,9 +83,11 @@
     <h3 class="card-title mb-0"><i class="fas fa-paperclip mr-2 text-warning"></i>Attachments
       {% if receipt.attachments.count %}<span class="badge bg-secondary ml-1">{{ receipt.attachments.count }}</span>{% endif %}
     </h3>
+    {% if not is_view_only and not is_web_version %}
     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#attachmentModal">
       <i class="fas fa-upload mr-1"></i> Upload Receipts
     </button>
+    {% endif %}
   </div>
   <div class="card-body">
     {% if receipt.attachments.exists %}
@@ -111,12 +113,14 @@
             <small class="text-muted" style="font-size:.65rem;">{{ att.uploaded_at|date:"M d, Y" }}</small>
           </div>
           <div class="card-footer p-1 text-end border-0 bg-transparent">
+            {% if not is_view_only and not is_web_version %}
             <form method="post" action="{% url 'goods_receipt_attachment_delete' receipt.pk att.pk %}" class="d-inline att-delete-form" data-att-id="{{ att.pk }}">
               {% csrf_token %}
               <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-1" title="Delete" onclick="return confirm('Delete this attachment?')">
                 <i class="fas fa-trash" style="font-size:.7rem;"></i>
               </button>
             </form>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -132,6 +136,7 @@
 </div>
 
 <!-- Upload Modal -->
+{% if not is_view_only and not is_web_version %}
 <div class="modal fade" id="attachmentModal" tabindex="-1" aria-labelledby="attachmentModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -156,6 +161,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 <!-- Image Lightbox Modal -->
 <div class="modal fade" id="lightboxModal" tabindex="-1" aria-hidden="true">

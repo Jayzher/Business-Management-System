@@ -29,12 +29,16 @@ from pos.services import (
     generate_sale_number, generate_refund_number,
 )
 from pos.forms import POSRegisterForm, OpenShiftForm, CloseShiftForm, CashEntryForm
-from accounts.decorators import write_denied_for_viewer
+from accounts.decorators import pos_access, pos_write_access, HasRole, _user_has_role
+
+_POS_API_ROLES = ['Admin', 'Manager', 'Manager (View Only)', 'POS Cashier', 'Sales Officer', 'Viewer']
 
 
 # ── DRF API Views ─────────────────────────────────────────────────────────
 
 class POSRegisterViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, HasRole]
+    required_roles = _POS_API_ROLES
     queryset = POSRegister.objects.select_related(
         'warehouse', 'default_location', 'price_list'
     ).all()
@@ -43,12 +47,16 @@ class POSRegisterViewSet(viewsets.ModelViewSet):
 
 
 class POSShiftViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [IsAuthenticated, HasRole]
+    required_roles = _POS_API_ROLES
     queryset = POSShift.objects.select_related('register', 'opened_by', 'closed_by').all()
     serializer_class = POSShiftSerializer
     filterset_fields = ['register', 'status']
 
 
 class POSSaleViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, HasRole]
+    required_roles = _POS_API_ROLES
     queryset = POSSale.objects.select_related(
         'register', 'shift', 'warehouse', 'location', 'customer', 'created_by',
     ).prefetch_related('lines__item', 'lines__unit', 'payments').all()
@@ -150,6 +158,8 @@ class POSSaleViewSet(viewsets.ModelViewSet):
 
 
 class POSRefundViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, HasRole]
+    required_roles = _POS_API_ROLES
     queryset = POSRefund.objects.select_related(
         'original_sale', 'shift', 'created_by',
     ).prefetch_related('lines').all()
@@ -168,6 +178,8 @@ class POSRefundViewSet(viewsets.ModelViewSet):
 
 
 class CashEntryViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, HasRole]
+    required_roles = _POS_API_ROLES
     queryset = CashEntry.objects.select_related('shift', 'created_by').all()
     serializer_class = CashEntrySerializer
     filterset_fields = ['shift', 'entry_type']
@@ -181,6 +193,8 @@ class CashEntryViewSet(viewsets.ModelViewSet):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def api_open_shift(request):
+    if not _user_has_role(request.user, _POS_API_ROLES):
+        return Response({'error': 'You do not have permission to access POS.'}, status=status.HTTP_403_FORBIDDEN)
     ser = OpenShiftRequestSerializer(data=request.data)
     ser.is_valid(raise_exception=True)
     register = get_object_or_404(POSRegister, pk=ser.validated_data['register'])
@@ -194,6 +208,8 @@ def api_open_shift(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def api_close_shift(request, pk):
+    if not _user_has_role(request.user, _POS_API_ROLES):
+        return Response({'error': 'You do not have permission to access POS.'}, status=status.HTTP_403_FORBIDDEN)
     shift = get_object_or_404(POSShift, pk=pk)
     ser = CloseShiftRequestSerializer(data=request.data)
     ser.is_valid(raise_exception=True)
@@ -207,6 +223,8 @@ def api_close_shift(request, pk):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def api_shift_summary(request, pk):
+    if not _user_has_role(request.user, _POS_API_ROLES):
+        return Response({'error': 'You do not have permission to access POS.'}, status=status.HTTP_403_FORBIDDEN)
     shift = get_object_or_404(POSShift, pk=pk)
     return Response(POSShiftSerializer(shift).data)
 
@@ -243,6 +261,7 @@ REGISTER_SORT_MAP = {
 
 
 @login_required
+@pos_access
 def register_list_view(request):
     from core.utils import sort_queryset, paginate_queryset, search_queryset
     registers = POSRegister.objects.select_related('warehouse', 'default_location', 'price_list').all()
@@ -269,7 +288,7 @@ def register_list_view(request):
 
 
 @login_required
-@write_denied_for_viewer
+@pos_write_access
 def register_create_view(request):
     if request.method == 'POST':
         form = POSRegisterForm(request.POST)
@@ -283,7 +302,7 @@ def register_create_view(request):
 
 
 @login_required
-@write_denied_for_viewer
+@pos_write_access
 def register_edit_view(request, pk):
     obj = get_object_or_404(POSRegister, pk=pk)
     if request.method == 'POST':
@@ -298,7 +317,7 @@ def register_edit_view(request, pk):
 
 
 @login_required
-@write_denied_for_viewer
+@pos_write_access
 def register_delete_view(request, pk):
     obj = get_object_or_404(POSRegister, pk=pk)
     if request.method == 'POST':
@@ -309,7 +328,7 @@ def register_delete_view(request, pk):
 
 
 @login_required
-@write_denied_for_viewer
+@pos_write_access
 def shift_open_view(request):
     if request.method == 'POST':
         form = OpenShiftForm(request.POST)
@@ -330,7 +349,7 @@ def shift_open_view(request):
 
 
 @login_required
-@write_denied_for_viewer
+@pos_write_access
 def shift_close_view(request, pk):
     shift = get_object_or_404(POSShift, pk=pk)
     if shift.status != ShiftStatus.OPEN:
@@ -360,6 +379,7 @@ SHIFT_SORT_MAP = {
 
 
 @login_required
+@pos_access
 def shift_list_view(request):
     from core.utils import sort_queryset, paginate_queryset, search_queryset
     shifts = POSShift.objects.select_related('register', 'opened_by', 'closed_by')
@@ -386,6 +406,7 @@ def shift_list_view(request):
 
 
 @login_required
+@pos_access
 def shift_summary_view(request, pk):
     shift = get_object_or_404(POSShift.objects.select_related('register', 'opened_by', 'closed_by'), pk=pk)
     sales = POSSale.objects.filter(shift=shift).select_related('customer', 'created_by')
@@ -400,6 +421,7 @@ def shift_summary_view(request, pk):
 
 
 @login_required
+@pos_access
 def terminal_view(request, shift_id):
     """Main POS terminal checkout page."""
     shift = get_object_or_404(POSShift.objects.select_related('register__warehouse'), pk=shift_id)
@@ -454,10 +476,14 @@ RECEIPT_SORT_MAP = {
 
 
 @login_required
+@pos_access
 def receipt_list_view(request):
     from core.utils import sort_queryset, paginate_queryset, search_queryset
     sales = POSSale.objects.filter(
-        status__in=[SaleStatus.POSTED, SaleStatus.PAID, SaleStatus.REFUNDED],
+        status__in=[
+            SaleStatus.POSTED, SaleStatus.PAID,
+            SaleStatus.PARTIALLY_REFUNDED, SaleStatus.REFUNDED,
+        ],
     ).select_related('register', 'customer', 'created_by')
     sales = search_queryset(request, sales, ['sale_no', 'customer__name'])
     status_filter = (request.GET.get('status') or '').strip()
@@ -470,7 +496,10 @@ def receipt_list_view(request):
     filters = [{
         'param': 'status',
         'label': 'Status',
-        'options': [(SaleStatus.POSTED, 'Posted'), (SaleStatus.PAID, 'Paid'), (SaleStatus.REFUNDED, 'Refunded')],
+        'options': [
+            (SaleStatus.POSTED, 'Posted'), (SaleStatus.PAID, 'Paid'),
+            (SaleStatus.PARTIALLY_REFUNDED, 'Partially Refunded'), (SaleStatus.REFUNDED, 'Refunded'),
+        ],
     }]
     return render(request, 'pos/receipt_list.html', {
         'sales': page_obj,
@@ -482,6 +511,7 @@ def receipt_list_view(request):
 
 
 @login_required
+@pos_access
 def receipt_detail_view(request, pk):
     sale = get_object_or_404(
         POSSale.objects.select_related('register', 'shift', 'warehouse', 'customer', 'created_by')
@@ -492,15 +522,15 @@ def receipt_detail_view(request, pk):
 
 
 @login_required
-@write_denied_for_viewer
+@pos_write_access
 def refund_create_view(request, sale_pk):
     """Start a refund from an existing posted sale."""
     original_sale = get_object_or_404(
         POSSale.objects.prefetch_related('lines__item', 'lines__unit'),
         pk=sale_pk,
     )
-    if original_sale.status not in [SaleStatus.POSTED, SaleStatus.PAID]:
-        messages.error(request, 'Can only refund POSTED or PAID sales.')
+    if original_sale.status not in [SaleStatus.POSTED, SaleStatus.PAID, SaleStatus.PARTIALLY_REFUNDED]:
+        messages.error(request, 'Can only refund POSTED, PAID, or partially-refunded sales.')
         return redirect('pos_receipt_detail', pk=sale_pk)
 
     # Need an open shift
@@ -517,48 +547,100 @@ def refund_create_view(request, sale_pk):
         if not selected_lines:
             messages.error(request, 'Select at least one line to refund.')
         else:
-            refund = POSRefund.objects.create(
-                refund_no=generate_refund_number(),
-                original_sale=original_sale,
-                shift=current_shift,
-                reason=reason,
-                created_by=request.user,
+            # Default the refund method to how the sale was actually paid
+            # (largest payment if split), but let the cashier override it —
+            # a refund can legitimately be given back in a different method
+            # than it was paid in.
+            default_method = (
+                original_sale.payments.order_by('-amount').values_list('method', flat=True).first()
+                or PaymentMethod.CASH
             )
-            subtotal = Decimal('0')
+            refund_method = request.POST.get('method') or default_method
+
+            # Validate requested qty against what's actually still refundable
+            # on each line (net of any prior partial refunds) before writing
+            # anything, so a bad request can't create an orphan refund header.
+            to_refund = []
+            error = None
             for line_id in selected_lines:
                 sale_line = original_sale.lines.get(pk=line_id)
                 qty = Decimal(request.POST.get(f'qty_{line_id}', str(sale_line.qty)))
-                amount = qty * sale_line.unit_price
-                POSRefundLine.objects.create(
-                    refund=refund,
-                    sale_line=sale_line,
-                    item=sale_line.item,
-                    location=sale_line.location or original_sale.location,
-                    qty=qty,
-                    unit=sale_line.unit,
-                    amount=amount,
+                refundable = sale_line.qty_refundable
+                if qty <= 0:
+                    continue
+                if qty > refundable:
+                    error = (
+                        f'{sale_line.item.code}: only {refundable} {sale_line.unit.abbreviation} '
+                        f'left to refund (requested {qty}).'
+                    )
+                    break
+                to_refund.append((sale_line, qty))
+
+            if error:
+                messages.error(request, error)
+            elif not to_refund:
+                messages.error(request, 'Select at least one line to refund.')
+            else:
+                refund = POSRefund.objects.create(
+                    refund_no=generate_refund_number(),
+                    original_sale=original_sale,
+                    shift=current_shift,
+                    method=refund_method,
+                    reason=reason,
+                    created_by=request.user,
                 )
-                subtotal += amount
+                subtotal = Decimal('0')
+                tax_total = Decimal('0')
+                for sale_line, qty in to_refund:
+                    # Refund this line's discount and tax proportionally to
+                    # the qty being returned, using the line's own line_total
+                    # (which already bakes in discount + tax) as the source
+                    # of truth — so a discounted or taxed item is refunded
+                    # for what the customer actually paid, not the raw
+                    # qty × unit_price.
+                    ratio = qty / sale_line.qty
+                    line_amount = (sale_line.line_total * ratio).quantize(Decimal('0.01'))
+                    pre_tax = sale_line.qty * sale_line.unit_price - sale_line.discount_amount
+                    line_tax = (pre_tax * sale_line.tax_rate / 100 * ratio).quantize(Decimal('0.01'))
 
-            refund.subtotal = subtotal
-            refund.grand_total = subtotal
-            refund.save(update_fields=['subtotal', 'grand_total', 'updated_at'])
+                    POSRefundLine.objects.create(
+                        refund=refund,
+                        sale_line=sale_line,
+                        item=sale_line.item,
+                        location=sale_line.location or original_sale.location,
+                        qty=qty,
+                        unit=sale_line.unit,
+                        amount=line_amount,
+                    )
+                    subtotal += line_amount - line_tax
+                    tax_total += line_tax
 
-            try:
-                post_pos_refund(refund.pk, request.user)
-                messages.success(request, f'Refund {refund.refund_no} posted.')
-            except ValueError as e:
-                messages.error(request, str(e))
-            return redirect('pos_receipt_detail', pk=sale_pk)
+                refund.subtotal = subtotal
+                refund.tax_total = tax_total
+                refund.grand_total = subtotal + tax_total
+                refund.save(update_fields=['subtotal', 'tax_total', 'grand_total', 'updated_at'])
 
+                try:
+                    post_pos_refund(refund.pk, request.user)
+                    messages.success(request, f'Refund {refund.refund_no} posted.')
+                except ValueError as e:
+                    messages.error(request, str(e))
+                return redirect('pos_receipt_detail', pk=sale_pk)
+
+    default_method = (
+        original_sale.payments.order_by('-amount').values_list('method', flat=True).first()
+        or PaymentMethod.CASH
+    )
     return render(request, 'pos/refund_create.html', {
         'original_sale': original_sale,
+        'method_choices': PaymentMethod.choices,
+        'default_method': default_method,
     })
 
 
 @login_required
 @require_POST
-@write_denied_for_viewer
+@pos_write_access
 def terminal_new_sale(request, shift_id):
     """Create a new DRAFT sale in the terminal."""
     shift = get_object_or_404(POSShift, pk=shift_id)
@@ -579,7 +661,7 @@ def terminal_new_sale(request, shift_id):
 
 @login_required
 @require_POST
-@write_denied_for_viewer
+@pos_write_access
 def terminal_add_line(request, sale_id):
     """Add a line to a DRAFT sale (AJAX endpoint for terminal)."""
     sale = get_object_or_404(POSSale, pk=sale_id)
@@ -633,7 +715,7 @@ def terminal_add_line(request, sale_id):
 
 @login_required
 @require_POST
-@write_denied_for_viewer
+@pos_write_access
 def terminal_remove_line(request, line_id):
     """Remove a line from a DRAFT sale."""
     line = get_object_or_404(POSSaleLine, pk=line_id)
@@ -654,7 +736,7 @@ def terminal_remove_line(request, line_id):
 
 @login_required
 @require_POST
-@write_denied_for_viewer
+@pos_write_access
 def terminal_update_qty(request, line_id):
     """Update qty on a DRAFT sale line (AJAX endpoint for +/- buttons)."""
     line = get_object_or_404(POSSaleLine, pk=line_id)
@@ -693,7 +775,7 @@ def terminal_update_qty(request, line_id):
 
 @login_required
 @require_POST
-@write_denied_for_viewer
+@pos_write_access
 def terminal_add_bundle(request, sale_id):
     """Add a bundle (PriceList) to a DRAFT sale."""
     sale = get_object_or_404(POSSale, pk=sale_id)
@@ -735,7 +817,7 @@ def terminal_add_bundle(request, sale_id):
 
 @login_required
 @require_POST
-@write_denied_for_viewer
+@pos_write_access
 def terminal_update_bundle_qty(request, bundle_line_id):
     """Update qty_sets on a DRAFT sale bundle line."""
     bundle_line = get_object_or_404(POSSaleBundleLine, pk=bundle_line_id)
@@ -768,7 +850,7 @@ def terminal_update_bundle_qty(request, bundle_line_id):
 
 @login_required
 @require_POST
-@write_denied_for_viewer
+@pos_write_access
 def terminal_remove_bundle(request, bundle_line_id):
     """Remove a bundle line from a DRAFT sale."""
     bundle_line = get_object_or_404(POSSaleBundleLine, pk=bundle_line_id)
@@ -842,7 +924,7 @@ def terminal_validate_bundle_stock(request, sale_id, price_list_id):
 
 @login_required
 @require_POST
-@write_denied_for_viewer
+@pos_write_access
 def terminal_checkout(request, sale_id):
     """Complete checkout: set payments, mark paid, post sale."""
     sale = get_object_or_404(POSSale, pk=sale_id)

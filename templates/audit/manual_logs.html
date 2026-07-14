@@ -56,7 +56,9 @@
       <div class="col-md-3">
         <button onclick="loadLogs(1)" class="btn btn-dark btn-sm"><i class="fas fa-search me-1"></i> Filter</button>
         <button onclick="clearFilters()" class="btn btn-outline-secondary btn-sm">Clear</button>
+        {% if not is_view_only and not is_web_version %}
         <a href="{% url 'audit:manual_log_create' %}" class="btn btn-success btn-sm ms-2"><i class="fas fa-plus me-1"></i> New Entry</a>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -153,7 +155,9 @@ async function loadLogs(page) {
       container.innerHTML = `<div class="text-center py-5 text-muted">
         <i class="fas fa-clipboard" style="font-size:2.5rem;opacity:.3"></i>
         <p class="mt-2 mb-2">No manual logs yet.</p>
+        {% if not is_view_only and not is_web_version %}
         <a href="{% url 'audit:manual_log_create' %}" class="btn btn-success btn-sm"><i class="fas fa-plus me-1"></i> Create First Entry</a>
+        {% endif %}
       </div>`;
     } else {
       container.innerHTML = data.results.map(renderLog).join('');

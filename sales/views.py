@@ -17,7 +17,7 @@ from sales.forms import (
 )
 from django.db import transaction
 from django.utils import timezone
-from inventory.services import post_delivery, reserve_stock, cancel_document, post_sales_pickup
+from inventory.services import post_delivery, reserve_stock, cancel_document, post_sales_pickup, release_reservations
 from inventory.services import save_with_document_number, _WRITE_DB
 from core.models import DocumentStatus
 from core.utils import redirect_back
@@ -145,7 +145,7 @@ class DeliveryNoteViewSet(viewsets.ModelViewSet):
     def post_delivery(self, request, pk=None):
         delivery = self.get_object()
         try:
-            post_delivery(delivery, request.user)
+            delivery = post_delivery(delivery, request.user)
             from inventory.automation import auto_create_invoice_from_delivery
             inv = auto_create_invoice_from_delivery(delivery, request.user)
             data = {'status': 'posted', 'document_number': delivery.document_number}
@@ -172,7 +172,7 @@ class SalesPickupViewSet(viewsets.ModelViewSet):
         pickup = self.get_object()
         try:
             with transaction.atomic(using=_WRITE_DB):
-                post_sales_pickup(pickup, request.user)
+                pickup = post_sales_pickup(pickup, request.user)
                 from inventory.automation import auto_create_invoice_from_pickup
                 inv = auto_create_invoice_from_pickup(pickup, request.user)
         except ValueError as e:
@@ -228,6 +228,7 @@ def sales_order_cancel_view(request, pk):
     if request.method == 'POST':
         try:
             cancel_document(so, request.user)
+            release_reservations('SalesOrder', so.pk)
             messages.success(request, f'Sales Order {so.document_number} cancelled.')
         except ValueError as e:
             messages.error(request, str(e))
@@ -242,7 +243,7 @@ def delivery_post_view(request, pk):
     if request.method == 'POST':
         try:
             with transaction.atomic(using=_WRITE_DB):
-                post_delivery(dn, request.user)
+                dn = post_delivery(dn, request.user)
                 from inventory.automation import auto_create_invoice_from_delivery
                 inv = auto_create_invoice_from_delivery(dn, request.user)
         except ValueError as e:
@@ -285,13 +286,23 @@ def delivery_cancel_view(request, pk):
             cancel_document(dn, request.user)
             messages.success(request, f'Delivery Note {dn.document_number} cancelled.')
             if was_posted:
-                # Reverse qty_delivered on SO lines
+                # Reverse qty_delivered on SO lines. Prefer the exact line
+                # this delivery line fulfilled (sales_order_line, set at
+                # posting time) — falling back to an item-based match only
+                # for lines posted before that FK existed, which can
+                # over-reverse if the SO has more than one line for the
+                # same item.
                 if dn.sales_order:
-                    for line in dn.lines.select_related('item').all():
-                        so_lines = dn.sales_order.lines.filter(item=line.item)
-                        for so_line in so_lines:
+                    for line in dn.lines.select_related('item', 'sales_order_line').all():
+                        if line.sales_order_line_id:
+                            so_line = line.sales_order_line
                             so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
                             so_line.save(update_fields=['qty_delivered'])
+                        else:
+                            so_lines = dn.sales_order.lines.filter(item=line.item)
+                            for so_line in so_lines:
+                                so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
+                                so_line.save(update_fields=['qty_delivered'])
                 # Void the linked invoice
                 from core.models import Invoice
                 inv = Invoice.objects.filter(
@@ -812,7 +823,7 @@ def pickup_post_view(request, pk):
     if request.method == 'POST':
         try:
             with transaction.atomic(using=_WRITE_DB):
-                post_sales_pickup(pickup, request.user)
+                pickup = post_sales_pickup(pickup, request.user)
                 from inventory.automation import auto_create_invoice_from_pickup
                 inv = auto_create_invoice_from_pickup(pickup, request.user)
         except ValueError as e:
@@ -855,13 +866,23 @@ def pickup_cancel_view(request, pk):
             cancel_document(pickup, request.user)
             messages.success(request, f'Pickup {pickup.document_number} cancelled.')
             if was_posted:
-                # Reverse qty_delivered on SO lines
+                # Reverse qty_delivered on SO lines. Prefer the exact line
+                # this pickup line fulfilled (sales_order_line, set at
+                # posting time) — falling back to an item-based match only
+                # for lines posted before that FK existed, which can
+                # over-reverse if the SO has more than one line for the
+                # same item.
                 if pickup.sales_order:
-                    for line in pickup.lines.select_related('item').all():
-                        so_lines = pickup.sales_order.lines.filter(item=line.item)
-                        for so_line in so_lines:
+                    for line in pickup.lines.select_related('item', 'sales_order_line').all():
+                        if line.sales_order_line_id:
+                            so_line = line.sales_order_line
                             so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
                             so_line.save(update_fields=['qty_delivered'])
+                        else:
+                            so_lines = pickup.sales_order.lines.filter(item=line.item)
+                            for so_line in so_lines:
+                                so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
+                                so_line.save(update_fields=['qty_delivered'])
                 # Void the linked invoice
                 from core.models import Invoice
                 inv = Invoice.objects.filter(
@@ -973,7 +994,7 @@ def sales_return_post_view(request, pk):
     if request.method == 'POST':
         try:
             from inventory.services import post_sales_return
-            post_sales_return(sr, request.user)
+            sr = post_sales_return(sr, request.user)
             from inventory.services import format_skipped_lines_message
             warning = format_skipped_lines_message(sr)
             if warning:

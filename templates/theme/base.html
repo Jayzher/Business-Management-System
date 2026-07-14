@@ -532,12 +532,40 @@
 <!-- Toast Container -->
 <div class="toast-container position-fixed top-0 end-0 p-3" id="wis-toast-container" style="z-index:9999;"></div>
 
-<!-- Global Loading Overlay (shown during form submissions) -->
-<div id="wis-loading-overlay" style="display:none; position:fixed; inset:0; background:rgba(255,255,255,0.85); z-index:10000; align-items:center; justify-content:center; flex-direction:column; gap:16px; backdrop-filter:blur(2px);">
-  <div id="wis-loading-spinner" style="display:flex; flex-direction:column; align-items:center; gap:12px;">
-    <div class="spinner-border text-primary" style="width:3rem; height:3rem;" role="status"></div>
-    <span style="font-size:.95rem; font-weight:600; color:#374151;">Processing...</span>
-  </div>
+<!-- Global Top Loading Bar (shown during form submissions) -->
+<style>
+  #wis-loading-bar {
+    position: fixed; top: 0; left: 0; height: 3px; width: 100%;
+    z-index: 10500; pointer-events: none;
+    background: transparent;
+  }
+  #wis-loading-bar .wis-loading-bar-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #0d6efd, #6ea8fe);
+    box-shadow: 0 0 8px rgba(13,110,253,.6);
+    transition: width .3s ease;
+  }
+  #wis-loading-bar.active .wis-loading-bar-fill {
+    animation: wis-loading-bar-sweep 1.1s ease-in-out infinite;
+  }
+  @keyframes wis-loading-bar-sweep {
+    0%   { width: 0%;  margin-left: 0%; }
+    50%  { width: 60%; margin-left: 20%; }
+    100% { width: 0%;  margin-left: 100%; }
+  }
+  #wis-loading-toast {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%) translateY(-8px);
+    z-index: 10499; display: flex; align-items: center; gap: 8px;
+    background: #212529; color: #fff; font-size: .85rem; font-weight: 600;
+    padding: .5rem .9rem; border-radius: 999px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+    opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease;
+  }
+  #wis-loading-toast.active { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+<div id="wis-loading-bar" aria-hidden="true"><div class="wis-loading-bar-fill"></div></div>
+<div id="wis-loading-toast" role="status" aria-live="polite">
+  <span class="spinner-border spinner-border-sm" role="status"></span>
+  <span id="wis-loading-toast-text">Saving...</span>
 </div>
 
 <!-- Reusable Modal Shell -->
@@ -2869,20 +2897,24 @@ $(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
 <!-- Global Form Loading Overlay -->
 <script>
 (function(){
-  var overlay = document.getElementById('wis-loading-overlay');
-  var spinner = document.getElementById('wis-loading-spinner');
+  var bar = document.getElementById('wis-loading-bar');
+  var toast = document.getElementById('wis-loading-toast');
+  var toastText = document.getElementById('wis-loading-toast-text');
 
-  /* Show loading overlay */
+  /* Show the top progress bar + a small non-blocking status pill.
+     Unlike the old full-screen backdrop, this never obscures the page —
+     the user can still see (though not usefully interact with, since the
+     triggering button is already disabled) what they were doing. */
   window.WIS = window.WIS || {};
   WIS.showLoading = function(message) {
-    spinner.querySelector('span').textContent = message || 'Processing...';
-    spinner.style.display = 'flex';
-    overlay.style.display = 'flex';
+    toastText.textContent = message || 'Processing...';
+    bar.classList.add('active');
+    toast.classList.add('active');
   };
 
-  /* Hide the loading overlay, then show a SweetAlert2 success popup */
+  /* Hide the loading indicator, then show a SweetAlert2 success popup */
   WIS.showSuccess = function(message) {
-    overlay.style.display = 'none';
+    WIS.hideLoading();
     Swal.fire({
       icon: 'success',
       title: 'Success',
@@ -2892,9 +2924,10 @@ $(document).on('click', '.svc-bundle-detail-items-btn', function(e) {
     });
   };
 
-  /* Hide overlay */
+  /* Hide the progress bar + status pill */
   WIS.hideLoading = function() {
-    overlay.style.display = 'none';
+    bar.classList.remove('active');
+    toast.classList.remove('active');
   };
 
   /* ── SweetAlert2 confirmation for [data-confirm] submit buttons ───── */

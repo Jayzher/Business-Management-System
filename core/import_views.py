@@ -19,6 +19,7 @@ from core.import_utils import (
     parse_csv_upload, normalize_header, safe_decimal, safe_date,
     safe_int, generate_csv_template, ImportResult,
 )
+from accounts.decorators import write_denied_for_viewer, sales_access, procurement_access
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -53,6 +54,7 @@ def catalog_import_template(request):
 
 
 @login_required
+@write_denied_for_viewer
 def catalog_import(request):
     if request.method != 'POST':
         return render(request, 'core/import_modal.html', {
@@ -193,6 +195,7 @@ def expense_import_template(request):
 
 
 @login_required
+@write_denied_for_viewer
 def expense_import(request):
     if request.method != 'POST':
         return render(request, 'core/import_modal.html', {
@@ -297,6 +300,8 @@ def sales_order_import_template(request):
 
 
 @login_required
+@sales_access
+@write_denied_for_viewer
 def sales_order_import(request):
     if request.method != 'POST':
         return render(request, 'core/import_modal.html', {
@@ -468,6 +473,7 @@ def supply_import_template(request):
 
 
 @login_required
+@write_denied_for_viewer
 def supply_import(request):
     if request.method != 'POST':
         return render(request, 'core/import_modal.html', {
@@ -569,6 +575,8 @@ def procurement_import_template(request):
 
 
 @login_required
+@procurement_access
+@write_denied_for_viewer
 def procurement_import(request):
     if request.method != 'POST':
         return render(request, 'core/import_modal.html', {

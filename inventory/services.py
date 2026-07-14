@@ -288,6 +288,11 @@ def post_goods_receipt(grn, user):
     from procurement.models import GoodsReceipt
     from core.models import DocumentStatus
 
+    # Lock the document row before checking/flipping status, so two
+    # concurrent posts of the same GRN can't both pass the DRAFT check
+    # before either commits (a true double-submit race, not just a retry).
+    grn = GoodsReceipt.objects.select_for_update().get(pk=grn.pk)
+
     if grn.status != DocumentStatus.DRAFT:
         raise ValueError(f"GRN {grn.document_number} is not in DRAFT status.")
 
@@ -297,6 +302,7 @@ def post_goods_receipt(grn, user):
     now = timezone.now()
     moves = []
     skipped = []
+    over_received = []  # non-blocking: lines exceeding what's still outstanding on the PO
 
     # Pre-load all PO lines once to avoid _pick_po_line_for_grn N+1
     po_lines_by_item = {}
@@ -370,6 +376,13 @@ def post_goods_receipt(grn, user):
                     )
                     received_in_po_unit = Decimal('0')
             if received_in_po_unit:
+                outstanding = po_line.qty_ordered - (po_line.qty_received or Decimal('0'))
+                if received_in_po_unit > outstanding:
+                    over_received.append(
+                        f"{line.item.code}: receiving {received_in_po_unit} "
+                        f"{po_line.unit.abbreviation} but only {max(outstanding, Decimal('0'))} "
+                        f"still outstanding on the PO line"
+                    )
                 if po_line.pk not in po_line_updates:
                     po_line_updates[po_line.pk] = po_line
                 po_line.qty_received = (po_line.qty_received or Decimal('0')) + received_in_po_unit
@@ -413,70 +426,95 @@ def post_goods_receipt(grn, user):
     for b in StockBalance.objects.filter(item_id__in=active_item_ids).values('item_id', 'qty_on_hand'):
         balance_totals[b['item_id']] = balance_totals.get(b['item_id'], Decimal('0')) + b['qty_on_hand']
 
+    # Group lines by item so that two-or-more GRN lines receiving the same
+    # item are weighted together in a single average, instead of each line
+    # computing its own average independently and overwriting the other's
+    # result (each `line.item` from select_related is a distinct Python
+    # object per row, so per-line updates to item.cost_price were never
+    # visible to a sibling line for the same item — the earlier line's
+    # contribution was silently discarded when the later line's write won).
+    from collections import defaultdict
+    lines_by_item = defaultdict(list)
+    canonical_item = {}
+    for ctx in active_ctx:
+        item_id = ctx['line'].item_id
+        lines_by_item[item_id].append(ctx)
+        canonical_item.setdefault(item_id, ctx['line'].item)
+
     item_cost_updates = {}  # item.pk → item (with updated cost_price)
 
-    for ctx in active_ctx:
-        line = ctx['line']
-        item = line.item
-        base_qty = ctx['base_qty']
-        stock_unit = ctx['stock_unit']
-        if base_qty <= 0:
-            continue
-
+    for item_id, ctxs in lines_by_item.items():
+        item = canonical_item[item_id]
         if item.cost_price is None:
             item.cost_price = Decimal('0')
 
-        # Use pre-fetched total (already includes the qty we just received)
-        total_existing_qty = balance_totals.get(item.pk, Decimal('0'))
-        old_qty = total_existing_qty - base_qty
+        total_new_base_qty = Decimal('0')
+        total_new_value = Decimal('0')
+
+        for ctx in ctxs:
+            line = ctx['line']
+            base_qty = ctx['base_qty']
+            stock_unit = ctx['stock_unit']
+            if base_qty <= 0:
+                continue
+
+            lv = line_values[line.pk]
+            po_unit_price = lv['po_unit_price']
+            po_unit = lv['po_unit'] or line.unit
+
+            # Convert PO unit price → price per stock_unit
+            if po_unit_price > 0 and getattr(po_unit, 'pk', None) != stock_unit.pk:
+                try:
+                    po_price_per_stock = convert_price_for_unit(
+                        po_unit_price, po_unit, stock_unit,
+                        item=item, use_conversion_price=False,
+                        raise_on_missing=True,
+                    )
+                except ValueError:
+                    logger.warning(
+                        'GRN %s item %s: no price conversion from %s → %s; '
+                        'cost_price weighted-average skipped for this line.',
+                        grn.document_number, item.code,
+                        getattr(po_unit, 'abbreviation', '?'),
+                        getattr(stock_unit, 'abbreviation', '?'),
+                    )
+                    continue
+            else:
+                po_price_per_stock = po_unit_price
+
+            # Proportional delivery share (also normalised per stock_unit)
+            line_delivery_share = Decimal('0')
+            if delivery_charge > 0 and total_line_value > 0:
+                line_delivery_share = delivery_charge * (lv['line_value'] / total_line_value)
+            elif delivery_charge > 0 and active_ctx:
+                line_delivery_share = delivery_charge / len(active_ctx)
+            delivery_per_stock = (line_delivery_share / base_qty) if base_qty else Decimal('0')
+
+            landed_per_stock = po_price_per_stock + delivery_per_stock
+            if landed_per_stock <= 0:
+                continue
+
+            total_new_base_qty += base_qty
+            total_new_value += base_qty * landed_per_stock
+
+        if total_new_base_qty <= 0:
+            continue
+
+        # Use pre-fetched total (already includes everything just received
+        # in this GRN, across all of this item's lines)
+        total_existing_qty = balance_totals.get(item_id, Decimal('0'))
+        old_qty = total_existing_qty - total_new_base_qty
         if old_qty < 0:
             # Concurrent writes / data drift — clamp to 0 so the average
             # weights only the receipt we just posted.
             old_qty = Decimal('0')
 
-        lv = line_values[line.pk]
-        po_unit_price = lv['po_unit_price']
-        po_unit = lv['po_unit'] or line.unit
-
-        # Convert PO unit price → price per stock_unit
-        if po_unit_price > 0 and getattr(po_unit, 'pk', None) != stock_unit.pk:
-            try:
-                po_price_per_stock = convert_price_for_unit(
-                    po_unit_price, po_unit, stock_unit,
-                    item=item, use_conversion_price=False,
-                    raise_on_missing=True,
-                )
-            except ValueError:
-                logger.warning(
-                    'GRN %s item %s: no price conversion from %s → %s; '
-                    'cost_price weighted-average skipped for this line.',
-                    grn.document_number, item.code,
-                    getattr(po_unit, 'abbreviation', '?'),
-                    getattr(stock_unit, 'abbreviation', '?'),
-                )
-                continue
-        else:
-            po_price_per_stock = po_unit_price
-
-        # Proportional delivery share (also normalised per stock_unit)
-        line_delivery_share = Decimal('0')
-        if delivery_charge > 0 and total_line_value > 0:
-            line_delivery_share = delivery_charge * (lv['line_value'] / total_line_value)
-        elif delivery_charge > 0 and active_ctx:
-            line_delivery_share = delivery_charge / len(active_ctx)
-        delivery_per_stock = (line_delivery_share / base_qty) if base_qty else Decimal('0')
-
-        landed_per_stock = po_price_per_stock + delivery_per_stock
-        if landed_per_stock <= 0:
-            continue
-
-        denom = old_qty + base_qty
+        denom = old_qty + total_new_base_qty
         if denom <= 0:
             continue
         old_value = old_qty * item.cost_price
-        new_value = base_qty * landed_per_stock
-        item.cost_price = (old_value + new_value) / denom
-        item_cost_updates[item.pk] = item
+        item.cost_price = (old_value + total_new_value) / denom
+        item_cost_updates[item_id] = item
 
     # Batch-update all item cost_prices in one round-trip
     if item_cost_updates:
@@ -492,6 +530,7 @@ def post_goods_receipt(grn, user):
         'skipped_lines': len(skipped),
     })
     grn.skipped_lines = skipped
+    grn.over_received_lines = over_received
     return grn
 
 
@@ -617,6 +656,10 @@ def post_delivery(delivery, user):
     from sales.models import DeliveryNote, DeliveryLine
     from core.models import DocumentStatus
 
+    # Lock the document row before checking/flipping status — see the same
+    # comment in post_goods_receipt above.
+    delivery = DeliveryNote.objects.select_for_update().get(pk=delivery.pk)
+
     if delivery.status != DocumentStatus.DRAFT:
         raise ValueError(f"Delivery {delivery.document_number} is not in DRAFT status.")
 
@@ -644,6 +687,7 @@ def post_delivery(delivery, user):
     skipped = []
     skipped_existing = []
     so_line_updates = {}  # so_line.pk → so_line (with accumulated qty_delivered)
+    delivery_line_updates = []  # DeliveryLine rows to stamp with sales_order_line
 
     for line in lines:
         if line.item_id in existing_item_ids:
@@ -685,6 +729,11 @@ def post_delivery(delivery, user):
             pool = same_unit or candidates
             pool.sort(key=lambda sl: (sl.qty_ordered - (sl.qty_delivered or Decimal('0'))), reverse=True)
             so_line = pool[0]
+            # Record which SO line this delivery line actually fulfilled, so
+            # cancellation can reverse qty_delivered on exactly this line
+            # instead of every SO line matching the same item.
+            line.sales_order_line = so_line
+            delivery_line_updates.append(line)
             if so_line.unit_id == line.unit_id:
                 delivered = line.qty
             else:
@@ -706,6 +755,9 @@ def post_delivery(delivery, user):
     if moves:
         StockMove.objects.bulk_create(moves)
 
+    if delivery_line_updates:
+        DeliveryLine.objects.bulk_update(delivery_line_updates, ['sales_order_line'])
+
     # Batch-update all SO line qty_delivered in one round-trip
     if so_line_updates:
         from sales.models import SalesOrderLine
@@ -716,8 +768,14 @@ def post_delivery(delivery, user):
     delivery.posted_at = now
     delivery.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
+    if delivery.sales_order_id:
+        # Fulfillment realizes the reservation as an actual posted move —
+        # release the temporary hold so it doesn't also count against
+        # available stock going forward.
+        release_reservations('SalesOrder', delivery.sales_order_id)
+
     audit_data = {
-        'lines': len(moves), 
+        'lines': len(moves),
         'skipped_lines': len(skipped),
         'skipped_existing': len(skipped_existing),
     }
@@ -738,6 +796,10 @@ def post_sales_pickup(pickup, user):
     """
     from sales.models import SalesPickup, SalesPickupLine
     from core.models import DocumentStatus
+
+    # Lock the document row before checking/flipping status — see the same
+    # comment in post_goods_receipt above.
+    pickup = SalesPickup.objects.select_for_update().get(pk=pickup.pk)
 
     if pickup.status != DocumentStatus.DRAFT:
         raise ValueError(f"Pickup {pickup.document_number} is not in DRAFT status.")
@@ -766,6 +828,7 @@ def post_sales_pickup(pickup, user):
     skipped = []
     skipped_existing = []
     so_line_updates = {}  # so_line.pk → so_line (with accumulated qty_delivered)
+    pickup_line_updates = []  # SalesPickupLine rows to stamp with sales_order_line
 
     for line in lines:
         if line.item_id in existing_item_ids:
@@ -807,6 +870,11 @@ def post_sales_pickup(pickup, user):
             pool = same_unit or candidates
             pool.sort(key=lambda sl: (sl.qty_ordered - (sl.qty_delivered or Decimal('0'))), reverse=True)
             so_line = pool[0]
+            # Record which SO line this pickup line actually fulfilled, so
+            # cancellation can reverse qty_delivered on exactly this line
+            # instead of every SO line matching the same item.
+            line.sales_order_line = so_line
+            pickup_line_updates.append(line)
             if so_line.unit_id == line.unit_id:
                 delivered = line.qty
             else:
@@ -828,6 +896,9 @@ def post_sales_pickup(pickup, user):
     if moves:
         StockMove.objects.bulk_create(moves)
 
+    if pickup_line_updates:
+        SalesPickupLine.objects.bulk_update(pickup_line_updates, ['sales_order_line'])
+
     # Batch-update all SO line qty_delivered in one round-trip
     if so_line_updates:
         from sales.models import SalesOrderLine
@@ -838,8 +909,14 @@ def post_sales_pickup(pickup, user):
     pickup.posted_at = now
     pickup.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
+    if pickup.sales_order_id:
+        # Fulfillment realizes the reservation as an actual posted move —
+        # release the temporary hold so it doesn't also count against
+        # available stock going forward.
+        release_reservations('SalesOrder', pickup.sales_order_id)
+
     audit_data = {
-        'lines': len(moves), 
+        'lines': len(moves),
         'skipped_lines': len(skipped),
         'skipped_existing': len(skipped_existing),
     }
@@ -854,6 +931,10 @@ def post_transfer(transfer, user):
     Post a Stock Transfer: creates TRANSFER StockMoves (out + in) and updates balances.
     """
     from core.models import DocumentStatus
+
+    # Lock the document row before checking/flipping status — see the same
+    # comment in post_goods_receipt above.
+    transfer = StockTransfer.objects.select_for_update().get(pk=transfer.pk)
 
     if transfer.status != DocumentStatus.DRAFT:
         raise ValueError(f"Transfer {transfer.document_number} is not in DRAFT status.")
@@ -921,6 +1002,10 @@ def post_adjustment(adjustment, user):
     so the result is always exactly what was counted.
     """
     from core.models import DocumentStatus
+
+    # Lock the document row before checking/flipping status — see the same
+    # comment in post_goods_receipt above.
+    adjustment = StockAdjustment.objects.select_for_update().get(pk=adjustment.pk)
 
     if adjustment.status not in (DocumentStatus.DRAFT, DocumentStatus.APPROVED):
         raise ValueError(f"Adjustment {adjustment.document_number} cannot be posted from {adjustment.status}.")
@@ -999,6 +1084,10 @@ def post_damaged_report(report, user):
     """
     from core.models import DocumentStatus
 
+    # Lock the document row before checking/flipping status — see the same
+    # comment in post_goods_receipt above.
+    report = DamagedReport.objects.select_for_update().get(pk=report.pk)
+
     if report.status != DocumentStatus.DRAFT:
         raise ValueError(f"Damaged report {report.document_number} is not in DRAFT status.")
 
@@ -1075,6 +1164,33 @@ def reserve_stock(item, location, qty, reference_type, reference_id, user):
 
 
 @transaction.atomic(using=_WRITE_DB)
+def release_reservations(reference_type, reference_id):
+    """
+    Release all active (unfulfilled) stock reservations for a document,
+    restoring qty_reserved on the affected balances.
+
+    Call this when the reserving document is cancelled, or once it's been
+    fulfilled (posted) — a reservation is a temporary hold, and without an
+    explicit release it stays on `qty_reserved` forever, permanently
+    understating available stock for that item/location.
+    """
+    from inventory.models import StockReservation
+
+    reservations = StockReservation.objects.select_for_update().filter(
+        reference_type=reference_type, reference_id=reference_id, is_fulfilled=False,
+    )
+    for r in reservations:
+        try:
+            balance = StockBalance.objects.select_for_update().get(item=r.item, location=r.location)
+            balance.qty_reserved = max(balance.qty_reserved - r.qty, Decimal('0'))
+            balance.save(update_fields=['qty_reserved', 'updated_at'])
+        except StockBalance.DoesNotExist:
+            pass
+        r.is_fulfilled = True
+        r.save(update_fields=['is_fulfilled', 'updated_at'])
+
+
+@transaction.atomic(using=_WRITE_DB)
 def cancel_document(doc, user):
     """
     Cancel a transactional document.
@@ -1137,6 +1253,10 @@ def post_purchase_return(pr, user):
     from procurement.models import PurchaseReturn
     from core.models import DocumentStatus
 
+    # Lock the document row before checking/flipping status — see the same
+    # comment in post_goods_receipt above.
+    pr = PurchaseReturn.objects.select_for_update().get(pk=pr.pk)
+
     if pr.status != DocumentStatus.DRAFT:
         raise ValueError(f"Purchase Return {pr.document_number} is not in DRAFT status.")
 
@@ -1146,11 +1266,37 @@ def post_purchase_return(pr, user):
     now = timezone.now()
     moves = []
     skipped = []
+    over_returned = []  # non-blocking: lines returning more than was received (and not already returned)
+
+    # Pre-compute already-received / already-returned qty per item, if this
+    # return is linked to a GRN, so we can warn (not block) on over-return.
+    received_by_item = {}
+    already_returned_by_item = {}
+    if pr.goods_receipt_id:
+        from django.db.models import Sum
+        for row in pr.goods_receipt.lines.values('item_id').annotate(total=Sum('qty')):
+            received_by_item[row['item_id']] = row['total'] or Decimal('0')
+        from procurement.models import PurchaseReturnLine
+        for row in PurchaseReturnLine.objects.filter(
+            purchase_return__goods_receipt_id=pr.goods_receipt_id,
+        ).exclude(purchase_return_id=pr.pk).values('item_id').annotate(total=Sum('qty')):
+            already_returned_by_item[row['item_id']] = row['total'] or Decimal('0')
 
     for line in lines:
         base_qty = _try_convert(line.qty, line.unit, line.item.stock_unit, line.item, line, skipped)
         if base_qty is None:
             continue
+
+        if pr.goods_receipt_id:
+            received = received_by_item.get(line.item_id, Decimal('0'))
+            already_returned = already_returned_by_item.get(line.item_id, Decimal('0'))
+            outstanding = received - already_returned
+            if line.qty > outstanding:
+                over_returned.append(
+                    f"{line.item.code}: returning {line.qty} but only "
+                    f"{max(outstanding, Decimal('0'))} received and not yet returned"
+                )
+
         move = StockMove(
             move_type=MoveType.RETURN_OUT,
             item=line.item,
@@ -1179,6 +1325,7 @@ def post_purchase_return(pr, user):
 
     _create_audit(user, 'POST', pr, {'lines': len(moves), 'skipped_lines': len(skipped)})
     pr.skipped_lines = skipped
+    pr.over_returned_lines = over_returned
     return pr
 
 
@@ -1187,6 +1334,10 @@ def post_sales_return(sr, user):
     """Post a Sales Return: creates RETURN_IN StockMoves and increases balances."""
     from sales.models import SalesReturn
     from core.models import DocumentStatus
+
+    # Lock the document row before checking/flipping status — see the same
+    # comment in post_goods_receipt above.
+    sr = SalesReturn.objects.select_for_update().get(pk=sr.pk)
 
     if sr.status != DocumentStatus.DRAFT:
         raise ValueError(f"Sales Return {sr.document_number} is not in DRAFT status.")
@@ -1246,6 +1397,10 @@ def post_inventory_to_supply(ist, user):
     from inventory.models import InventoryToSupplyTransfer
     from core.models import SupplyMovement, SupplyItem
     from core.models import DocumentStatus
+
+    # Lock the document row before checking/flipping status — see the same
+    # comment in post_goods_receipt above.
+    ist = InventoryToSupplyTransfer.objects.select_for_update().get(pk=ist.pk)
 
     if ist.status != DocumentStatus.DRAFT:
         raise ValueError(f"IST {ist.document_number} is not in DRAFT status.")
@@ -1477,7 +1632,7 @@ def save_with_document_number(instance, prefix, model_class, max_retries=5):
         instance.document_number = generate_document_number(prefix, model_class)
         logger.info(f"[save_with_document_number] Attempt {attempt+1}: trying {instance.document_number}")
         try:
-            with transaction.atomic():
+            with transaction.atomic(using=_WRITE_DB):
                 instance.save()
             return instance
         except IntegrityError as e:

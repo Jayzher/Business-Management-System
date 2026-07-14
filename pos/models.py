@@ -49,6 +49,10 @@ class POSShift(TimeStampedModel):
     cash_sales_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     noncash_sales_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     refund_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    cash_refund_total = models.DecimalField(
+        max_digits=15, decimal_places=2, default=0,
+        help_text='Refunds given back in cash only — this (not refund_total) is what reduces the cash drawer.',
+    )
     cash_in_out_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
 
     class Meta:
@@ -59,7 +63,7 @@ class POSShift(TimeStampedModel):
 
     @property
     def expected_cash(self):
-        return self.opening_cash + self.cash_sales_total + self.cash_in_out_total - self.refund_total
+        return self.opening_cash + self.cash_sales_total + self.cash_in_out_total - self.cash_refund_total
 
     @property
     def variance(self):
@@ -73,6 +77,7 @@ class SaleStatus(models.TextChoices):
     PAID = 'PAID', 'Paid'
     POSTED = 'POSTED', 'Posted'
     VOID = 'VOID', 'Void'
+    PARTIALLY_REFUNDED = 'PARTIALLY_REFUNDED', 'Partially Refunded'
     REFUNDED = 'REFUNDED', 'Refunded'
 
 
@@ -92,7 +97,7 @@ class POSSale(TimeStampedModel):
         null=True, blank=True, related_name='pos_sales',
         help_text='Sales channel (Physical Store, Facebook, etc.)',
     )
-    status = models.CharField(max_length=10, choices=SaleStatus.choices, default=SaleStatus.DRAFT)
+    status = models.CharField(max_length=20, choices=SaleStatus.choices, default=SaleStatus.DRAFT)
     subtotal = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     discount_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     tax_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -135,6 +140,19 @@ class POSSaleLine(models.Model):
     def __str__(self):
         return f"POS Line: {self.item.code} x{self.qty}"
 
+    @property
+    def qty_refunded(self):
+        """Total qty already refunded against this line across all POSTED refunds."""
+        from django.db.models import Sum
+        return self.refund_lines.filter(refund__status=RefundStatus.POSTED).aggregate(
+            total=Sum('qty'),
+        )['total'] or 0
+
+    @property
+    def qty_refundable(self):
+        """Qty still available to refund on this line."""
+        return self.qty - self.qty_refunded
+
 
 class PaymentMethod(models.TextChoices):
     CASH = 'CASH', 'Cash'
@@ -168,6 +186,10 @@ class POSRefund(TimeStampedModel):
     original_sale = models.ForeignKey(POSSale, on_delete=models.PROTECT, related_name='refunds')
     shift = models.ForeignKey(POSShift, on_delete=models.PROTECT, related_name='refunds')
     status = models.CharField(max_length=10, choices=RefundStatus.choices, default=RefundStatus.DRAFT)
+    method = models.CharField(
+        max_length=10, choices=PaymentMethod.choices, default=PaymentMethod.CASH,
+        help_text='How the refund was given back — determines whether it counts against the cash drawer at shift close.',
+    )
     subtotal = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     tax_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     grand_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -209,7 +231,10 @@ class POSSaleBundleLine(models.Model):
 class POSRefundLine(models.Model):
     """POS refund line item."""
     refund = models.ForeignKey(POSRefund, on_delete=models.CASCADE, related_name='lines')
-    sale_line = models.ForeignKey(POSSaleLine, on_delete=models.SET_NULL, null=True, blank=True)
+    sale_line = models.ForeignKey(
+        POSSaleLine, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='refund_lines',
+    )
     item = models.ForeignKey('catalog.Item', on_delete=models.PROTECT)
     location = models.ForeignKey('warehouses.Location', on_delete=models.PROTECT)
     qty = models.DecimalField(max_digits=15, decimal_places=4)

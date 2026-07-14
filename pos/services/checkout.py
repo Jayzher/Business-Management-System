@@ -57,22 +57,35 @@ def close_shift(shift, user, closing_cash_declared=Decimal('0')):
 
     now = timezone.now()
 
-    # Recompute totals from actual sale/refund/cash-entry records
+    # Recompute totals from actual sale/refund/cash-entry records.
+    # PARTIALLY_REFUNDED sales still had their original payment land in the
+    # drawer (only part of it was later handed back — that part is already
+    # subtracted below via cash_refund_total), so they must stay counted
+    # here the same as PAID/POSTED.
     from django.db.models import Sum, Q
+    _payable_statuses = [SaleStatus.PAID, SaleStatus.POSTED, SaleStatus.PARTIALLY_REFUNDED]
     cash_sales = POSPayment.objects.filter(
         sale__shift=shift,
-        sale__status__in=[SaleStatus.PAID, SaleStatus.POSTED],
+        sale__status__in=_payable_statuses,
         method=PaymentMethod.CASH,
     ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
 
     noncash_sales = POSPayment.objects.filter(
         sale__shift=shift,
-        sale__status__in=[SaleStatus.PAID, SaleStatus.POSTED],
+        sale__status__in=_payable_statuses,
     ).exclude(method=PaymentMethod.CASH).aggregate(total=Sum('amount'))['total'] or Decimal('0')
 
     refund_total = POSRefund.objects.filter(
         shift=shift,
         status=RefundStatus.POSTED,
+    ).aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
+
+    # Only cash-method refunds actually leave the drawer — a refund given
+    # back via GCash/card/bank transfer shouldn't reduce expected cash.
+    cash_refund_total = POSRefund.objects.filter(
+        shift=shift,
+        status=RefundStatus.POSTED,
+        method=PaymentMethod.CASH,
     ).aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
 
     cash_in = CashEntry.objects.filter(
@@ -85,6 +98,7 @@ def close_shift(shift, user, closing_cash_declared=Decimal('0')):
     shift.cash_sales_total = cash_sales
     shift.noncash_sales_total = noncash_sales
     shift.refund_total = refund_total
+    shift.cash_refund_total = cash_refund_total
     shift.cash_in_out_total = cash_in - cash_out
     shift.closing_cash_declared = closing_cash_declared
     shift.closed_by = user
@@ -365,9 +379,15 @@ def post_pos_refund(refund_id, user):
     refund.posted_at = now
     refund.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
 
-    # Mark original sale as refunded
+    # Mark original sale as fully or partially refunded, depending on
+    # whether every line has now been refunded in full — a refund covering
+    # only some lines/qty must not make the whole sale disappear from
+    # revenue reports (see SaleStatus.PARTIALLY_REFUNDED).
     original = refund.original_sale
-    original.status = SaleStatus.REFUNDED
+    fully_refunded = all(
+        line.qty_refundable <= 0 for line in original.lines.all()
+    )
+    original.status = SaleStatus.REFUNDED if fully_refunded else SaleStatus.PARTIALLY_REFUNDED
     original.save(update_fields=['status', 'updated_at'])
 
     _update_shift_totals(shift)
@@ -387,8 +407,8 @@ def void_sale(sale_id, user):
 
     if sale.status == SaleStatus.VOID:
         raise ValueError(f"Sale {sale.sale_no} is already void.")
-    if sale.status == SaleStatus.REFUNDED:
-        raise ValueError(f"Sale {sale.sale_no} is already refunded, cannot void.")
+    if sale.status in (SaleStatus.REFUNDED, SaleStatus.PARTIALLY_REFUNDED):
+        raise ValueError(f"Sale {sale.sale_no} has already been refunded, cannot void.")
 
     now = timezone.now()
 
@@ -437,19 +457,26 @@ def _update_shift_totals(shift):
     """Recompute shift stored totals from actual records."""
     from django.db.models import Sum
 
+    # See close_shift() above for why PARTIALLY_REFUNDED must stay counted.
+    _payable_statuses = [SaleStatus.PAID, SaleStatus.POSTED, SaleStatus.PARTIALLY_REFUNDED]
     cash_sales = POSPayment.objects.filter(
         sale__shift=shift,
-        sale__status__in=[SaleStatus.PAID, SaleStatus.POSTED],
+        sale__status__in=_payable_statuses,
         method=PaymentMethod.CASH,
     ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
 
     noncash_sales = POSPayment.objects.filter(
         sale__shift=shift,
-        sale__status__in=[SaleStatus.PAID, SaleStatus.POSTED],
+        sale__status__in=_payable_statuses,
     ).exclude(method=PaymentMethod.CASH).aggregate(total=Sum('amount'))['total'] or Decimal('0')
 
     refund_total = POSRefund.objects.filter(
         shift=shift, status=RefundStatus.POSTED,
+    ).aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
+
+    # Only cash-method refunds actually leave the drawer.
+    cash_refund_total = POSRefund.objects.filter(
+        shift=shift, status=RefundStatus.POSTED, method=PaymentMethod.CASH,
     ).aggregate(total=Sum('grand_total'))['total'] or Decimal('0')
 
     cash_in = CashEntry.objects.filter(
@@ -462,8 +489,9 @@ def _update_shift_totals(shift):
     shift.cash_sales_total = cash_sales
     shift.noncash_sales_total = noncash_sales
     shift.refund_total = refund_total
+    shift.cash_refund_total = cash_refund_total
     shift.cash_in_out_total = cash_in - cash_out
     shift.save(update_fields=[
         'cash_sales_total', 'noncash_sales_total',
-        'refund_total', 'cash_in_out_total', 'updated_at',
+        'refund_total', 'cash_refund_total', 'cash_in_out_total', 'updated_at',
     ])

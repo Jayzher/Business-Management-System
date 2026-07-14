@@ -12,9 +12,11 @@ Key accounting principles:
   - P&L: Accrual basis (when revenue is earned / expenses incurred)
   - Balance Sheet: Total Assets = Cash + Inventory + AR
 """
+import threading
 from datetime import date, datetime, time
 from decimal import Decimal
 
+from django.db import transaction
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from django.db.models.signals import post_save, post_delete
@@ -543,14 +545,22 @@ def _calculate_procurement_costs(start_date, end_date):
 
 
 def _calculate_operational_expenses(start_date, end_date):
-    """Calculate operational expenses from Expense model + CashFlowTransaction.
-    Includes PENDING CashFlowTransactions since they represent real money spent."""
-    expense_total = Expense.objects.filter(
-        status='APPROVED', date__gte=start_date, date__lt=end_date,
-        category__is_cogs=False,
-    ).aggregate(total=Coalesce(Sum('amount'), Decimal('0')))['total']
+    """
+    Calculate operational expenses on a CASH basis — money that has
+    actually moved. Only Expenses that have reached PAID generate a
+    CashFlowTransaction (cashflow/signals.py::expense_paid_to_cashflow),
+    so that's the only source counted here.
 
-    cf_total = CashFlowTransaction.objects.filter(
+    Previously this also summed Expense.objects.filter(status='APPROVED'),
+    treating an approval (a commitment) as if it were a cash outflow —
+    that's an accrual concept, not cash basis, and it double-counted once
+    the same expense was later actually paid: the approval month got hit
+    for the commitment, and the payment month got hit again for the real
+    CashFlowTransaction. If "committed but unpaid" is worth reporting, it
+    belongs in the accrual/P&L section under its own label, not folded
+    into a cash-basis total.
+    """
+    return CashFlowTransaction.objects.filter(
         flow_type=CashFlowType.CASH_OUT,
         category=CashFlowCategory.EXPENSES,
         transaction_date__gte=start_date,
@@ -558,8 +568,6 @@ def _calculate_operational_expenses(start_date, end_date):
     ).filter(
         status__in=[CashFlowStatus.APPROVED, 'PENDING'],
     ).aggregate(total=Coalesce(Sum('amount'), Decimal('0')))['total']
-
-    return expense_total + cf_total
 
 
 def _calculate_other_cash_in(start_date, end_date):
@@ -646,13 +654,51 @@ def _count_sales(start_dt, end_dt):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Debounced scheduling — collapse repeated triggers within one transaction
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# update_monthly_summary() issues roughly fifteen aggregate queries across
+# five apps. A single request can trigger it several times over for the
+# *same* month — e.g. saving a Sales Order cascades into an Invoice resync
+# (sales/signals.py), and update_summary_on_invoice below can itself fire
+# twice (issue month + paid month). None of those individual recalculations
+# are wrong, but doing the same one three times in one request is wasted
+# work. _schedule_monthly_summary_update() collects the distinct (year,
+# month) pairs touched during the current transaction into a thread-local
+# and recalculates each exactly once, after commit.
+
+_pending_months = threading.local()
+
+
+def _schedule_monthly_summary_update(year, month, user=None):
+    pending = getattr(_pending_months, 'value', None)
+    is_first = pending is None
+    if is_first:
+        pending = {}
+        _pending_months.value = pending
+
+    # Last writer's `user` wins for attribution — harmless, since the
+    # recalculation itself is derived purely from already-committed data.
+    pending[(year, month)] = user
+
+    if is_first:
+        def _flush():
+            months = _pending_months.value or {}
+            _pending_months.value = None
+            for (y, m), u in months.items():
+                update_monthly_summary(y, m, user=u)
+
+        transaction.on_commit(_flush)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Signal Handlers
 # ═══════════════════════════════════════════════════════════════════════════
 
 @receiver(post_save, sender=POSSale)
 def update_summary_on_pos_sale(sender, instance, created, **kwargs):
     if instance.status == SaleStatus.POSTED and instance.created_at:
-        update_monthly_summary(
+        _schedule_monthly_summary_update(
             instance.created_at.year, instance.created_at.month,
             user=getattr(instance, 'created_by', None),
         )
@@ -664,7 +710,7 @@ def update_summary_on_invoice(sender, instance, created, **kwargs):
         return
     # Recalculate the month the invoice was ISSUED (accrual revenue)
     if instance.date:
-        update_monthly_summary(
+        _schedule_monthly_summary_update(
             instance.date.year, instance.date.month,
             user=getattr(instance, 'created_by', None),
         )
@@ -672,7 +718,7 @@ def update_summary_on_invoice(sender, instance, created, **kwargs):
     if instance.paid_at:
         paid_year, paid_month = instance.paid_at.year, instance.paid_at.month
         if not instance.date or (paid_year, paid_month) != (instance.date.year, instance.date.month):
-            update_monthly_summary(
+            _schedule_monthly_summary_update(
                 paid_year, paid_month,
                 user=getattr(instance, 'created_by', None),
             )
@@ -681,7 +727,7 @@ def update_summary_on_invoice(sender, instance, created, **kwargs):
 @receiver(post_save, sender=DeliveryNote)
 def update_summary_on_delivery(sender, instance, created, **kwargs):
     if instance.status == DocumentStatus.POSTED and instance.posted_at:
-        update_monthly_summary(
+        _schedule_monthly_summary_update(
             instance.posted_at.year, instance.posted_at.month,
             user=getattr(instance, 'posted_by', None),
         )
@@ -690,7 +736,7 @@ def update_summary_on_delivery(sender, instance, created, **kwargs):
 @receiver(post_save, sender=SalesPickup)
 def update_summary_on_pickup(sender, instance, created, **kwargs):
     if instance.status == DocumentStatus.POSTED and instance.posted_at:
-        update_monthly_summary(
+        _schedule_monthly_summary_update(
             instance.posted_at.year, instance.posted_at.month,
             user=getattr(instance, 'posted_by', None),
         )
@@ -699,7 +745,7 @@ def update_summary_on_pickup(sender, instance, created, **kwargs):
 @receiver(post_save, sender=GoodsReceipt)
 def update_summary_on_grn(sender, instance, created, **kwargs):
     if instance.status == DocumentStatus.POSTED and instance.receipt_date:
-        update_monthly_summary(
+        _schedule_monthly_summary_update(
             instance.receipt_date.year, instance.receipt_date.month,
             user=getattr(instance, 'posted_by', None),
         )
@@ -708,7 +754,7 @@ def update_summary_on_grn(sender, instance, created, **kwargs):
 @receiver(post_save, sender=Expense)
 def update_summary_on_expense(sender, instance, created, **kwargs):
     if instance.status == 'APPROVED' and instance.date:
-        update_monthly_summary(
+        _schedule_monthly_summary_update(
             instance.date.year, instance.date.month,
             user=getattr(instance, 'created_by', None),
         )
@@ -722,7 +768,7 @@ def update_summary_on_cashflow(sender, instance, created, **kwargs):
     # otherwise a previously-PENDING transaction stays baked into the totals
     # forever after being rejected or cancelled.
     if instance.transaction_date:
-        update_monthly_summary(
+        _schedule_monthly_summary_update(
             instance.transaction_date.year, instance.transaction_date.month,
             user=getattr(instance, 'approved_by', None) or getattr(instance, 'created_by', None),
         )
@@ -732,7 +778,7 @@ def update_summary_on_cashflow(sender, instance, created, **kwargs):
 def update_summary_on_invoice_payment(sender, instance, created, **kwargs):
     """Recalculate when an invoice payment is recorded (affects cash_from_customers and AR)."""
     if instance.date:
-        update_monthly_summary(
+        _schedule_monthly_summary_update(
             instance.date.year, instance.date.month,
             user=getattr(instance, 'created_by', None),
         )
@@ -743,35 +789,35 @@ def update_summary_on_invoice_payment(sender, instance, created, **kwargs):
 @receiver(post_delete, sender=POSSale)
 def recalc_on_pos_sale_delete(sender, instance, **kwargs):
     if instance.created_at:
-        update_monthly_summary(instance.created_at.year, instance.created_at.month)
+        _schedule_monthly_summary_update(instance.created_at.year, instance.created_at.month)
 
 
 @receiver(post_delete, sender=Invoice)
 def recalc_on_invoice_delete(sender, instance, **kwargs):
     if instance.date:
-        update_monthly_summary(instance.date.year, instance.date.month)
+        _schedule_monthly_summary_update(instance.date.year, instance.date.month)
     if instance.paid_at:
         paid_year, paid_month = instance.paid_at.year, instance.paid_at.month
         if not instance.date or (paid_year, paid_month) != (instance.date.year, instance.date.month):
-            update_monthly_summary(paid_year, paid_month)
+            _schedule_monthly_summary_update(paid_year, paid_month)
 
 
 @receiver(post_delete, sender=GoodsReceipt)
 def recalc_on_grn_delete(sender, instance, **kwargs):
     if instance.receipt_date:
-        update_monthly_summary(instance.receipt_date.year, instance.receipt_date.month)
+        _schedule_monthly_summary_update(instance.receipt_date.year, instance.receipt_date.month)
 
 
 @receiver(post_delete, sender=Expense)
 def recalc_on_expense_delete(sender, instance, **kwargs):
     if instance.date:
-        update_monthly_summary(instance.date.year, instance.date.month)
+        _schedule_monthly_summary_update(instance.date.year, instance.date.month)
 
 
 @receiver(post_delete, sender=CashFlowTransaction)
 def recalc_on_cashflow_delete(sender, instance, **kwargs):
     if instance.transaction_date:
-        update_monthly_summary(
+        _schedule_monthly_summary_update(
             instance.transaction_date.year, instance.transaction_date.month,
         )
 
@@ -779,4 +825,4 @@ def recalc_on_cashflow_delete(sender, instance, **kwargs):
 @receiver(post_delete, sender=InvoicePayment)
 def recalc_on_invoice_payment_delete(sender, instance, **kwargs):
     if instance.date:
-        update_monthly_summary(instance.date.year, instance.date.month)
+        _schedule_monthly_summary_update(instance.date.year, instance.date.month)

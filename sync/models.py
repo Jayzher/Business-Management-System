@@ -130,3 +130,49 @@ class NeonChangeLog(models.Model):
 
     def __str__(self):
         return f"ChangeLog#{self.pk} {self.action} {self.db_table}#{self.row_pk}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ChangelogReplayFailure — Neon→local_cache changelog entries that failed
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ChangelogReplayFailure(models.Model):
+    """
+    A NeonChangeLog entry that raised while being replayed to local_cache
+    (sync/startup_sync.py::_replay_changelog_entries).
+
+    Previously a failure here was just skipped — logged at debug level and
+    the sync checkpoint moved past it, permanently. That silently produced
+    orphaned/stale rows in local_cache with no record that anything had
+    gone wrong. This table makes failures visible and retryable: each
+    failing row is recorded here (keyed by db_table+row_pk, so repeated
+    failures for the same row update one record instead of piling up),
+    and `manage.py retry_changelog_failures` re-attempts them against the
+    current state on Neon.
+    """
+    changelog_id = models.BigIntegerField(
+        db_index=True,
+        help_text='The NeonChangeLog id that last failed for this row.',
+    )
+    action = models.CharField(
+        max_length=10,
+        choices=[('upsert', 'Upsert'), ('delete', 'Delete')],
+    )
+    db_table = models.CharField(max_length=100, db_index=True)
+    app_label = models.CharField(max_length=50)
+    model_name = models.CharField(max_length=50)
+    row_pk = models.BigIntegerField()
+
+    error_message = models.TextField(blank=True, default='')
+    attempts = models.IntegerField(default=1)
+    first_failed_at = models.DateTimeField(default=timezone.now)
+    last_failed_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-last_failed_at']
+        constraints = [
+            models.UniqueConstraint(fields=['db_table', 'row_pk'], name='sync_changelogfail_table_pk_uniq'),
+        ]
+
+    def __str__(self):
+        return f"ReplayFailure {self.db_table}#{self.row_pk} (attempts={self.attempts})"

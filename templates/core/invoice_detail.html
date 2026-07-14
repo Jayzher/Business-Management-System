@@ -33,7 +33,7 @@
         </h3>
         <div>
           <a href="{% url 'invoice_print' invoice.pk %}" class="btn btn-sm btn-outline-primary" target="_blank"><i class="fas fa-print mr-1"></i> Print</a>
-          {% if not invoice.is_paid %}
+          {% if not invoice.is_paid and not is_view_only and not is_web_version %}
           <form method="post" action="{% url 'invoice_mark_paid' invoice.pk %}" class="d-inline">
             {% csrf_token %}
             <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Mark this invoice as fully paid?')"><i class="fas fa-check-circle mr-1"></i> Mark Paid</button>
@@ -180,6 +180,7 @@
                 {% endif %}
               </td>
               <td class="text-center">
+                {% if not is_view_only and not is_web_version %}
                 <form method="post" action="{% url 'invoice_delete_payment' invoice.pk p.pk %}" class="d-inline"
                       onsubmit="return confirm('Delete this payment record?')">
                   {% csrf_token %}
@@ -187,6 +188,7 @@
                     <i class="fas fa-trash-alt"></i>
                   </button>
                 </form>
+                {% endif %}
               </td>
             </tr>
             {% empty %}
@@ -208,7 +210,7 @@
     </div>
 
     <!-- Add Payment Form -->
-    {% if not invoice.is_paid %}
+    {% if not invoice.is_paid and not is_view_only and not is_web_version %}
     <div class="card card-outline card-info">
       <div class="card-header"><h3 class="card-title"><i class="fas fa-plus-circle mr-1"></i> Record Payment</h3></div>
       <div class="card-body">

@@ -501,6 +501,31 @@ def invoice_print(request, pk):
     return render(request, 'core/invoice_print.html', {'invoice': inv, 'profile': profile})
 
 
+def _sync_so_payment_status(invoice):
+    """
+    Push the invoice's real payment state back onto its linked SalesOrder.
+
+    SalesOrder.payment_status/partial_payment_amount are plain, manually-
+    editable fields — separate from Invoice.payment_status (which is
+    correctly derived live from actual InvoicePayment rows) — so without
+    this sync they can silently disagree (e.g. an SO showing "Paid" while
+    its invoice still has an outstanding balance). Call this any time an
+    invoice's payments change.
+    """
+    if not invoice.sales_order_id:
+        return
+    so = invoice.sales_order
+    total_paid = invoice.total_paid
+    if invoice.is_paid:
+        so.payment_status = 'PAID'
+    elif total_paid > 0:
+        so.payment_status = 'PARTIAL'
+    else:
+        so.payment_status = 'UNPAID'
+    so.partial_payment_amount = total_paid
+    so.save(update_fields=['payment_status', 'partial_payment_amount', 'updated_at'])
+
+
 @login_required
 @write_denied_for_viewer
 def invoice_add_payment(request, pk):
@@ -575,6 +600,8 @@ def invoice_add_payment(request, pk):
                     so.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
                     messages.info(request, f'Sales Order {so.document_number} auto-posted (invoice paid).')
 
+        _sync_so_payment_status(inv)
+
     return _redirect()
 
 
@@ -617,6 +644,8 @@ def invoice_mark_paid(request, pk):
                     so.posted_at = timezone.now()
                     so.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
                     messages.info(request, f'Sales Order {so.document_number} auto-posted.')
+
+            _sync_so_payment_status(inv)
         else:
             messages.info(request, 'Invoice is already paid.')
     if next_url:
@@ -642,6 +671,7 @@ def invoice_delete_payment(request, pk, payment_pk):
             inv.paid_date = None
             inv.save(update_fields=['is_paid', 'paid_at', 'paid_date', 'updated_at'])
             messages.warning(request, 'Invoice re-opened (total payments now below grand total).')
+        _sync_so_payment_status(inv)
     if next_url:
         return redirect(next_url)
     return redirect('invoice_detail', pk=pk)

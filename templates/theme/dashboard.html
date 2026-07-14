@@ -353,9 +353,11 @@
       <div class="card-header"><h3 class="card-title"><i class="fas fa-bolt mr-1"></i> Quick Actions <i class="fas fa-question-circle dash-tip" data-bs-toggle="tooltip" title="Shortcuts to frequently used actions like opening a POS shift or recording an expense."></i></h3></div>
       <div class="card-body">
         <div class="row text-center">
+          {% if not is_view_only and not is_web_version %}
           <div class="col-6 mb-2"><a href="{% url 'pos_shift_open' %}" class="btn btn-outline-primary btn-sm w-100 quick-action py-2"><i class="fas fa-play d-block mb-1"></i><small>POS Shift</small></a></div>
           <div class="col-6 mb-2"><a href="#" data-modal-url="{% url 'expense_create' %}" class="btn btn-outline-danger btn-sm w-100 quick-action py-2"><i class="fas fa-receipt d-block mb-1"></i><small>Add Expense</small></a></div>
           <div class="col-6 mb-2"><a href="#" data-modal-url="{% url 'goods_receipt_create' %}" data-modal-size="modal-xl" class="btn btn-outline-success btn-sm w-100 quick-action py-2"><i class="fas fa-truck-loading d-block mb-1"></i><small>Stock In</small></a></div>
+          {% endif %}
           <div class="col-6 mb-2"><a href="{% url 'invoice_list' %}" class="btn btn-outline-info btn-sm w-100 quick-action py-2"><i class="fas fa-file-invoice d-block mb-1"></i><small>Invoices</small></a></div>
           <div class="col-6 mb-2"><a href="{% url 'report_financial_statement' %}" class="btn btn-outline-dark btn-sm w-100 quick-action py-2"><i class="fas fa-file-invoice-dollar d-block mb-1"></i><small>P&L</small></a></div>
           <div class="col-6 mb-2"><a href="{% url 'supply_item_list' %}" class="btn btn-outline-secondary btn-sm w-100 quick-action py-2"><i class="fas fa-box-open d-block mb-1"></i><small>Supplies</small></a></div>

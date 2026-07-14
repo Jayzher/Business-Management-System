@@ -68,7 +68,7 @@ class GoodsReceiptViewSet(viewsets.ModelViewSet):
     def post_receipt(self, request, pk=None):
         grn = self.get_object()
         try:
-            post_goods_receipt(grn, request.user)
+            grn = post_goods_receipt(grn, request.user)
             result = {'status': 'posted', 'document_number': grn.document_number}
             skipped = getattr(grn, 'skipped_lines', [])
             if skipped:
@@ -127,13 +127,20 @@ def goods_receipt_post_view(request, pk):
     grn = get_object_or_404(GoodsReceipt, pk=pk)
     if request.method == 'POST':
         try:
-            post_goods_receipt(grn, request.user)
+            grn = post_goods_receipt(grn, request.user)
             from inventory.services import format_skipped_lines_message
             warning = format_skipped_lines_message(grn)
             if warning:
                 messages.warning(request, warning)
             else:
                 messages.success(request, f'Goods Receipt {grn.document_number} posted. Stock updated.')
+            over_received = getattr(grn, 'over_received_lines', None)
+            if over_received:
+                messages.warning(
+                    request,
+                    f'{len(over_received)} line(s) exceed the outstanding PO quantity: '
+                    + '; '.join(over_received),
+                )
         except ValueError as e:
             messages.error(request, str(e))
     return redirect_back(request, 'goods_receipt_detail', pk=pk)
@@ -545,13 +552,20 @@ def purchase_return_post_view(request, pk):
     if request.method == 'POST':
         try:
             from inventory.services import post_purchase_return
-            post_purchase_return(pr, request.user)
+            pr = post_purchase_return(pr, request.user)
             from inventory.services import format_skipped_lines_message
             warning = format_skipped_lines_message(pr)
             if warning:
                 messages.warning(request, warning)
             else:
                 messages.success(request, f'Purchase Return {pr.document_number} posted. Stock updated.')
+            over_returned = getattr(pr, 'over_returned_lines', None)
+            if over_returned:
+                messages.warning(
+                    request,
+                    f'{len(over_returned)} line(s) exceed what was received: '
+                    + '; '.join(over_returned),
+                )
         except ValueError as e:
             messages.error(request, str(e))
     return redirect_back(request, 'purchase_return_detail', pk=pk)

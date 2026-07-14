@@ -126,7 +126,10 @@ def price_lookup(request):
         Q(start_date__isnull=True) | Q(start_date__lte=today),
         Q(end_date__isnull=True) | Q(end_date__gte=today),
         price_list__is_active=True,
-    ).select_related('price_list').order_by('price_list__is_default', '-min_qty')
+    # Tie-break deterministically when two non-default lists both match the
+    # same item/qty — otherwise the "winning" price falls to undefined DB
+    # ordering. Most-recently-created price list wins.
+    ).select_related('price_list').order_by('price_list__is_default', '-min_qty', '-price_list_id')
 
     for p in qs:
         if float(qty) >= float(p.min_qty):

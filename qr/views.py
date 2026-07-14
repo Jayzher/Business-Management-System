@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from qr.models import QRCodeTag, ScanEvent
 from qr.serializers import QRCodeTagSerializer, ScanEventSerializer, QRScanRequestSerializer
 from audit.models import AuditLog
+from accounts.decorators import BlockRestrictedRoleWrites
 
 
 def _generate_qr_image(data_str):
@@ -35,7 +36,7 @@ class QRCodeTagViewSet(viewsets.ModelViewSet):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, BlockRestrictedRoleWrites])
 def generate_qr(request):
     """Generate QR code(s) for items. Accepts single or bulk."""
     items_data = request.data.get('items', [])
@@ -75,7 +76,7 @@ def qr_lookup(request, uid):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, BlockRestrictedRoleWrites])
 def qr_scan(request):
     """Process a QR scan action."""
     ser = QRScanRequestSerializer(data=request.data)

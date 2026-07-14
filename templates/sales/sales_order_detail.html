@@ -30,7 +30,7 @@
           <tr><th>Order Date</th><td>{{ order.order_date|date:"M d, Y" }}</td></tr>
           <tr><th>Delivery Date</th><td>{{ order.delivery_date|date:"M d, Y"|default:"-" }}</td></tr>
           <tr><th>Fulfillment</th><td>{{ order.get_fulfillment_type_display }}</td></tr>
-          {% if order.currency != 'PHP' %}<tr><th>Currency</th><td>{{ order.currency }} (Rate: {{ order.exchange_rate }})</td></tr>{% endif %}
+          {% if order.currency != 'PHP' %}<tr><th>Currency</th><td>{{ order.currency }}</td></tr>{% endif %}
         </table>
       </div>
     </div>
@@ -154,6 +154,12 @@
             <tr>
               <td class="text-muted text-danger">Total Discount</td>
               <td class="text-end text-danger">({{ so_discount_total|currency }})</td>
+            </tr>
+            {% endif %}
+            {% if order.discount_rule %}
+            <tr>
+              <td class="text-muted text-danger">Discount Rule: {{ order.discount_rule.name }}</td>
+              <td class="text-end text-danger">({{ order.discount_rule_order_amount|currency }})</td>
             </tr>
             {% endif %}
             <tr class="table-success">

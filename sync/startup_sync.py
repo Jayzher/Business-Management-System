@@ -117,7 +117,14 @@ def _run_changelog_sync():
                     return
 
                 logger.info('No sync checkpoint found — running full hydration...')
-                _run_full_hydration()
+                failed = _run_full_hydration()
+                if failed:
+                    logger.error(
+                        'Full hydration incomplete (%d model(s) failed) — '
+                        'checkpoint left unset, will retry on next sync run.',
+                        len(failed),
+                    )
+                    return
                 _set_checkpoint_to_latest()
                 _set_last_sync_time(sync_start)
                 logger.info('Full hydration complete. Checkpoint set.')
@@ -142,7 +149,14 @@ def _run_changelog_sync():
                     'the first boot after deploying the changelog system. '
                     'Running full hydration to catch pre-existing changes...'
                 )
-                _run_full_hydration()
+                failed = _run_full_hydration()
+                if failed:
+                    logger.error(
+                        'Full hydration incomplete (%d model(s) failed) — '
+                        'checkpoint left unset, will retry on next sync run.',
+                        len(failed),
+                    )
+                    return
                 _set_checkpoint_to_latest()
                 _set_last_sync_time(sync_start)
                 return
@@ -160,7 +174,14 @@ def _run_changelog_sync():
                     'Changelog was pruned — falling back to full hydration.',
                     last_log_id, oldest_entry,
                 )
-                _run_full_hydration()
+                failed = _run_full_hydration()
+                if failed:
+                    logger.error(
+                        'Full hydration incomplete (%d model(s) failed) — '
+                        'checkpoint left unset, will retry on next sync run.',
+                        len(failed),
+                    )
+                    return
                 _set_checkpoint_to_latest()
                 _set_last_sync_time(sync_start)
                 return
@@ -255,10 +276,18 @@ def _replay_changelog_entries(since_log_id: int) -> int:
                     _apply_changelog_entry(entry, apps)
                     total_applied += 1
                 except Exception as exc:
-                    logger.debug(
+                    # Record the failure instead of silently skipping it — a
+                    # debug-level log line was easy to lose, and the checkpoint
+                    # still advances past this entry below (a stuck row would
+                    # otherwise permanently stall replay of everything after
+                    # it). `retry_changelog_failures` re-attempts these against
+                    # Neon's current state; the sync diagnostics endpoint
+                    # surfaces the count so this doesn't go unnoticed again.
+                    logger.error(
                         'Failed to apply changelog entry #%d (%s %s#%d): %s',
                         entry.pk, entry.action, entry.db_table, entry.row_pk, exc,
                     )
+                    _record_replay_failure(entry, exc)
 
             # Advance cursor to the last entry in the batch (not just deduped)
             current_cursor = entries[-1].pk
@@ -272,6 +301,45 @@ def _replay_changelog_entries(since_log_id: int) -> int:
             cursor.execute('PRAGMA foreign_keys = ON;')
 
     return total_applied
+
+
+def _record_replay_failure(entry, exc):
+    """
+    Upsert a ChangelogReplayFailure row for this (db_table, row_pk) so a
+    failed replay is visible and retryable instead of just a debug log
+    line. Never raises — recording the failure must not itself break the
+    replay loop.
+    """
+    try:
+        from sync.models import ChangelogReplayFailure
+        from django.utils import timezone as tz
+
+        now = tz.now()
+        obj, created = ChangelogReplayFailure.objects.using('local_cache').get_or_create(
+            db_table=entry.db_table,
+            row_pk=entry.row_pk,
+            defaults={
+                'changelog_id': entry.pk,
+                'action': entry.action,
+                'app_label': entry.app_label,
+                'model_name': entry.model_name,
+                'error_message': str(exc)[:2000],
+                'first_failed_at': now,
+                'last_failed_at': now,
+                'attempts': 1,
+            },
+        )
+        if not created:
+            obj.changelog_id = entry.pk
+            obj.action = entry.action
+            obj.error_message = str(exc)[:2000]
+            obj.last_failed_at = now
+            obj.attempts += 1
+            obj.save(update_fields=[
+                'changelog_id', 'action', 'error_message', 'last_failed_at', 'attempts',
+            ])
+    except Exception as record_exc:
+        logger.error('Failed to record changelog replay failure: %s', record_exc)
 
 
 def _apply_changelog_entry(entry, apps):
@@ -355,6 +423,21 @@ def _run_full_hydration():
     """
     Full copy of all synced models from Neon → local_cache.
     Used on first boot when no changelog checkpoint exists.
+
+    Each model is wiped (DELETE FROM) and refilled independently — if
+    copying one model raises partway through (a lock, a transient error),
+    that table is left wiped but not refilled while every other table,
+    including ones with FKs pointing into it, hydrates fine. That used to
+    fail silently (debug-level log, keep going) and still let the caller
+    advance the sync checkpoint past it — the exact same kind of
+    orphaned-parent corruption a prior session had to repair by hand, just
+    at table granularity instead of row granularity.
+
+    Returns a list of "app_label.model_name" strings for models that
+    failed to hydrate. Callers must NOT advance the sync checkpoint when
+    this is non-empty — leaving the checkpoint unset makes the next sync
+    run retry the full hydration from scratch instead of settling into a
+    silently half-populated state forever.
     """
     from django.apps import apps
     from django.db import connections
@@ -372,6 +455,7 @@ def _run_full_hydration():
         cursor.execute('PRAGMA foreign_keys = OFF;')
 
     total_copied = 0
+    failed_models = []
 
     for model in all_models:
         try:
@@ -426,7 +510,8 @@ def _run_full_hydration():
                     setattr(field, attr, True)
 
         except Exception as exc:
-            logger.debug(
+            failed_models.append(f'{model._meta.app_label}.{model._meta.model_name}')
+            logger.error(
                 'Full hydration failed for %s.%s: %s',
                 model._meta.app_label, model._meta.model_name, exc,
             )
@@ -435,7 +520,17 @@ def _run_full_hydration():
     with connections['local_cache'].cursor() as cursor:
         cursor.execute('PRAGMA foreign_keys = ON;')
 
-    logger.info('Full hydration: %d rows copied to local_cache', total_copied)
+    if failed_models:
+        logger.error(
+            'Full hydration: %d rows copied, but %d model(s) FAILED and were '
+            'left wiped/incomplete: %s. Checkpoint will not advance so the '
+            'next sync run retries.',
+            total_copied, len(failed_models), ', '.join(failed_models),
+        )
+    else:
+        logger.info('Full hydration: %d rows copied to local_cache', total_copied)
+
+    return failed_models
 
 
 def _set_checkpoint_to_latest():

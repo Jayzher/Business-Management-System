@@ -206,7 +206,11 @@ def sync_daily_sales_revenue(user):
         is_auto_generated=True,
     ).delete()
 
-    # ── Create one entry per completed day with revenue > 0 ───────────────
+    # ── Create one entry per completed day with any net activity ──────────
+    # A day can net negative when Sales Returns exceed same-day sales — that
+    # is a real cash outflow, not a no-op, so it still needs an entry (as
+    # CASH_OUT rather than CASH_IN). Only a day with literally zero net
+    # activity is skipped.
     created_count = 0
     for source_id, b in sorted(buckets.items()):
         # Skip today — the day is not yet complete
@@ -214,21 +218,28 @@ def sync_daily_sales_revenue(user):
             continue
 
         revenue = b['revenue']
-        if revenue <= 0:
+        if revenue == 0:
             continue
 
         gross = revenue - b['cogs']
         day = b['day']
+        is_outflow = revenue < 0
+        amount = abs(revenue).quantize(Decimal('0.01'))
+        flow_type = CashFlowType.CASH_OUT if is_outflow else CashFlowType.CASH_IN
+        reason = (
+            f'Daily net sales returns — {day}' if is_outflow
+            else f'Daily sales revenue — {day}'
+        )
 
         txn = CashFlowTransaction.objects.create(
             transaction_number=CashFlowTransaction.generate_next_number(),
             category=CashFlowCategory.SALES,
-            flow_type=CashFlowType.CASH_IN,
-            amount=revenue.quantize(Decimal('0.01')),
+            flow_type=flow_type,
+            amount=amount,
             transaction_date=day,
             payment_method=PaymentMethod.CASH,
             reference_no=f'DAY-{day}',
-            reason=f'Daily sales revenue — {day}',
+            reason=reason,
             notes=(
                 f'Revenue: ₱{revenue:.2f} | '
                 f'COGS: ₱{b["cogs"]:.2f} | '
@@ -246,7 +257,7 @@ def sync_daily_sales_revenue(user):
             action=CashFlowLogAction.CREATED,
             performed_by=user,
             details=(
-                f'Sync: daily revenue for {day}. '
+                f'Sync: daily {"net returns" if is_outflow else "revenue"} for {day}. '
                 f'Revenue=₱{revenue:.2f}, COGS=₱{b["cogs"]:.2f}, '
                 f'Gross=₱{gross:.2f}.'
             ),

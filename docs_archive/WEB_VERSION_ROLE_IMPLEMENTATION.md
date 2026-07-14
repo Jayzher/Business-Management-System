@@ -49,15 +49,11 @@ The **Web Version** role provides:
 ### 5. View Protection
 - **File**: `inventory/views.py`
 - **Updated**: All adjustment-related views to use `@adjustment_access` decorator
-- **Views Protected**:
-  - `adjustment_list_view` - can view list but no access to create
-  - `adjustment_detail_view` - can view details but no action buttons
-  - `adjustment_create_view` - blocked
-  - `adjustment_edit_view` - blocked
-  - `adjustment_delete_view` - blocked
-  - `adjustment_approve_view` - blocked
-  - `adjustment_post_view` - blocked
-  - `adjustment_cancel_view` - blocked
+- **Views Protected**: `@adjustment_access` excludes Web Version and Checker
+  entirely (matching the Access Matrix below) — `adjustment_list_view` and
+  `adjustment_detail_view` are blocked outright, not "view-only," same as
+  `adjustment_create_view`, `adjustment_edit_view`, `adjustment_delete_view`,
+  `adjustment_approve_view`, `adjustment_post_view`, `adjustment_cancel_view`.
 
 ### 6. Role Display
 - **File**: `accounts/views.py`

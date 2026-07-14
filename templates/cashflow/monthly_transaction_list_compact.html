@@ -88,12 +88,14 @@
                 </div>
             </div>
             <div class="col-md-3 mb-2 d-flex align-items-end justify-content-end gap-2">
+                {% if not is_view_only and not is_web_version %}
                 <form method="post" action="{% url 'cashflow:recalculate_month' year month %}" class="d-inline">
                     {% csrf_token %}
                     <button type="submit" class="btn btn-warning btn-sm" onclick="return confirm('Recalculate {{ month_name }} {{ year }}?')">
                         <i class="fas fa-sync-alt me-1"></i>Recalculate
                     </button>
                 </form>
+                {% endif %}
                 <a href="{% url 'cashflow:monthly_dashboard' %}" class="btn btn-outline-primary btn-sm">
                     <i class="fas fa-chart-bar me-1"></i>Dashboard
                 </a>

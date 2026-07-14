@@ -28,8 +28,9 @@ class SyncConfig(AppConfig):
         if is_server_process and (
             os.environ.get('RUN_MAIN') == 'true' or not os.environ.get('DJANGO_AUTORELOAD')
         ):
-            from sync.background_sync import start_background_worker
+            from sync.background_sync import start_background_worker, start_outbox_drain
             start_background_worker()
+            start_outbox_drain()
 
             from sync.startup_sync import start_background_sync
             start_background_sync()

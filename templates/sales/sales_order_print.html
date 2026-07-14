@@ -6,7 +6,7 @@
 <p>Date: {{ doc.order_date|date:"F d, Y" }}</p>
 {% if doc.delivery_date %}<p>Delivery: {{ doc.delivery_date|date:"F d, Y" }}</p>{% endif %}
 <p>Fulfillment: {{ doc.get_fulfillment_type_display }}</p>
-{% if doc.currency != 'PHP' %}<p>Currency: {{ doc.currency }} (Rate: {{ doc.exchange_rate }})</p>{% endif %}
+{% if doc.currency != 'PHP' %}<p>Currency: {{ doc.currency }}</p>{% endif %}
 {% endblock %}
 
 {% block info_boxes %}

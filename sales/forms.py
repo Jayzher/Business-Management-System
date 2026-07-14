@@ -9,25 +9,31 @@ from sales.models import (
 
 
 class SalesOrderForm(forms.ModelForm):
-    exchange_rate = forms.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        required=True,
-        widget=forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0'}),
-    )
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not self.is_bound and getattr(self, 'instance', None) and getattr(self.instance, 'pk', None):
-            value = getattr(self.instance, 'exchange_rate', None)
-            if value is not None:
-                self.initial['exchange_rate'] = f"{value:.2f}"
+        from pricing.models import DiscountRule
+        self.fields['discount_rule'].queryset = DiscountRule.objects.filter(is_active=True).order_by('name')
+        self.fields['discount_rule'].required = False
+        if getattr(self, 'instance', None) and getattr(self.instance, 'pk', None):
+            from core.models import Invoice
+            if Invoice.objects.filter(sales_order=self.instance, is_void=False).exists():
+                # Once invoiced, payment status is derived from the invoice's
+                # actual payments (core.views._sync_so_payment_status) —
+                # editing it here directly would just get overwritten the
+                # next time a payment changes, so disable rather than allow
+                # a value that silently doesn't stick.
+                self.fields['payment_status'].disabled = True
+                self.fields['payment_status'].help_text = (
+                    "Synced automatically from the linked invoice's payments — "
+                    "record or edit payments on the invoice instead."
+                )
 
     class Meta:
         model = SalesOrder
         fields = ['customer', 'warehouse', 'order_date', 'delivery_date',
-                  'fulfillment_type', 'shipping_address', 'currency', 'exchange_rate',
-                  'payment_status', 'sales_channel', 'receipt_no', 'delivery_charge', 'notes']
+                  'fulfillment_type', 'shipping_address', 'currency',
+                  'payment_status', 'sales_channel', 'receipt_no', 'delivery_charge',
+                  'discount_rule', 'notes']
         widgets = {
             'customer': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select customer'}),
             'warehouse': forms.Select(attrs={'class': 'form-control form-control-sm', 'data-placeholder': 'Select warehouse'}),
@@ -40,6 +46,7 @@ class SalesOrderForm(forms.ModelForm):
             'sales_channel': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'receipt_no': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Receipt / reference number'}),
             'delivery_charge': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '0.01', 'min': '0', 'placeholder': '0.00'}),
+            'discount_rule': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'notes': forms.Textarea(attrs={'class': 'form-control form-control-sm', 'rows': 3, 'placeholder': 'Internal notes or instructions'}),
         }
         help_texts = {
@@ -50,11 +57,11 @@ class SalesOrderForm(forms.ModelForm):
             'fulfillment_type': 'Pickup: customer picks up. Delivery: items are shipped.',
             'shipping_address': 'Delivery address if different from customer address.',
             'currency': 'Transaction currency (default PHP).',
-            'exchange_rate': 'Exchange rate to base currency (default 1).',
             'payment_status': 'Payment status of this order.',
             'sales_channel': 'Sales channel (e.g. Physical Store, Shopee).',
             'receipt_no': 'External receipt or reference number.',
             'delivery_charge': 'Delivery/shipping fee charged to the customer (added to grand total).',
+            'discount_rule': 'Optional promotional discount — applies to the whole order or per line, depending on the rule.',
             'notes': 'Internal remarks or special instructions.',
         }
 
@@ -66,6 +73,23 @@ class SalesOrderLineForm(forms.ModelForm):
             for name in ['qty_ordered', 'unit_price']:
                 if name in self.fields:
                     self.fields[name].initial = None
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('DELETE'):
+            return cleaned
+        discount_type = cleaned.get('discount_type')
+        discount_value = cleaned.get('discount_value')
+        qty = cleaned.get('qty_ordered')
+        unit_price = cleaned.get('unit_price')
+        if discount_type == SalesOrderLineDiscountType.AMOUNT and discount_value and qty is not None and unit_price is not None:
+            subtotal = qty * unit_price
+            if discount_value > subtotal:
+                self.add_error(
+                    'discount_value',
+                    f'Fixed discount (₱{discount_value}) cannot exceed the line subtotal (₱{subtotal}).',
+                )
+        return cleaned
 
     class Meta:
         model = SalesOrderLine

@@ -495,6 +495,10 @@ def service_start(request, pk):
     if request.method != 'POST':
         return redirect_back(request, 'service_detail', pk=pk)
 
+    # Lock the row before checking/flipping status, so two concurrent
+    # submissions can't both pass the DRAFT check before either commits.
+    svc = CustomerService.objects.select_for_update().get(pk=pk)
+
     if svc.status != ServiceStatus.DRAFT:
         messages.error(request, 'Only DRAFT services can be started.')
         return redirect_back(request, 'service_detail', pk=pk)
@@ -645,60 +649,36 @@ def service_complete(request, pk):
     if request.method != 'POST':
         return redirect_back(request, 'service_detail', pk=pk)
 
+    # Lock the row before checking/flipping status, so two concurrent
+    # submissions can't both pass the IN_PROGRESS check before either commits.
+    svc = CustomerService.objects.select_for_update().get(pk=pk)
+
     if svc.status != ServiceStatus.IN_PROGRESS:
         messages.error(request, 'Service must be marked In Progress before it can be completed.')
         return redirect_back(request, 'service_detail', pk=pk)
 
     now = timezone.now()
-    lines = list(svc.lines.select_related(
-        'item__default_unit', 'item__selling_unit',
-        'unit', 'location__warehouse',
-    ).all())
-    other_mats = list(svc.other_materials.all())
 
     # ── Generate Invoice ───────────────────────────────────────────────────
-    from core.models import Invoice, InvoiceLine, InvoicePayment, PaymentMethod
+    from core.models import Invoice, InvoicePayment, PaymentMethod
     from core.views import _next_invoice_number
+    from services.automation import compute_service_invoice_amounts, sync_invoice_from_service
     import logging
     logger = logging.getLogger(__name__)
 
     # Invoice amounts are what the CUSTOMER pays — the quoted price (not the net profit).
-    if svc.quotation_amount > 0:
-        # Customer pays the quotation. Discount is applied to the quotation.
-        val = svc.discount_value or Decimal('0')
-        if svc.discount_type == 'PERCENT':
-            discount_amt = (svc.quotation_amount * val / Decimal('100')).quantize(Decimal('0.01'))
-        else:
-            discount_amt = val
-        subtotal = svc.quotation_amount
-        grand_total = max(subtotal - discount_amt, Decimal('0'))
-    else:
-        # No quotation — charge whatever the individual lines total
-        subtotal = svc.product_lines_total + svc.other_materials_total + svc.bundles_total
-        discount_amt = svc.discount_amount
-        grand_total = max(subtotal - discount_amt, Decimal('0'))
+    # The invoice always reflects the FULL job value, regardless of any
+    # partial payment already collected. Netting the partial amount out of
+    # the invoice (the old behavior) permanently under-valued the job even
+    # once it was fully paid — revenue and COGS must be measured against
+    # the same full value. The partial payment is instead recorded as a
+    # real InvoicePayment below, so it's never lost, just properly tracked.
+    _subtotal, _discount_amt, grand_total = compute_service_invoice_amounts(svc)
+    invoice_grand_total = grand_total
 
     partial_paid = svc.partial_payment_amount_value
     if partial_paid > grand_total:
         partial_paid = grand_total
-    
-    # Calculate remaining balance after partial payment
-    # This ensures we don't double-count revenue in P&L
-    remaining_balance = max(grand_total - partial_paid, Decimal('0'))
-    
-    # Determine invoice amounts based on whether there was a partial payment
-    if partial_paid > 0:
-        # Invoice shows only the remaining balance
-        invoice_subtotal = remaining_balance
-        invoice_discount = Decimal('0')  # Discount already applied in grand_total calculation
-        invoice_grand_total = remaining_balance
-        invoice_notes = f'Service: {svc.service_name} (Remaining balance after ₱{partial_paid:,.2f} partial payment)'
-    else:
-        # No partial payment, invoice shows full amount
-        invoice_subtotal = subtotal
-        invoice_discount = discount_amt
-        invoice_grand_total = grand_total
-        invoice_notes = f'Service: {svc.service_name}'
 
     # ── Check for existing invoice and UPDATE or CREATE ───────────────────
     existing_invoice = None
@@ -708,86 +688,10 @@ def service_complete(request, pk):
             pk=svc.invoice_id,
             is_void=False
         ).first()
-    
+
     if existing_invoice:
         logger.info(f"Found existing invoice {existing_invoice.invoice_number} for service {svc.service_number}, updating it")
-        
-        # Update invoice header
-        existing_invoice.subtotal = invoice_subtotal
-        existing_invoice.discount_total = invoice_discount
-        existing_invoice.grand_total = invoice_grand_total
-        existing_invoice.notes = invoice_notes
-        existing_invoice.customer_name = svc.customer_name
-        existing_invoice.customer_address = svc.address
-        existing_invoice.save(update_fields=[
-            'subtotal', 'discount_total', 'grand_total', 'notes',
-            'customer_name', 'customer_address', 'updated_at'
-        ])
-        
-        # RECREATE invoice lines to match current service state
-        existing_invoice.lines.all().delete()
-        new_lines_added = 0
-        
-        if svc.quotation_amount > 0:
-            # Quotation-based: Recreate the single service line
-            line_description = svc.service_name or 'Service'
-            if partial_paid > 0:
-                line_description += f' (Balance after ₱{partial_paid:,.2f} partial payment)'
-            
-            InvoiceLine.objects.create(
-                invoice=existing_invoice,
-                item_code='SVC-QUOT',
-                item_name=line_description,
-                qty=Decimal('1'),
-                unit='svc',
-                unit_price=invoice_grand_total,
-                line_total=invoice_grand_total,
-            )
-            new_lines_added += 1
-            logger.info(f"Recreated quotation line for invoice {existing_invoice.invoice_number}")
-        else:
-            # Item-based: Recreate product lines
-            for line in lines:
-                InvoiceLine.objects.create(
-                    invoice=existing_invoice,
-                    item_code=line.item.code,
-                    item_name=line.item.name,
-                    qty=line.qty,
-                    unit=line.unit.abbreviation,
-                    unit_price=line.unit_price,
-                    line_total=line.line_total,
-                )
-                new_lines_added += 1
-                logger.info(f"Recreated item {line.item.code} for invoice {existing_invoice.invoice_number}")
-
-            # Recreate other materials
-            for mat in other_mats:
-                InvoiceLine.objects.create(
-                    invoice=existing_invoice,
-                    item_code='MAT',
-                    item_name=mat.item_name,
-                    qty=mat.qty,
-                    unit='unit',
-                    unit_price=mat.unit_price,
-                    line_total=mat.line_total,
-                )
-                new_lines_added += 1
-                logger.info(f"Recreated material {mat.item_name} for invoice {existing_invoice.invoice_number}")
-
-            # If no lines and no materials, add service line
-            if not lines and not other_mats:
-                InvoiceLine.objects.create(
-                    invoice=existing_invoice,
-                    item_code='SVC',
-                    item_name=svc.service_name,
-                    qty=Decimal('1'),
-                    unit='svc',
-                    unit_price=grand_total,
-                    line_total=grand_total,
-                )
-                new_lines_added += 1
-                logger.info(f"Recreated service line for invoice {existing_invoice.invoice_number}")
-        
+        new_lines_added = sync_invoice_from_service(existing_invoice, svc)
         logger.info(f"Updated invoice {existing_invoice.invoice_number} with {new_lines_added} lines")
         inv = existing_invoice
         inv._was_updated = True
@@ -795,80 +699,41 @@ def service_complete(request, pk):
     else:
         # No existing invoice, create new one
         logger.info(f"No existing invoice found for service {svc.service_number}, creating new one")
-        
+
         inv = Invoice.objects.create(
             invoice_number=_next_invoice_number(),
             date=now.date(),
             customer_name=svc.customer_name,
             customer_address=svc.address,
-            subtotal=invoice_subtotal,
-            discount_total=invoice_discount,
-            grand_total=invoice_grand_total,
+            subtotal=Decimal('0'),
+            grand_total=Decimal('0'),
             grand_total_cogs=Decimal('0'),
-            notes=invoice_notes,
             created_by=request.user,
         )
-
-        # ── Invoice lines (what the customer sees) ────────────────────────────
-        # If there's a quotation, the customer is billed for the quoted amount only.
-        # Material/part costs are internal COGS and do not appear as customer line items.
-        if svc.quotation_amount > 0:
-            # Show the remaining balance amount (after partial payment)
-            line_description = svc.service_name or 'Service'
-            if partial_paid > 0:
-                line_description += f' (Balance after ₱{partial_paid:,.2f} partial payment)'
-            
-            InvoiceLine.objects.create(
-                invoice=inv,
-                item_code='SVC-QUOT',
-                item_name=line_description,
-                qty=Decimal('1'),
-                unit='svc',
-                unit_price=invoice_grand_total,
-                line_total=invoice_grand_total,
-            )
-        else:
-            # No quotation — show individual product/material lines
-            for line in lines:
-                InvoiceLine.objects.create(
-                    invoice=inv,
-                    item_code=line.item.code,
-                    item_name=line.item.name,
-                    qty=line.qty,
-                    unit=line.unit.abbreviation,
-                    unit_price=line.unit_price,
-                    line_total=line.line_total,
-                )
-
-            for mat in other_mats:
-                InvoiceLine.objects.create(
-                    invoice=inv,
-                    item_code='MAT',
-                    item_name=mat.item_name,
-                    qty=mat.qty,
-                    unit='unit',
-                    unit_price=mat.unit_price,
-                    line_total=mat.line_total,
-                )
-
-            if not lines and not other_mats:
-                InvoiceLine.objects.create(
-                    invoice=inv,
-                    item_code='SVC',
-                    item_name=svc.service_name,
-                    qty=Decimal('1'),
-                    unit='svc',
-                    unit_price=grand_total,
-                    line_total=grand_total,
-                )
-        
-        inv._was_updated = False
+        sync_invoice_from_service(inv, svc)
         inv._was_updated = False
 
     # ── Handle payments ────────────────────────────────────────────────────
-    if svc.payment_status == ServicePaymentStatus.PAID and invoice_grand_total > 0:
-        # If already marked as paid, create payment for the remaining balance
-        final_payment = invoice_grand_total
+    # The partial payment collected earlier (if any) is recorded as its own
+    # real InvoicePayment against the full-value invoice above — it's no
+    # longer netted out of the invoice itself, so it needs to actually be
+    # recorded as money received.
+    if partial_paid > 0:
+        InvoicePayment.objects.create(
+            invoice=inv,
+            date=now.date(),
+            method=PaymentMethod.CASH,
+            amount=partial_paid,
+            reference_no='',
+            notes=f'Partial payment collected for service {svc.service_number}',
+            created_by=request.user,
+        )
+
+    remaining_after_partial = max(invoice_grand_total - partial_paid, Decimal('0'))
+    if svc.payment_status == ServicePaymentStatus.PAID and remaining_after_partial > 0:
+        # Already marked as paid — settle whatever's left after the partial
+        # payment (not the full invoice again, which would double-count).
+        final_payment = remaining_after_partial
     else:
         final_payment = Decimal('0')
 
@@ -883,7 +748,8 @@ def service_complete(request, pk):
             created_by=request.user,
         )
 
-    if final_payment >= invoice_grand_total and invoice_grand_total > 0:
+    total_recorded = partial_paid + final_payment
+    if total_recorded >= invoice_grand_total and invoice_grand_total > 0:
         inv.is_paid = True
         inv.paid_at = now
         inv.paid_date = now.date()

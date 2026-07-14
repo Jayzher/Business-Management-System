@@ -58,7 +58,13 @@ class Command(BaseCommand):
         if options['reset']:
             self.stdout.write('Resetting checkpoint and running full hydration...')
             _set_last_synced_log_id(0)
-            _run_full_hydration()
+            failed = _run_full_hydration()
+            if failed:
+                self.stdout.write(self.style.ERROR(
+                    f'Full hydration incomplete — {len(failed)} model(s) failed: '
+                    f'{", ".join(failed)}. Checkpoint left unset; re-run this command.'
+                ))
+                return
             _set_checkpoint_to_latest()
             self.stdout.write(self.style.SUCCESS('Full hydration complete.'))
             return
@@ -70,7 +76,13 @@ class Command(BaseCommand):
             self.stdout.write(
                 'No checkpoint found. Running full hydration first...'
             )
-            _run_full_hydration()
+            failed = _run_full_hydration()
+            if failed:
+                self.stdout.write(self.style.ERROR(
+                    f'Full hydration incomplete — {len(failed)} model(s) failed: '
+                    f'{", ".join(failed)}. Checkpoint left unset; re-run this command.'
+                ))
+                return
             _set_checkpoint_to_latest()
             self.stdout.write(self.style.SUCCESS('Full hydration complete.'))
             return

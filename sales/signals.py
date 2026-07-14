@@ -1,13 +1,12 @@
 """
 Signals to synchronize Sales Order changes to related Invoices, Deliveries, and Pickups.
 """
-from decimal import Decimal
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.db import transaction
 
 from sales.models import SalesOrder, DeliveryNote, SalesPickup
-from core.models import Invoice, InvoiceLine
+from core.models import Invoice
 
 
 @receiver(post_save, sender=SalesOrder)
@@ -43,9 +42,17 @@ def sync_sales_order_changes_to_related_documents(sender, instance, created, **k
 def _sync_invoices(sales_order):
     """
     Synchronize Sales Order changes to related non-void Invoices.
-    Updates customer info, financial totals, and line items.
+    Updates customer info and delegates lines/totals to the same
+    sync_invoice_totals_from_so() helper the posting-time invoice
+    creation/update paths use (inventory/automation.py) — bills each line
+    at qty_delivered and applies discount_rule/delivery_charge exactly
+    once, so an SO edit after invoice creation can never drift back to
+    the old qty_ordered/no-discount behavior those paths were fixed to
+    avoid (previously this function had its own, separate copy of the
+    same logic that never got the fix).
     """
     from audit.models import AuditLog
+    from inventory.automation import sync_invoice_totals_from_so
 
     # Materialise the queryset once to avoid the exists()+iterate double-query
     invoice_list = list(Invoice.objects.filter(
@@ -55,57 +62,37 @@ def _sync_invoices(sales_order):
 
     if not invoice_list:
         return
-    
-    # Calculate totals from SO
-    subtotal = Decimal('0')
-    for line in sales_order.lines.all():
-        subtotal += line.line_total
-    
-    for bundle in sales_order.price_list_lines.all():
-        subtotal += bundle.bundle_total
-    
-    delivery_charge = sales_order.delivery_charge or Decimal('0')
-    grand_total = subtotal + delivery_charge
-    
+
     # Get customer info
     customer_name = sales_order.customer.name if sales_order.customer else ''
     customer_address = getattr(sales_order.customer, 'address', '') if sales_order.customer else ''
-    
+
     for invoice in invoice_list:
         # Track what changed for audit
         changes = []
-        
+
+        before_subtotal = invoice.subtotal
+        before_grand_total = invoice.grand_total
+
         # Update customer information
         if invoice.customer_name != customer_name:
             changes.append(f"Customer name: '{invoice.customer_name}' → '{customer_name}'")
             invoice.customer_name = customer_name
-        
+
         if invoice.customer_address != customer_address:
             changes.append(f"Customer address updated")
             invoice.customer_address = customer_address
-        
-        # Update financial totals
-        if invoice.subtotal != subtotal:
-            changes.append(f"Subtotal: {invoice.subtotal} → {subtotal}")
-            invoice.subtotal = subtotal
-        
-        if invoice.delivery_charge != delivery_charge:
-            changes.append(f"Delivery charge: {invoice.delivery_charge} → {delivery_charge}")
-            invoice.delivery_charge = delivery_charge
-        
-        if invoice.grand_total != grand_total:
-            changes.append(f"Grand total: {invoice.grand_total} → {grand_total}")
-            invoice.grand_total = grand_total
-        
-        # Save invoice and recreate lines
-        invoice.save(update_fields=[
-            'customer_name', 'customer_address', 'subtotal', 
-            'delivery_charge', 'grand_total', 'updated_at'
-        ])
-        
-        # Recreate invoice lines to match current SO
-        _recreate_invoice_lines(invoice, sales_order)
-        
+
+        invoice.save(update_fields=['customer_name', 'customer_address', 'updated_at'])
+
+        # Recreate invoice lines + totals to match current SO fulfillment
+        sync_invoice_totals_from_so(invoice, sales_order)
+
+        if invoice.subtotal != before_subtotal:
+            changes.append(f"Subtotal: {before_subtotal} → {invoice.subtotal}")
+        if invoice.grand_total != before_grand_total:
+            changes.append(f"Grand total: {before_grand_total} → {invoice.grand_total}")
+
         if changes:
             # Log the sync in audit trail
             AuditLog.objects.create(
@@ -119,41 +106,6 @@ def _sync_invoices(sales_order):
                 },
                 user=getattr(sales_order, 'updated_by', invoice.created_by),
             )
-
-
-def _recreate_invoice_lines(invoice, sales_order):
-    """
-    Delete existing invoice lines and recreate them from the current Sales Order.
-    """
-    invoice.lines.all().delete()
-
-    new_lines = []
-    for line in sales_order.lines.select_related('item', 'unit').all():
-        new_lines.append(InvoiceLine(
-            invoice=invoice,
-            item_code=line.item.code,
-            item_name=line.item.name,
-            qty=line.qty_ordered,
-            unit=line.unit.abbreviation,
-            unit_price=line.unit_price,
-            discount=line.discount_amount,
-            line_total=line.line_total,
-        ))
-
-    for bundle in sales_order.price_list_lines.select_related('price_list').all():
-        new_lines.append(InvoiceLine(
-            invoice=invoice,
-            item_code='BUNDLE',
-            item_name=bundle.price_list.name,
-            qty=bundle.qty_multiplier,
-            unit='bundle',
-            unit_price=bundle.bundle_subtotal,
-            discount=bundle.bundle_discount_amount,
-            line_total=bundle.bundle_total,
-        ))
-
-    if new_lines:
-        InvoiceLine.objects.bulk_create(new_lines)
 
 
 def _sync_deliveries(sales_order):

@@ -28,6 +28,57 @@ def _already_exists(source_type, source_id):
     ).exists()
 
 
+def _update_existing_entry(
+    *,
+    source_type,
+    source_id,
+    amount,
+    transaction_date,
+    reason,
+    reference_no,
+    user,
+    notes='',
+):
+    """
+    Keep an already-created auto-entry in sync with its source document.
+    No-op if nothing actually changed (avoids a no-op audit log entry on
+    every unrelated save of the source document).
+    """
+    from cashflow.models import CashFlowTransaction, CashFlowLog, CashFlowLogAction
+
+    txn = CashFlowTransaction.objects.filter(
+        source_type=source_type, source_id=source_id,
+    ).first()
+    if not txn:
+        return
+
+    changes = []
+    if txn.amount != amount:
+        changes.append(f'Amount: {txn.amount} → {amount}')
+        txn.amount = amount
+    if txn.transaction_date != transaction_date:
+        changes.append(f'Date: {txn.transaction_date} → {transaction_date}')
+        txn.transaction_date = transaction_date
+    if txn.reason != reason:
+        txn.reason = reason
+    if txn.reference_no != reference_no:
+        txn.reference_no = reference_no
+    if txn.notes != notes:
+        txn.notes = notes
+
+    if not changes:
+        return
+
+    txn.save(update_fields=['amount', 'transaction_date', 'reason', 'reference_no', 'notes', 'updated_at'])
+
+    CashFlowLog.objects.create(
+        transaction=txn,
+        action=CashFlowLogAction.UPDATED,
+        performed_by=user,
+        details=f'Synced from {source_type} update: ' + '; '.join(changes),
+    )
+
+
 def _create_auto_entry(
     *,
     source_type,
@@ -190,11 +241,36 @@ def purchase_return_posted_to_cashflow(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender='core.Expense')
 def expense_paid_to_cashflow(sender, instance, created, **kwargs):
-    """Expense saved as PAID: record cash-out."""
+    """
+    Expense saved as PAID: record cash-out, or — if the auto-generated
+    entry already exists — keep it in sync with the expense.
+
+    Correcting a PAID expense's amount (a typo fix, a corrected supplier
+    invoice) previously left the original, now-wrong figure on the books
+    indefinitely: the entry already existed, so _already_exists() short-
+    circuited and nothing downstream ever saw the correction.
+    """
     from core.models import ExpenseStatus
     if instance.status != ExpenseStatus.PAID:
         return
+
+    reason = (
+        f'{instance.category.name}: {instance.item_description}'
+        if instance.item_description
+        else instance.category.name
+    )
+
     if _already_exists('Expense', instance.pk):
+        _update_existing_entry(
+            source_type='Expense',
+            source_id=instance.pk,
+            amount=instance.amount,
+            transaction_date=instance.date,
+            reason=reason,
+            reference_no=instance.reference_no or '',
+            notes=instance.memo or '',
+            user=instance.created_by,
+        )
         return
 
     _create_auto_entry(
@@ -205,11 +281,7 @@ def expense_paid_to_cashflow(sender, instance, created, **kwargs):
         category='EXPENSES',
         amount=instance.amount,
         transaction_date=instance.date,
-        reason=(
-            f'{instance.category.name}: {instance.item_description}'
-            if instance.item_description
-            else instance.category.name
-        ),
+        reason=reason,
         reference_no=instance.reference_no or '',
         notes=instance.memo or '',
         user=instance.created_by,

@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 
 from audit.models import AuditLog, ManualLog
+from accounts.decorators import write_denied_for_viewer
 
 
 @login_required
@@ -18,6 +19,7 @@ def manual_logs(request):
 
 
 @login_required
+@write_denied_for_viewer
 def manual_log_create(request):
     """Create a new manual change log entry."""
     if request.method == 'POST':

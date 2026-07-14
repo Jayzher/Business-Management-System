@@ -2,7 +2,7 @@ from decimal import Decimal
 from datetime import date, timedelta
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
-from django.db.models import Sum, Q, F, Count, DecimalField
+from django.db.models import Sum, Q, F, Count, DecimalField, OuterRef, Subquery
 from django.db.models.functions import Coalesce, TruncDate, TruncMonth, ExtractYear, ExtractMonth
 from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
@@ -13,6 +13,53 @@ from inventory.models import StockBalance, StockMove, MoveType
 from catalog.models import Item
 from warehouses.models import Warehouse
 from core.cogs import compute_invoice_cogs
+
+
+def _with_pos_sale_refunds(pos_qs):
+    """
+    Annotate a POSSale queryset with `refunded_amount` — the total of all
+    POSTED refunds against each sale. A PARTIALLY_REFUNDED sale still has
+    real revenue (it wasn't returned in full); this lets callers report
+    `grand_total - refunded_amount` instead of either double-counting the
+    refunded portion or (via the old REFUNDED-exclusion filter) zeroing out
+    the whole sale for a refund that only covered one line.
+    """
+    from pos.models import POSRefund, RefundStatus
+    refund_totals = POSRefund.objects.filter(
+        original_sale=OuterRef('pk'), status=RefundStatus.POSTED,
+    ).values('original_sale').annotate(total=Sum('grand_total')).values('total')
+    return pos_qs.annotate(
+        refunded_amount=Coalesce(
+            Subquery(refund_totals, output_field=DecimalField()),
+            Decimal('0'), output_field=DecimalField(),
+        ),
+    )
+
+
+def _with_pos_line_refunds(line_qs):
+    """
+    Same idea as `_with_pos_sale_refunds` but at the POSSaleLine level —
+    annotates `refunded_qty`/`refunded_amount` from POSTED POSRefundLines,
+    so item- and COGS-level breakdowns can net out exactly the qty/amount
+    actually returned rather than the whole line or none of it.
+    """
+    from pos.models import POSRefundLine, RefundStatus
+    refunded_qty_sq = POSRefundLine.objects.filter(
+        sale_line=OuterRef('pk'), refund__status=RefundStatus.POSTED,
+    ).values('sale_line').annotate(total=Sum('qty')).values('total')
+    refunded_amt_sq = POSRefundLine.objects.filter(
+        sale_line=OuterRef('pk'), refund__status=RefundStatus.POSTED,
+    ).values('sale_line').annotate(total=Sum('amount')).values('total')
+    return line_qs.annotate(
+        refunded_qty=Coalesce(
+            Subquery(refunded_qty_sq, output_field=DecimalField()),
+            Decimal('0'), output_field=DecimalField(),
+        ),
+        refunded_amount=Coalesce(
+            Subquery(refunded_amt_sq, output_field=DecimalField()),
+            Decimal('0'), output_field=DecimalField(),
+        ),
+    )
 
 
 def _calculate_service_cogs(service):
@@ -266,14 +313,19 @@ def sales_report_view(request):
     channel_id = request.GET.get('channel', '')
     group_by = request.GET.get('group', 'daily')  # daily or monthly
 
-    # POS sales
-    pos_qs = POSSale.objects.filter(status__in=[SaleStatus.POSTED, SaleStatus.PAID])
+    # POS sales — PARTIALLY_REFUNDED sales still have real revenue (only
+    # some of the sale was returned), so they're included here and netted
+    # against their refunded amount below rather than excluded outright.
+    pos_qs = POSSale.objects.filter(
+        status__in=[SaleStatus.POSTED, SaleStatus.PAID, SaleStatus.PARTIALLY_REFUNDED],
+    )
     if date_from:
         pos_qs = pos_qs.filter(created_at__date__gte=date_from)
     if date_to:
         pos_qs = pos_qs.filter(created_at__date__lte=date_to)
     if channel_id:
         pos_qs = pos_qs.filter(channel_id=channel_id)
+    pos_qs = _with_pos_sale_refunds(pos_qs)
 
     # Sales Orders — APPROVED (confirmed) and POSTED (invoice paid / fulfilled)
     so_qs = SalesOrder.objects.filter(status__in=[DocumentStatus.APPROVED, DocumentStatus.POSTED])
@@ -282,9 +334,11 @@ def sales_report_view(request):
     if date_to:
         so_qs = so_qs.filter(order_date__lte=date_to)
 
-    # Summary totals (POS + SO)
+    # Summary totals (POS + SO) — revenue is net of any POSTED refunds.
     pos_summary = pos_qs.aggregate(
-        total_revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
+        total_revenue=Coalesce(
+            Sum(F('grand_total') - F('refunded_amount')), Decimal('0'), output_field=DecimalField(),
+        ),
         total_discount=Coalesce(Sum('discount_total'), Decimal('0'), output_field=DecimalField()),
         total_tax=Coalesce(Sum('tax_total'), Decimal('0'), output_field=DecimalField()),
         sale_count=Count('id'),
@@ -309,11 +363,11 @@ def sales_report_view(request):
         'sale_count': pos_summary['sale_count'] + so_count,
     }
 
-    # COGS
-    pos_lines = POSSaleLine.objects.filter(sale__in=pos_qs)
+    # COGS — netted against refunded qty for the same reason as revenue above.
+    pos_lines = _with_pos_line_refunds(POSSaleLine.objects.filter(sale__in=pos_qs))
     cogs_pos = pos_lines.aggregate(
         total=Coalesce(
-            Sum(F('item__cost_price') * F('qty'), output_field=DecimalField()),
+            Sum(F('item__cost_price') * (F('qty') - F('refunded_qty')), output_field=DecimalField()),
             Decimal('0'), output_field=DecimalField(),
         )
     )['total']
@@ -337,7 +391,7 @@ def sales_report_view(request):
 
     date_bucket = {}
     for row in pos_qs.annotate(period=trunc_fn_pos).values('period').annotate(
-        revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
+        revenue=Coalesce(Sum(F('grand_total') - F('refunded_amount')), Decimal('0'), output_field=DecimalField()),
         count=Count('id'),
     ):
         date_bucket[row['period']] = {
@@ -374,7 +428,7 @@ def sales_report_view(request):
 
     # ── By channel breakdown (POS channels + Sales Orders bucket) ──────
     channel_rows = list(pos_qs.values('channel__name').annotate(
-        revenue=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
+        revenue=Coalesce(Sum(F('grand_total') - F('refunded_amount')), Decimal('0'), output_field=DecimalField()),
         count=Count('id'),
     ).order_by('-revenue'))
 
@@ -388,8 +442,8 @@ def sales_report_view(request):
     # ── Top items (combined) ───────────────────────────────────────────
     item_bucket = {}
     for row in pos_lines.values('item__code', 'item__name').annotate(
-        total_qty=Sum('qty'),
-        total_revenue=Sum('line_total'),
+        total_qty=Sum(F('qty') - F('refunded_qty')),
+        total_revenue=Sum(F('line_total') - F('refunded_amount')),
     ):
         key = row['item__code']
         item_bucket[key] = {
@@ -502,9 +556,11 @@ def profit_margin_view(request):
     date_to = request.GET.get('date_to', today.isoformat())
 
     # ── POS lines ─────────────────────────────────────────────────────
-    pos_qs = POSSaleLine.objects.filter(
-        sale__status__in=[SaleStatus.POSTED, SaleStatus.PAID],
-    ).select_related('item', 'item__default_unit', 'item__selling_unit', 'unit', 'sale')
+    # PARTIALLY_REFUNDED included and netted (see _with_pos_line_refunds) —
+    # same reasoning as sales_report_view above.
+    pos_qs = _with_pos_line_refunds(POSSaleLine.objects.filter(
+        sale__status__in=[SaleStatus.POSTED, SaleStatus.PAID, SaleStatus.PARTIALLY_REFUNDED],
+    ).select_related('item', 'item__default_unit', 'item__selling_unit', 'unit', 'sale'))
     if date_from:
         pos_qs = pos_qs.filter(sale__created_at__date__gte=date_from)
     if date_to:
@@ -514,8 +570,8 @@ def profit_margin_view(request):
     item_stats = pos_qs.values(
         'item__code', 'item__name', 'item__cost_price',
     ).annotate(
-        total_qty=Sum('qty'),
-        total_revenue=Sum('line_total'),
+        total_qty=Sum(F('qty') - F('refunded_qty')),
+        total_revenue=Sum(F('line_total') - F('refunded_amount')),
     )
 
     item_bucket = {}

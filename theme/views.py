@@ -136,11 +136,12 @@ def dashboard_view(request):
     pos_margin = (combined_profit / combined_revenue * 100) if combined_revenue > 0 else Decimal('0')
 
     # Keep POS sales queryset for channel breakdown and top-items widgets (non-revenue)
-    period_sales = POSSale.objects.filter(
-        status__in=[SaleStatus.POSTED, SaleStatus.PAID],
+    from reports.views import _with_pos_sale_refunds, _with_pos_line_refunds
+    period_sales = _with_pos_sale_refunds(POSSale.objects.filter(
+        status__in=[SaleStatus.POSTED, SaleStatus.PAID, SaleStatus.PARTIALLY_REFUNDED],
         created_at__gte=period_start,
         created_at__lt=period_end,
-    )
+    ))
     pos_count = period_sales.count()
     pos_revenue = Decimal('0')
     so_count = 0
@@ -172,18 +173,18 @@ def dashboard_view(request):
 
     # ── Sales by channel ───────────────────────────────────────────────
     channel_breakdown = period_sales.values('channel__name').annotate(
-        total=Coalesce(Sum('grand_total'), Decimal('0'), output_field=DecimalField()),
+        total=Coalesce(Sum(F('grand_total') - F('refunded_amount')), Decimal('0'), output_field=DecimalField()),
         count=Count('id'),
     ).order_by('-total')
     ch_labels = [r['channel__name'] or 'No Channel' for r in channel_breakdown]
     ch_data = [float(r['total']) for r in channel_breakdown]
 
     # ── Top items sold ─────────────────────────────────────────────────
-    top_items = POSSaleLine.objects.filter(sale__in=period_sales).values(
+    top_items = _with_pos_line_refunds(POSSaleLine.objects.filter(sale__in=period_sales)).values(
         'item__code', 'item__name'
     ).annotate(
-        total_qty=Sum('qty'),
-        total_revenue=Sum('line_total'),
+        total_qty=Sum(F('qty') - F('refunded_qty')),
+        total_revenue=Sum(F('line_total') - F('refunded_amount')),
     ).order_by('-total_revenue')[:5]
 
     # Open shifts

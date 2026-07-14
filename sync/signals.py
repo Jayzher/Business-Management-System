@@ -270,67 +270,6 @@ def _log_to_neon_changelog(action: str, table: str, app_label: str,
         _CHANGELOG_ACTIVE.value = False
 
 
-# ── Local cache mirror (Neon -> SQLite) ────────────────────────────────
-
-def _mirror_to_local_cache(sender, pk: int) -> None:
-    if not _is_neon_primary():
-        return
-    if getattr(_MIRROR_ACTIVE, 'value', False):
-        return
-    # Skip if startup sync is running — it handles local_cache writes.
-    # This prevents race conditions where both the signal and the sync
-    # thread try to write the same row to local_cache simultaneously.
-    if _SYNC_IN_PROGRESS.is_set():
-        return
-
-    _MIRROR_ACTIVE.value = True
-    try:
-        obj = sender._default_manager.using('default').filter(pk=pk).first()
-        if obj is None:
-            return
-
-        concrete_fields = [
-            f for f in sender._meta.concrete_fields if not f.primary_key
-        ]
-        update_fields = [f.attname for f in concrete_fields]
-
-        # bulk_create bypasses auto_now/auto_now_add, so timestamps from Neon are preserved
-        # No need to globally disable auto_now (which causes race conditions)
-        obj._state.adding = True
-        obj._state.db = 'local_cache'
-
-        if update_fields:
-            sender._default_manager.using('local_cache').bulk_create(
-                [obj],
-                update_conflicts=True,
-                update_fields=update_fields,
-                unique_fields=['id'],
-            )
-        else:
-            sender._default_manager.using('local_cache').bulk_create(
-                [obj], ignore_conflicts=True,
-            )
-    except Exception as exc:
-        logger.warning('Local cache mirror failed (%s pk=%s): %s', sender.__name__, pk, exc)
-    finally:
-        _MIRROR_ACTIVE.value = False
-
-
-def _mirror_delete_to_local_cache(sender, pk: int) -> None:
-    if not _is_neon_primary():
-        return
-    if getattr(_MIRROR_ACTIVE, 'value', False):
-        return
-    if _SYNC_IN_PROGRESS.is_set():
-        return
-
-    _MIRROR_ACTIVE.value = True
-    try:
-        sender._default_manager.using('local_cache').filter(pk=pk).delete()
-    except Exception as exc:
-        logger.warning('Local cache mirror-delete failed (%s pk=%s): %s', sender.__name__, pk, exc)
-    finally:
-        _MIRROR_ACTIVE.value = False
 
 
 # ── On-commit orchestrator ─────────────────────────────────────────────

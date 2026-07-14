@@ -18,8 +18,18 @@ THE FIX:
 
 GUARANTEES:
   - Tasks are processed in FIFO order (preserves causality).
-  - If the worker crashes, tasks are lost — but the changelog sync on next
-    boot will catch up (the Neon write already succeeded).
+  - The in-memory queue itself is NOT durable — a process crash/restart
+    loses whatever's still sitting in it. What makes this safe is that
+    enqueue_save()/enqueue_delete() ALSO write a durable SyncOutbox row
+    (a fast local SQLite write, not a network call) before returning, so
+    a lost in-memory task always has a durable record behind it. The
+    worker deletes that row once the Neon push actually succeeds; if it
+    never gets that far, the row is left PENDING and gets picked up by
+    the automatic drain on the next server boot (see sync/apps.py) or by
+    `manage.py drain_sync_outbox`. Without this, a task lost mid-queue
+    would silently never reach Neon or NeonChangeLog — the row would sit
+    correctly in local_cache forever while every other device, and the
+    cloud dashboard, never learned it existed.
   - The worker is a daemon thread — it dies when the server stops.
   - Batching: multiple tasks for the same table are coalesced into fewer
     DB operations when the queue has a backlog.
@@ -105,9 +115,67 @@ def start_background_worker():
     logger.debug('Background sync worker started')
 
 
+_drain_started = False
+
+
+def start_outbox_drain():
+    """Recover any SyncOutbox rows left PENDING by a previous crash/restart
+    (idempotent, safe to call multiple times).
+
+    enqueue_save()/enqueue_delete() write a durable outbox row before a
+    task ever reaches the in-memory queue, but that row only gets cleared
+    once the background worker actually pushes it to Neon. If the process
+    died in between — a crash, an out-of-memory kill, a deploy restart —
+    the row stays PENDING and nothing would otherwise pick it up until
+    someone thought to run `manage.py drain_sync_outbox` by hand. Running
+    it automatically on every boot closes that gap without changing the
+    write-local-first architecture at all — it only affects how quickly a
+    row that failed to escape the queue makes it to Neon after restart.
+    """
+    global _drain_started
+
+    if _drain_started:
+        return
+    if getattr(settings, 'SYNC_MODE', 'offline') != 'neon_primary':
+        return
+
+    _drain_started = True
+
+    def _run():
+        time.sleep(5)  # let DB connections + Neon health check settle first
+        try:
+            from django.core.management import call_command
+            call_command('drain_sync_outbox')
+        except Exception as exc:
+            logger.warning('Startup outbox drain failed (non-fatal): %s', exc)
+
+    threading.Thread(target=_run, daemon=True, name='sync-outbox-drain').start()
+    logger.debug('Startup outbox drain scheduled')
+
+
+def _record_outbox(action: str, table: str, app_label: str,
+                    model_name: str, pk: int, row_data: dict | None) -> int | None:
+    """Durably record that (table, pk) needs to reach Neon, before the task
+    is handed to the in-memory queue. Cheap — a local SQLite insert, not a
+    network call. Returns the outbox row's pk, or None on failure (logged,
+    never raised — the in-memory queue path must still proceed either way)."""
+    try:
+        from sync.models import SyncOutbox
+        entry = SyncOutbox.objects.using('local_cache').create(
+            action=action, db_table=table, app_label=app_label,
+            model_name=model_name, row_pk=pk, row_data=row_data,
+        )
+        return entry.pk
+    except Exception as exc:
+        logger.warning('Failed to durably record outbox entry (%s %s#%s): %s', action, table, pk, exc)
+        return None
+
+
 def enqueue_save(sender, pk: int, table: str, app_label: str,
                  model_name: str, row_data: dict):
-    """Enqueue a post-commit save task (non-blocking, ~0ms)."""
+    """Enqueue a post-commit save task (non-blocking apart from one local
+    SQLite insert for durability — see module docstring GUARANTEES)."""
+    outbox_id = _record_outbox('upsert', table, app_label, model_name, pk, row_data)
     _task_queue.put({
         'type': 'save',
         'sender': sender,
@@ -116,13 +184,16 @@ def enqueue_save(sender, pk: int, table: str, app_label: str,
         'app_label': app_label,
         'model_name': model_name,
         'row_data': row_data,
+        'outbox_id': outbox_id,
         'enqueued_at': time.time(),
     })
 
 
 def enqueue_delete(sender, pk: int, table: str, app_label: str,
                    model_name: str):
-    """Enqueue a post-commit delete task (non-blocking, ~0ms)."""
+    """Enqueue a post-commit delete task (non-blocking apart from one local
+    SQLite insert for durability — see module docstring GUARANTEES)."""
+    outbox_id = _record_outbox('delete', table, app_label, model_name, pk, None)
     _task_queue.put({
         'type': 'delete',
         'sender': sender,
@@ -130,6 +201,7 @@ def enqueue_delete(sender, pk: int, table: str, app_label: str,
         'table': table,
         'app_label': app_label,
         'model_name': model_name,
+        'outbox_id': outbox_id,
         'enqueued_at': time.time(),
     })
 
@@ -204,17 +276,11 @@ def _worker_loop():
 
 def _process_batch(batch: list):
     """Process a batch of tasks efficiently."""
-    from sync.signals import (
-        _mirror_to_local_cache, _mirror_delete_to_local_cache,
-        _log_to_neon_changelog, broadcast_data_changed,
-        is_fallback_active, _SYNC_IN_PROGRESS,
-    )
+    from sync.signals import _log_to_neon_changelog, broadcast_data_changed
 
     # Group by type for efficient processing
     saves = [t for t in batch if t['type'] == 'save']
     deletes = [t for t in batch if t['type'] == 'delete']
-    neon_soft_deletes = [t for t in batch if t['type'] == 'neon_soft_delete']
-    neon_hard_deletes = [t for t in batch if t['type'] == 'neon_hard_delete']
 
     # ── Process saves (push local_cache writes to Neon) ──────────────────
     if saves:
@@ -240,13 +306,21 @@ def _process_batch(batch: list):
                 # 3. Broadcast via WebSocket
                 broadcast_data_changed(task['table'], 'upsert', [task['row_data']])
 
+                # 4. Clear the durable outbox record(s) for this row — it
+                # reached Neon, so it no longer needs recovery on next boot.
+                _clear_outbox(task['table'], task['pk'])
+
             except Exception as exc:
                 logger.debug(
-                    'BG push to Neon failed (%s pk=%s): %s — queuing to outbox',
+                    'BG push to Neon failed (%s pk=%s): %s — leaving in outbox for retry',
                     task['table'], task['pk'], exc,
                 )
-                # Queue to outbox for retry when Neon is back
-                _queue_failed_to_outbox(task, 'upsert', exc)
+                # enqueue_save() already durably recorded this row in
+                # SyncOutbox before the task was queued — nothing to do here
+                # except make sure that's actually true (defensive fallback
+                # for tasks that somehow reached this point without one).
+                if task.get('outbox_id') is None:
+                    _queue_failed_to_outbox(task, 'upsert', exc)
                 # Still broadcast locally so connected clients see the change
                 broadcast_data_changed(task['table'], 'upsert', [task['row_data']])
 
@@ -274,49 +348,20 @@ def _process_batch(batch: list):
                     task['table'], 'delete', [{'id': task['pk']}],
                 )
 
+                # 4. Clear the durable outbox record(s) for this row.
+                _clear_outbox(task['table'], task['pk'])
+
             except Exception as exc:
                 logger.debug(
-                    'BG delete push to Neon failed (%s pk=%s): %s — queuing to outbox',
+                    'BG delete push to Neon failed (%s pk=%s): %s — leaving in outbox for retry',
                     task['table'], task['pk'], exc,
                 )
-                _queue_failed_to_outbox(task, 'delete', exc)
+                if task.get('outbox_id') is None:
+                    _queue_failed_to_outbox(task, 'delete', exc)
                 broadcast_data_changed(
                     task['table'], 'delete', [{'id': task['pk']}],
                 )
 
-    # ── Process local-first soft deletes (legacy — kept for compatibility) ─
-    if neon_soft_deletes:
-        seen = {}
-        for task in neon_soft_deletes:
-            key = (task['table'], task['pk'])
-            seen[key] = task
-
-        for task in seen.values():
-            try:
-                _apply_neon_soft_delete(task)
-            except Exception as exc:
-                logger.warning(
-                    'BG neon_soft_delete failed (%s pk=%s): %s',
-                    task['table'], task['pk'], exc,
-                )
-                _queue_failed_to_outbox(task, 'upsert', exc)
-
-    # ── Process local-first hard deletes (legacy — kept for compatibility) ─
-    if neon_hard_deletes:
-        seen = {}
-        for task in neon_hard_deletes:
-            key = (task['table'], task['pk'])
-            seen[key] = task
-
-        for task in seen.values():
-            try:
-                _apply_neon_hard_delete(task)
-            except Exception as exc:
-                logger.warning(
-                    'BG neon_hard_delete failed (%s pk=%s): %s',
-                    task['table'], task['pk'], exc,
-                )
-                _queue_failed_to_outbox(task, 'delete', exc)
 
 
 def _push_upsert_to_neon(task):
@@ -374,49 +419,10 @@ def _push_delete_to_neon(task):
     mgr.using('default').filter(pk=pk).delete()
 
 
-def _apply_neon_soft_delete(task):
-    """Apply a soft-delete (UPDATE is_active=False) to Neon."""
-    from sync.signals import _log_to_neon_changelog, _instance_to_dict
-    from django.utils import timezone as tz
-
-    sender = task['sender']
-    pk = task['pk']
-
-    # Update on Neon
-    updated = sender.all_objects.using('default').filter(pk=pk).update(
-        is_active=False, updated_at=tz.now()
-    )
-
-    if updated:
-        # Log to changelog so other devices catch up
-        obj = sender.all_objects.using('default').filter(pk=pk).first()
-        if obj:
-            row_data = _instance_to_dict(obj)
-            _log_to_neon_changelog(
-                'upsert', task['table'], task['app_label'],
-                task['model_name'], pk, row_data,
-            )
-
-
-def _apply_neon_hard_delete(task):
-    """Apply a hard-delete (DELETE) to Neon."""
-    from sync.signals import _log_to_neon_changelog
-
-    sender = task['sender']
-    pk = task['pk']
-
-    # Delete from Neon
-    sender._default_manager.using('default').filter(pk=pk).delete()
-
-    # Log to changelog
-    _log_to_neon_changelog(
-        'delete', task['table'], task['app_label'],
-        task['model_name'], pk, None,
-    )
-
-
 def _queue_failed_to_outbox(task, action, exc):
-    """If the Neon push fails, queue it to SyncOutbox for later retry."""
+    """Fallback: durably record a task that reached this point without an
+    outbox_id (should be rare — enqueue_save/enqueue_delete already record
+    one up front). Kept so a failure is never lost even in that case."""
     try:
         from sync.models import SyncOutbox
         SyncOutbox.objects.using('local_cache').create(
@@ -432,3 +438,22 @@ def _queue_failed_to_outbox(task, action, exc):
     except Exception as outbox_exc:
         logger.error('Failed to queue to outbox (%s %s#%d): %s',
                      action, task['table'], task['pk'], outbox_exc)
+
+
+def _clear_outbox(table: str, pk: int) -> None:
+    """Delete any PENDING SyncOutbox rows for (table, pk) — the row just
+    reached Neon successfully, so nothing about it needs recovery anymore.
+
+    Deletes ALL matching rows, not just the one tied to this task's own
+    outbox_id: rapid successive writes to the same row before the worker
+    gets to them each get their own outbox row at enqueue time, and
+    pushing the row's current state to Neon (this task) makes every one
+    of those earlier, now-superseded rows moot too.
+    """
+    try:
+        from sync.models import SyncOutbox, SyncOutboxStatus
+        SyncOutbox.objects.using('local_cache').filter(
+            db_table=table, row_pk=pk, status=SyncOutboxStatus.PENDING,
+        ).delete()
+    except Exception as exc:
+        logger.warning('Failed to clear outbox for %s#%s: %s', table, pk, exc)

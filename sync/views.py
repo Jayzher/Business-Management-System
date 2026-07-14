@@ -233,6 +233,19 @@ def sync_push(request):
                         # Idempotent stock deduction designed for sync scenarios
                         sync_pos_sale_stock_moves(sale.pk, request.user)
 
+                        # Bring the synced sale to parity with the normal web
+                        # checkout flow (pos.services.checkout.post_pos_sale):
+                        # mark POSTED and auto-create its Invoice. Without
+                        # this, mobile-originated sales stayed PAID forever
+                        # and never appeared in any Invoice-based report.
+                        sale.status = SaleStatus.POSTED
+                        sale.posted_by = request.user
+                        sale.posted_at = timezone.now()
+                        sale.save(update_fields=['status', 'posted_by', 'posted_at', 'updated_at'])
+
+                        from inventory.automation import auto_create_invoice_from_pos_sale
+                        auto_create_invoice_from_pos_sale(sale, request.user)
+
                     id_mappings['pos_sales'].append({
                         'local_id': data.get('local_id'),
                         'server_id': sale.id,
@@ -496,6 +509,7 @@ def sync_catchup(request):
             'changed_tables': ['*'],
             'server_time_ms': now_ms,
             'outbox_pending': _get_outbox_pending(),
+            'changelog_replay_failures': _get_changelog_replay_failures(),
         })
 
     try:
@@ -508,6 +522,7 @@ def sync_catchup(request):
             'changed_tables': ['*'],
             'server_time_ms': now_ms,
             'outbox_pending': _get_outbox_pending(),
+            'changelog_replay_failures': _get_changelog_replay_failures(),
         })
 
     # Check each synced model for rows updated after since_dt.
@@ -535,7 +550,21 @@ def sync_catchup(request):
         'outbox_pending': _get_outbox_pending(),
         'last_server_sync_ms': _get_last_server_sync_ms(),
         'changelog_synced_id': _get_changelog_synced_id(),
+        'changelog_replay_failures': _get_changelog_replay_failures(),
     })
+
+
+def _get_changelog_replay_failures() -> int:
+    """Return count of changelog entries that failed to replay to local_cache.
+
+    A non-zero count here means `manage.py retry_changelog_failures` is
+    worth running — see sync/startup_sync.py::_record_replay_failure.
+    """
+    try:
+        from sync.models import ChangelogReplayFailure
+        return ChangelogReplayFailure.objects.using('local_cache').count()
+    except Exception:
+        return 0
 
 
 def _get_outbox_pending() -> int:
