@@ -265,6 +265,7 @@ class InvoiceCOGSRegressionTest(TestCase):
             sales_order=cls.so,
             item=item,
             qty_ordered=Decimal('2'),
+            qty_delivered=Decimal('2'),
             unit=unit,
             unit_price=Decimal('300.00'),
         )

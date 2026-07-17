@@ -897,18 +897,29 @@ def _recompute_so_qty_delivered(dry_run, info_fn, warn_fn):
     """Reset SalesOrderLine.qty_delivered to 0, then replay all POSTED DNs
     and SalesPickups chronologically, incrementing qty_delivered in the
     SO line's OWN UNIT (converting where necessary).
+
+    Soft-deleted (is_active=False) Sales Orders are excluded via
+    sales_order__is_active=True on every query below: their qty_delivered is
+    invisible to the app anyway, and processing them would (a) waste work
+    recomputing tracking on a deleted order and (b) let a missing conversion
+    on a deleted SO's line abort the whole resync. The reset set and the
+    replay set MUST use the same filter so a line is never zeroed without
+    being replayed (or vice versa). Actual stock-move rebuilding is unaffected
+    — it runs off the DN/PU documents directly (via _all_manager), not the SO.
     """
     from sales.models import DeliveryNote, SalesPickup, SalesOrderLine
     from inventory.services import _pick_so_line
 
     so_line_ids = set(
         DeliveryNote.objects
-        .filter(status=DocumentStatus.POSTED, sales_order__isnull=False)
+        .filter(status=DocumentStatus.POSTED, sales_order__isnull=False,
+                sales_order__is_active=True)
         .values_list('sales_order__lines', flat=True)
     )
     so_line_ids |= set(
         SalesPickup.objects
-        .filter(status=DocumentStatus.POSTED, sales_order__isnull=False)
+        .filter(status=DocumentStatus.POSTED, sales_order__isnull=False,
+                sales_order__is_active=True)
         .values_list('sales_order__lines', flat=True)
     )
     so_line_ids.discard(None)
@@ -919,7 +930,8 @@ def _recompute_so_qty_delivered(dry_run, info_fn, warn_fn):
 
     fulfilment_docs = []
     for dn in (DeliveryNote.objects
-               .filter(status=DocumentStatus.POSTED, sales_order__isnull=False)
+               .filter(status=DocumentStatus.POSTED, sales_order__isnull=False,
+                       sales_order__is_active=True)
                .select_related('sales_order')
                .prefetch_related(
                    'lines__item', 'lines__unit',
@@ -927,7 +939,8 @@ def _recompute_so_qty_delivered(dry_run, info_fn, warn_fn):
                )):
         fulfilment_docs.append((_document_posted_at(dn) or timezone.now(), 'DN', dn))
     for pu in (SalesPickup.objects
-               .filter(status=DocumentStatus.POSTED, sales_order__isnull=False)
+               .filter(status=DocumentStatus.POSTED, sales_order__isnull=False,
+                       sales_order__is_active=True)
                .select_related('sales_order')
                .prefetch_related(
                    'lines__item', 'lines__unit',

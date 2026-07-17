@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from django.db import models
 from django.conf import settings
 
@@ -260,6 +261,14 @@ class Invoice(TimeStampedModel):
     @property
     def balance_due(self):
         return self.grand_total - self.total_paid
+
+    @property
+    def overpaid_amount(self):
+        return max(self.total_paid - self.grand_total, Decimal('0'))
+
+    @property
+    def is_overpaid(self):
+        return self.total_paid > self.grand_total
 
     def __str__(self):
         return f"INV-{self.invoice_number}"

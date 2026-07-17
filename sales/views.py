@@ -275,6 +275,52 @@ def delivery_post_view(request, pk):
     return redirect_back(request, 'delivery_detail', pk=pk)
 
 
+def _reverse_so_qty_delivered(doc):
+    """Reverse qty_delivered on the SO lines a cancelled delivery/pickup fulfilled.
+
+    Prefer the exact SO line each doc line fulfilled (sales_order_line, stamped
+    at posting time), falling back to an item-based match only for lines posted
+    before that FK existed (which can over-reverse if the SO has more than one
+    line for the same item).
+
+    Accumulates every reversal in memory keyed by SO-line pk and writes them in
+    a single bulk_update — the old per-line .save() issued one UPDATE (plus a
+    sync enqueue) per doc line, and the fallback branch re-queried the SO's
+    lines once per doc line. Accumulating also fixes a latent bug in the old
+    per-line-save loop: when two doc lines fulfilled the SAME SO line, each held
+    its own stale copy and the second save clobbered the first instead of
+    stacking — mirrors the accumulation the posting path already does.
+    """
+    if not doc.sales_order_id:
+        return
+    from sales.models import SalesOrderLine
+
+    updates = {}  # so_line.pk -> SalesOrderLine (mutated in place, deduped)
+    so_lines_by_item = None  # built lazily, only if a legacy line needs it
+
+    for line in doc.lines.select_related('item', 'sales_order_line').all():
+        if line.sales_order_line_id:
+            so_line = updates.get(line.sales_order_line_id)
+            if so_line is None:
+                so_line = line.sales_order_line
+                updates[so_line.pk] = so_line
+            so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
+        else:
+            if so_lines_by_item is None:
+                so_lines_by_item = {}
+                for sl in doc.sales_order.lines.all():
+                    so_lines_by_item.setdefault(sl.item_id, []).append(sl)
+            for sl in so_lines_by_item.get(line.item_id, []):
+                so_line = updates.get(sl.pk)
+                if so_line is None:
+                    so_line = sl
+                    updates[sl.pk] = so_line
+                so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
+
+    if updates:
+        SalesOrderLine.objects.bulk_update(list(updates.values()), ['qty_delivered'])
+
+
 @login_required
 @sales_access
 @write_denied_for_viewer
@@ -286,23 +332,7 @@ def delivery_cancel_view(request, pk):
             cancel_document(dn, request.user)
             messages.success(request, f'Delivery Note {dn.document_number} cancelled.')
             if was_posted:
-                # Reverse qty_delivered on SO lines. Prefer the exact line
-                # this delivery line fulfilled (sales_order_line, set at
-                # posting time) — falling back to an item-based match only
-                # for lines posted before that FK existed, which can
-                # over-reverse if the SO has more than one line for the
-                # same item.
-                if dn.sales_order:
-                    for line in dn.lines.select_related('item', 'sales_order_line').all():
-                        if line.sales_order_line_id:
-                            so_line = line.sales_order_line
-                            so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
-                            so_line.save(update_fields=['qty_delivered'])
-                        else:
-                            so_lines = dn.sales_order.lines.filter(item=line.item)
-                            for so_line in so_lines:
-                                so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
-                                so_line.save(update_fields=['qty_delivered'])
+                _reverse_so_qty_delivered(dn)
                 # Void the linked invoice
                 from core.models import Invoice
                 inv = Invoice.objects.filter(
@@ -866,23 +896,7 @@ def pickup_cancel_view(request, pk):
             cancel_document(pickup, request.user)
             messages.success(request, f'Pickup {pickup.document_number} cancelled.')
             if was_posted:
-                # Reverse qty_delivered on SO lines. Prefer the exact line
-                # this pickup line fulfilled (sales_order_line, set at
-                # posting time) — falling back to an item-based match only
-                # for lines posted before that FK existed, which can
-                # over-reverse if the SO has more than one line for the
-                # same item.
-                if pickup.sales_order:
-                    for line in pickup.lines.select_related('item', 'sales_order_line').all():
-                        if line.sales_order_line_id:
-                            so_line = line.sales_order_line
-                            so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
-                            so_line.save(update_fields=['qty_delivered'])
-                        else:
-                            so_lines = pickup.sales_order.lines.filter(item=line.item)
-                            for so_line in so_lines:
-                                so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
-                                so_line.save(update_fields=['qty_delivered'])
+                _reverse_so_qty_delivered(pickup)
                 # Void the linked invoice
                 from core.models import Invoice
                 inv = Invoice.objects.filter(

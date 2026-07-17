@@ -678,9 +678,15 @@ def post_delivery(delivery, user):
 
     # ── Pre-load SO lines once to avoid N+1 per delivery line ──────────
     so_lines_by_item = {}
-    if delivery.sales_order:
+    if delivery.sales_order_id:
         for sl in delivery.sales_order.lines.select_related('unit').all():
             so_lines_by_item.setdefault(sl.item_id, []).append(sl)
+        if not so_lines_by_item:
+            logger.warning(
+                'Delivery %s is linked to SO %s but that SO has no lines — '
+                'qty_delivered will NOT be updated for any item.',
+                delivery.document_number, delivery.sales_order_id,
+            )
 
     now = timezone.now()
     moves = []
@@ -762,6 +768,13 @@ def post_delivery(delivery, user):
     if so_line_updates:
         from sales.models import SalesOrderLine
         SalesOrderLine.objects.bulk_update(list(so_line_updates.values()), ['qty_delivered'])
+    elif moves and delivery.sales_order_id and so_lines_by_item:
+        logger.warning(
+            'Delivery %s posted %d stock move(s) for SO %s but qty_delivered was '
+            'NOT updated on any SO line — check for item/unit mismatches between '
+            'the delivery lines and the SO lines.',
+            delivery.document_number, len(moves), delivery.sales_order_id,
+        )
 
     delivery.status = DocumentStatus.POSTED
     delivery.posted_by = user
@@ -819,9 +832,15 @@ def post_sales_pickup(pickup, user):
 
     # ── Pre-load SO lines once to avoid N+1 per pickup line ────────────
     so_lines_by_item = {}
-    if pickup.sales_order:
+    if pickup.sales_order_id:
         for sl in pickup.sales_order.lines.select_related('unit').all():
             so_lines_by_item.setdefault(sl.item_id, []).append(sl)
+        if not so_lines_by_item:
+            logger.warning(
+                'Pickup %s is linked to SO %s but that SO has no lines — '
+                'qty_delivered will NOT be updated for any item.',
+                pickup.document_number, pickup.sales_order_id,
+            )
 
     now = timezone.now()
     moves = []
@@ -903,6 +922,13 @@ def post_sales_pickup(pickup, user):
     if so_line_updates:
         from sales.models import SalesOrderLine
         SalesOrderLine.objects.bulk_update(list(so_line_updates.values()), ['qty_delivered'])
+    elif moves and pickup.sales_order_id and so_lines_by_item:
+        logger.warning(
+            'Pickup %s posted %d stock move(s) for SO %s but qty_delivered was '
+            'NOT updated on any SO line — check for item/unit mismatches between '
+            'the pickup lines and the SO lines.',
+            pickup.document_number, len(moves), pickup.sales_order_id,
+        )
 
     pickup.status = DocumentStatus.POSTED
     pickup.posted_by = user
@@ -1205,11 +1231,18 @@ def cancel_document(doc, user):
     now = timezone.now()
 
     if doc.status == DocumentStatus.POSTED:
-        # Create reversal moves
+        # Create reversal moves. select_related pulls the item, both
+        # locations, and their warehouses in the initial query — the loop
+        # (and _update_balance's negative-stock check via location.warehouse)
+        # reads all of them per move, so without this each move triggered
+        # ~4 extra lazy lookups. On a 22-move cancel that was the bulk of
+        # ~144 queries.
         original_moves = StockMove.objects.filter(
             reference_type=doc.__class__.__name__,
             reference_id=doc.pk,
             status=MoveStatus.POSTED,
+        ).select_related(
+            'item', 'from_location__warehouse', 'to_location__warehouse',
         )
         reversal_moves = []
         for orig in original_moves:

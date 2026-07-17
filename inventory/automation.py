@@ -298,15 +298,23 @@ def _create_invoice_lines_from_so(invoice, so):
     Bundle lines have no partial-fulfillment tracking anywhere in the
     system, so they're still billed in full — a known, separate limitation.
 
-    Returns the number of InvoiceLine rows created.
+    Uses individual .create() calls (not bulk_create) so each row still
+    fires the post_save signal that mirrors it to Neon (sync/signals.py) —
+    bulk_create is silent w.r.t. signals and would leave these rows
+    un-synced to other devices.
+
+    Returns (count, subtotal) — the number of InvoiceLine rows created and
+    the sum of their line_total, so callers don't need a follow-up query.
     """
     from core.models import InvoiceLine
 
     count = 0
+    subtotal = Decimal('0')
     for line in so.lines.select_related('item', 'unit'):
         if line.qty_ordered <= 0 or line.qty_delivered <= 0:
             continue
         effective_unit_price = line.line_total / line.qty_ordered
+        line_total = effective_unit_price * line.qty_delivered
         InvoiceLine.objects.create(
             invoice=invoice,
             item_code=line.item.code,
@@ -314,11 +322,13 @@ def _create_invoice_lines_from_so(invoice, so):
             qty=line.qty_delivered,
             unit=line.unit.abbreviation,
             unit_price=effective_unit_price,
-            line_total=effective_unit_price * line.qty_delivered,
+            line_total=line_total,
         )
         count += 1
+        subtotal += line_total
 
     for bundle in so.price_list_lines.select_related('price_list').all():
+        line_total = bundle.bundle_total
         InvoiceLine.objects.create(
             invoice=invoice,
             item_code='BUNDLE',
@@ -327,13 +337,15 @@ def _create_invoice_lines_from_so(invoice, so):
             unit='bundle',
             unit_price=bundle.bundle_subtotal,
             discount=bundle.bundle_discount_amount if hasattr(bundle, 'bundle_discount_amount') else Decimal('0'),
-            line_total=bundle.bundle_total,
+            line_total=line_total,
         )
         count += 1
-    return count
+        subtotal += line_total
+
+    return count, subtotal
 
 
-def sync_invoice_totals_from_so(invoice, so):
+def sync_invoice_totals_from_so(invoice, so, count_new_lines=True):
     """
     Recompute an SO-linked invoice's lines and totals from the current state
     of the SO — the single source of truth for "what does this SO's invoice
@@ -352,14 +364,19 @@ def sync_invoice_totals_from_so(invoice, so):
     Does NOT touch customer_name/customer_address — callers set those from
     their own source (the delivery/pickup/SO) before calling this.
 
-    Returns the net-new InvoiceLine count (for "N new items" messaging).
-    """
-    previous_line_count = invoice.lines.count()
-    invoice.lines.all().delete()
-    new_lines_count = _create_invoice_lines_from_so(invoice, so)
-    new_lines_count = max(new_lines_count - previous_line_count, 0)
+    count_new_lines: pass False to skip the "how many are new" bookkeeping
+    (an extra COUNT query) when the caller doesn't use it for messaging —
+    e.g. sales/signals.py's SO-edit resync and brand-new invoices (which
+    always start at 0 lines, making the count meaningless).
 
-    subtotal = sum((l.line_total for l in invoice.lines.all()), Decimal('0'))
+    Returns the net-new InvoiceLine count (for "N new items" messaging),
+    or 0 when count_new_lines=False.
+    """
+    previous_line_count = invoice.lines.count() if count_new_lines else 0
+    invoice.lines.all().delete()
+    total_lines_count, subtotal = _create_invoice_lines_from_so(invoice, so)
+    new_lines_count = max(total_lines_count - previous_line_count, 0) if count_new_lines else 0
+
     delivery_charge = so.delivery_charge or Decimal('0')
     discount = getattr(so, 'discount_rule_order_amount', Decimal('0'))
     grand_total = max(subtotal - discount, Decimal('0')) + delivery_charge
@@ -368,6 +385,29 @@ def sync_invoice_totals_from_so(invoice, so):
     invoice.delivery_charge = delivery_charge
     invoice.grand_total = grand_total
     invoice.save(update_fields=['subtotal', 'delivery_charge', 'grand_total', 'updated_at'])
+
+    # This resync is the single place an already-invoiced total can shrink
+    # below what's already been recorded as paid (e.g. an SO's fulfillment
+    # data changes after a payment was taken). Nothing here reverses or
+    # blocks the payment — the SO stays the source of truth for what's
+    # owed — but flag it so it's traceable instead of silently invisible.
+    total_paid = invoice.total_paid
+    if total_paid > grand_total:
+        from audit.models import AuditLog
+        AuditLog.objects.create(
+            action='UPDATE',
+            model_name='Invoice',
+            object_id=invoice.id,
+            object_repr=str(invoice),
+            changes={
+                'source': f'Synced from Sales Order {so.document_number}',
+                'updates': [
+                    f'⚠ Invoice now overpaid by {total_paid - grand_total:.2f} '
+                    f'(paid {total_paid:.2f} vs new grand total {grand_total:.2f})'
+                ],
+            },
+            user=invoice.created_by,
+        )
     return new_lines_count
 
 
@@ -434,7 +474,7 @@ def auto_create_invoice_from_pickup(pickup, user):
             notes=f'Auto-created from pickup {pickup.document_number}',
             created_by=user,
         )
-        sync_invoice_totals_from_so(inv, so)
+        sync_invoice_totals_from_so(inv, so, count_new_lines=False)
     else:
         # No SO linked — create basic invoice from pickup lines
         inv = Invoice.objects.create(
@@ -525,7 +565,7 @@ def auto_create_invoice_from_delivery(delivery, user):
             notes=f'Auto-created from delivery {delivery.document_number}',
             created_by=user,
         )
-        sync_invoice_totals_from_so(inv, so)
+        sync_invoice_totals_from_so(inv, so, count_new_lines=False)
     else:
         # No SO linked — create basic invoice from delivery lines
         inv = Invoice.objects.create(

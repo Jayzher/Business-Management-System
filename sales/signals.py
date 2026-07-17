@@ -9,6 +9,21 @@ from sales.models import SalesOrder, DeliveryNote, SalesPickup
 from core.models import Invoice
 
 
+# Fields whose save must NOT trigger a document resync. A pure status/payment
+# transition (approving, posting, syncing payment status) does not change any
+# billable content, so it must never rewrite invoice/delivery/pickup lines.
+# This is critical: sync_invoice_totals_from_so() deletes and rebuilds invoice
+# lines from qty_delivered, so a status-only save (e.g. marking an invoice paid,
+# which posts the SO) would otherwise wipe every invoice line that isn't backed
+# by delivered qty — making product lines disappear. Genuine SO content edits go
+# through the form and save the whole object (update_fields=None), so they still
+# resync normally.
+_STATUS_ONLY_SO_FIELDS = frozenset({
+    'status', 'approved_by', 'approved_at', 'posted_by', 'posted_at',
+    'payment_status', 'partial_payment_amount', 'updated_at',
+})
+
+
 @receiver(post_save, sender=SalesOrder)
 def sync_sales_order_changes_to_related_documents(sender, instance, created, **kwargs):
     """
@@ -16,13 +31,20 @@ def sync_sales_order_changes_to_related_documents(sender, instance, created, **k
     1. Related non-void Invoices
     2. Related Delivery Notes (if not posted)
     3. Related Sales Pickups (if not posted)
-    
+
     Uses on_commit to ensure all related lines (formsets) are saved.
     """
     if created:
         # Skip on creation - only sync on updates
         return
-    
+
+    # Skip status/payment-only saves — they change no billable content and must
+    # not rebuild (and potentially empty) related document lines. See
+    # _STATUS_ONLY_SO_FIELDS above.
+    update_fields = kwargs.get('update_fields')
+    if update_fields is not None and set(update_fields) <= _STATUS_ONLY_SO_FIELDS:
+        return
+
     def do_sync():
         # Use transaction to ensure all updates are atomic
         with transaction.atomic():
@@ -54,11 +76,15 @@ def _sync_invoices(sales_order):
     from audit.models import AuditLog
     from inventory.automation import sync_invoice_totals_from_so
 
-    # Materialise the queryset once to avoid the exists()+iterate double-query
+    # Materialise the queryset once to avoid the exists()+iterate double-query.
+    # select_related('created_by'): sync_invoice_totals_from_so's overpayment
+    # audit-log write reads invoice.created_by. prefetch_related('payments'):
+    # its invoice.total_paid check reads invoice.payments.all() — both would
+    # otherwise be a fresh query per invoice every time an SO is resynced.
     invoice_list = list(Invoice.objects.filter(
         sales_order=sales_order,
         is_void=False
-    ).select_for_update())
+    ).select_related('created_by').prefetch_related('payments').select_for_update())
 
     if not invoice_list:
         return
@@ -85,8 +111,10 @@ def _sync_invoices(sales_order):
 
         invoice.save(update_fields=['customer_name', 'customer_address', 'updated_at'])
 
-        # Recreate invoice lines + totals to match current SO fulfillment
-        sync_invoice_totals_from_so(invoice, sales_order)
+        # Recreate invoice lines + totals to match current SO fulfillment.
+        # count_new_lines=False: this resync doesn't show a "N new items"
+        # message anywhere, so skip the extra COUNT query for it.
+        sync_invoice_totals_from_so(invoice, sales_order, count_new_lines=False)
 
         if invoice.subtotal != before_subtotal:
             changes.append(f"Subtotal: {before_subtotal} → {invoice.subtotal}")

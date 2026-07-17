@@ -471,6 +471,7 @@ def invoice_detail(request, pk):
         payments_with_balance.append(p)
     total_paid = sum(p.amount for p in payments)
     balance_due = max(inv.grand_total - total_paid, 0)
+    overpaid_amount = max(total_paid - inv.grand_total, 0)
     today_date = timezone.now().date()
 
     # Bundles (price list lines) attached to the linked Sales Order
@@ -488,6 +489,7 @@ def invoice_detail(request, pk):
         'profile': profile,
         'total_paid': total_paid,
         'balance_due': balance_due,
+        'overpaid_amount': overpaid_amount,
         'payments_with_balance': payments_with_balance,
         'today_date': today_date,
         'so_bundles': so_bundles,
@@ -530,7 +532,9 @@ def _sync_so_payment_status(invoice):
 @write_denied_for_viewer
 def invoice_add_payment(request, pk):
     """Add a payment to an invoice. If fully paid, mark invoice as paid and auto-post linked SO."""
-    inv = get_object_or_404(Invoice, pk=pk)
+    inv = get_object_or_404(
+        Invoice.objects.select_related('created_by', 'sales_order__customer'), pk=pk
+    )
     next_url = request.POST.get('next') or request.GET.get('next') or ''
     def _redirect():
         if next_url:
@@ -609,7 +613,9 @@ def invoice_add_payment(request, pk):
 @write_denied_for_viewer
 def invoice_mark_paid(request, pk):
     """Manually mark an invoice as fully paid (records a single full-amount payment if none exist)."""
-    inv = get_object_or_404(Invoice, pk=pk)
+    inv = get_object_or_404(
+        Invoice.objects.select_related('created_by', 'sales_order__customer'), pk=pk
+    )
     next_url = request.POST.get('next') or request.GET.get('next') or ''
     if request.method == 'POST':
         if not inv.is_paid:

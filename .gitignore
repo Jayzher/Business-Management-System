@@ -17,6 +17,8 @@ ENV/
 *.mo
 local_settings.py
 /staticfiles/
+sessions/
+.devserver.pid
 
 # IDE / Editor
 .vscode/

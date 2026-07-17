@@ -198,20 +198,22 @@ class COGSWithUnitConversionTestCase(TestCase):
             order_date='2024-01-01'
         )
         
-        # Line 1: 6 pieces @ conversion
+        # Line 1: 6 pieces @ conversion, fully delivered
         line1 = SalesOrderLine.objects.create(
             order=so,
             item=self.item,
             qty_ordered=Decimal('6'),
+            qty_delivered=Decimal('6'),
             unit=self.unit_piece,
             unit_price=Decimal('150.00')
         )
-        
-        # Line 2: 10 feet @ conversion
+
+        # Line 2: 10 feet @ conversion, fully delivered
         line2 = SalesOrderLine.objects.create(
             order=so,
             item=self.item,
             qty_ordered=Decimal('10'),
+            qty_delivered=Decimal('10'),
             unit=self.unit_foot,
             unit_price=Decimal('5.0760')
         )

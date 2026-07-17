@@ -53,12 +53,14 @@
         {% endwith %}
         <div class="progress payment-progress mb-2">
           {% with pct=total_paid %}
-          <div class="progress-bar {% if invoice.is_paid %}bg-success{% elif total_paid > 0 %}bg-warning{% else %}bg-danger{% endif %}"
+          <div class="progress-bar {% if overpaid_amount > 0 %}bg-info{% elif invoice.is_paid %}bg-success{% elif total_paid > 0 %}bg-warning{% else %}bg-danger{% endif %}"
                role="progressbar"
-               style="width:{% if invoice.grand_total > 0 %}{% widthratio total_paid invoice.grand_total 100 %}{% else %}0{% endif %}%"></div>
+               style="width:{% if invoice.grand_total > 0 %}{% widthratio total_paid invoice.grand_total 100 %}{% else %}0{% endif %}%;max-width:100%"></div>
           {% endwith %}
         </div>
-        {% if not invoice.is_paid and balance_due > 0 %}
+        {% if overpaid_amount > 0 %}
+        <p class="small text-info mb-1"><i class="fas fa-exclamation-circle mr-1"></i><strong>Overpaid by &#8369;{{ overpaid_amount|floatformat:2|intcomma }}</strong> — total paid exceeds the invoice total.</p>
+        {% elif not invoice.is_paid and balance_due > 0 %}
         <p class="small text-danger mb-1"><strong>Balance Due: &#8369;{{ balance_due|floatformat:2|intcomma }}</strong></p>
         {% endif %}
         {% if invoice.is_paid and invoice.paid_date %}
@@ -132,7 +134,9 @@
             {% if invoice.delivery_charge %}<tr><td colspan="7" class="text-right">Delivery Charge</td><td class="text-right">&#8369; {{ invoice.delivery_charge|floatformat:2|intcomma }}</td></tr>{% endif %}
             <tr class="table-primary"><td colspan="7" class="text-right"><strong>Grand Total</strong></td><td class="text-right"><strong>&#8369; {{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
             <tr class="table-success"><td colspan="7" class="text-right"><strong>Total Paid</strong></td><td class="text-right text-success"><strong>&#8369; {{ total_paid|floatformat:2|intcomma }}</strong></td></tr>
-            {% if not invoice.is_paid %}
+            {% if overpaid_amount > 0 %}
+            <tr class="table-info"><td colspan="7" class="text-right"><strong>Overpaid</strong></td><td class="text-right text-info"><strong>&#8369; {{ overpaid_amount|floatformat:2|intcomma }}</strong></td></tr>
+            {% elif not invoice.is_paid %}
             <tr class="table-warning"><td colspan="7" class="text-right"><strong>Balance Due</strong></td><td class="text-right text-danger"><strong>&#8369; {{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
             {% endif %}
           </tfoot>
@@ -265,6 +269,9 @@
           {% if invoice.due_date %}<tr><td>Due Date</td><td class="text-right {% if not invoice.is_paid and invoice.due_date < today_date %}text-danger{% endif %}">{{ invoice.due_date|date:"M d, Y" }}</td></tr>{% endif %}
           <tr><td>Grand Total</td><td class="text-right"><strong>&#8369;{{ invoice.grand_total|floatformat:2|intcomma }}</strong></td></tr>
           <tr><td>Total Paid</td><td class="text-right text-success">&#8369; {{ total_paid|floatformat:2|intcomma }}</td></tr>
+          {% if overpaid_amount > 0 %}
+          <tr><td>Overpaid</td><td class="text-right text-info"><strong>&#8369; {{ overpaid_amount|floatformat:2|intcomma }}</strong></td></tr>
+          {% endif %}
           {% if not invoice.is_paid %}
           <tr><td>Balance Due</td><td class="text-right text-danger"><strong>&#8369; {{ balance_due|floatformat:2|intcomma }}</strong></td></tr>
           {% else %}

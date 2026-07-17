@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils.functional import cached_property
 from core.models import TransactionalDocument, SalesChannel
 
 
@@ -232,8 +233,12 @@ class SalesOrderPriceListLine(models.Model):
     )
     notes = models.TextField(blank=True, default='')
 
-    @property
+    @cached_property
     def bundle_subtotal(self):
+        # cached_property: bundle_total/bundle_discount_amount each read this,
+        # and bundle_total reads bundle_discount_amount too — without caching,
+        # creating one InvoiceLine from a bundle re-queries price_list.items
+        # up to 4x for numbers that can't change within one instance's lifetime.
         from decimal import Decimal
         total = Decimal('0')
         for pli in self.price_list.items.select_related('item', 'unit').all():

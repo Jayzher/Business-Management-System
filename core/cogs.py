@@ -12,7 +12,7 @@ def pos_sale_cogs(pos_sale):
     total = Decimal('0')
 
     # Regular sale lines
-    for line in pos_sale.lines.select_related('item', 'unit').all():
+    for line in pos_sale.lines.select_related('item', 'item__default_unit', 'unit').all():
         try:
             if line.item and line.unit:
                 cogs = calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
@@ -23,7 +23,7 @@ def pos_sale_cogs(pos_sale):
 
     # Bundle lines (PriceList bundles)
     for bundle in pos_sale.bundle_lines.prefetch_related(
-        'price_list__items__item', 'price_list__items__unit'
+        'price_list__items__item', 'price_list__items__item__default_unit', 'price_list__items__unit'
     ).all():
         try:
             for pli in bundle.price_list.items.all():
@@ -49,19 +49,21 @@ def sales_order_cogs(sales_order):
     """
     total = Decimal('0')
     
-    # Regular order lines
-    for line in sales_order.lines.select_related('item', 'unit').all():
+    # Regular order lines — costed at qty_delivered (what's actually billed on
+    # the invoice, see _create_invoice_lines_from_so), not the full qty_ordered,
+    # so a partially-fulfilled SO's COGS stays in the same scope as its revenue.
+    for line in sales_order.lines.select_related('item', 'item__default_unit', 'unit').all():
         try:
             if line.item and line.unit:
-                cogs = calculate_line_cogs_with_conversion(line.item, line.qty_ordered, line.unit)
+                cogs = calculate_line_cogs_with_conversion(line.item, line.qty_delivered, line.unit)
                 total += cogs
         except Exception:
             # Skip lines with missing items or other errors
             continue
-    
+
     # Price list bundle lines
     for bundle in sales_order.price_list_lines.prefetch_related(
-        'price_list__items__item', 'price_list__items__unit'
+        'price_list__items__item', 'price_list__items__item__default_unit', 'price_list__items__unit'
     ).all():
         try:
             for pli in bundle.price_list.items.all():
@@ -96,8 +98,9 @@ def service_invoice_cogs(invoice):
     """
     total = Decimal('0')
     for svc in invoice.customer_services.prefetch_related(
-        'lines__item', 'lines__unit',
-        'bundles__price_list__items__item', 'bundles__price_list__items__unit',
+        'lines__item', 'lines__item__default_unit', 'lines__unit',
+        'bundles__price_list__items__item', 'bundles__price_list__items__item__default_unit',
+        'bundles__price_list__items__unit',
         'other_materials',  # Added to prefetch
     ).all():
         # Product lines (skip scrap / waste)
