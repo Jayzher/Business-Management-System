@@ -987,6 +987,64 @@ def _recompute_so_qty_delivered(dry_run, info_fn, warn_fn):
     return updated, skipped
 
 
+def _rebuild_fulfilment_docs_from_so(dry_run, info_fn, warn_fn):
+    """SO-first rebuild: regenerate every DN/PU's lines from its linked, active
+    Sales Order — trusting the SO as the human-entered source of truth — while
+    PRESERVING each document's status.
+
+    Only the line CONTENTS are rebuilt; status is never changed. Consequences of
+    keeping status flow naturally through the later phases:
+      - A DRAFT delivery/pickup stays DRAFT, so Phases 1-2 (which only process
+        POSTED documents) create no StockMove/StockBalance for it — the rebuild
+        "stops at" the draft doc, exactly as intended. No invoice is created.
+      - A POSTED delivery/pickup stays POSTED; its now-regenerated lines feed the
+        move/balance rebuild in Phases 0-2 (excess moves for items the SO no
+        longer has are dropped in 0c; new items are backfilled in Phase 1).
+    Existing invoices are left untouched here (Phase 4 later recomputes the
+    financial summaries).
+
+    Soft-deleted SOs are skipped (sales_order__is_active=True), matching the rest
+    of the resync. Reuses the same _recreate_*_lines helpers the SO-edit signal
+    already uses, so the rebuilt lines are billed/located identically to the
+    normal posting path. SO lines carry no location, so each rebuilt line lands
+    on the document warehouse's first active location (see _recreate_*_lines).
+
+    Writes unconditionally and relies on the caller's outer transaction for
+    dry-run rollback — the same pattern the other mutating sub-steps use — so a
+    --dry-run preview reflects the rebuilt lines in the phases that follow.
+    """
+    from sales.models import DeliveryNote, SalesPickup
+    from sales.signals import _recreate_delivery_lines, _recreate_pickup_lines
+
+    dn_total = pu_total = 0
+
+    for dn in (DeliveryNote.objects
+               .filter(sales_order__isnull=False, sales_order__is_active=True)
+               .select_related('sales_order', 'warehouse')):
+        before = dn.lines.count()
+        _recreate_delivery_lines(dn, dn.sales_order)
+        info_fn(
+            f'    [SO-REBUILD] DN {dn.document_number} ({dn.status}) '
+            f'lines {before} -> {dn.lines.count()} '
+            f'from SO {dn.sales_order.document_number}'
+        )
+        dn_total += 1
+
+    for pu in (SalesPickup.objects
+               .filter(sales_order__isnull=False, sales_order__is_active=True)
+               .select_related('sales_order', 'warehouse')):
+        before = pu.lines.count()
+        _recreate_pickup_lines(pu, pu.sales_order)
+        info_fn(
+            f'    [SO-REBUILD] PU {pu.document_number} ({pu.status}) '
+            f'lines {before} -> {pu.lines.count()} '
+            f'from SO {pu.sales_order.document_number}'
+        )
+        pu_total += 1
+
+    return dn_total, pu_total
+
+
 def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
     """Rebuild Item.cost_price via chronological weighted-average-cost replay.
 
@@ -1787,6 +1845,17 @@ class Command(BaseCommand):
                 'Only the listed move IDs are deleted; then phases 1-5 run as usual.'
             ),
         )
+        parser.add_argument(
+            '--skip-so-rebuild',
+            action='store_true',
+            default=False,
+            help=(
+                'Skip the SO-first step that rebuilds every DN/PU\'s lines from '
+                'its Sales Order before the move/balance rebuild. That step runs '
+                'by default on a full (--phase all) run; pass this to keep the '
+                'existing DN/PU lines instead.'
+            ),
+        )
 
     # ── internal output helpers ──────────────────────────────────────────────
 
@@ -1893,6 +1962,13 @@ class Command(BaseCommand):
             with ExitStack() as mutation_txn:
                 for alias in write_aliases:
                     mutation_txn.enter_context(transaction.atomic(using=alias))
+
+                # SO-first: on a full run, rebuild DN/PU lines from their Sales
+                # Order BEFORE cleaning/rebuilding moves, so the move + balance
+                # rebuild reflects the SO (the trusted human-entered source).
+                # Status is preserved, so drafts still produce no moves.
+                if phase == 'all' and not options.get('skip_so_rebuild'):
+                    self._run_phase_so_rebuild(dry_run)
 
                 if phase in ('0', 'all'):
                     self._run_phase0(dry_run)
@@ -2057,6 +2133,22 @@ class Command(BaseCommand):
             self._warn(f'    {err.item_code:40s}  {err.from_unit} → {err.to_unit}')
 
     # ── Phase 0: clean up StockMoves ─────────────────────────────────────────
+
+    def _run_phase_so_rebuild(self, dry_run):
+        """SO-first pre-phase: rebuild DN/PU lines from their Sales Orders,
+        preserving document status. Runs before Phase 0 so the move/balance
+        rebuild that follows is derived from the SO-consistent lines."""
+        self.stdout.write(
+            '\n--- Phase (SO-first): Rebuilding DN/PU lines from Sales Orders ---')
+        dn, pu = _rebuild_fulfilment_docs_from_so(dry_run, self._info, self._warn)
+        mode = '(dry-run) would rebuild' if dry_run else 'Rebuilt'
+        self.stdout.write(self.style.SUCCESS(
+            f'  {mode} lines on {dn} delivery(ies) and {pu} pickup(s) from their '
+            'Sales Orders (status preserved).'
+        ))
+        self._resync_summary['changes']['docs_rebuilt_from_so'] = {
+            'deliveries': dn, 'pickups': pu,
+        }
 
     def _run_phase0(self, dry_run):
         # If a selection was supplied via --apply-fixes, delete only those IDs.
