@@ -29,7 +29,7 @@ SECRET_KEY = os.environ.get(
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('true', '1', 'yes')
 
-_raw_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,192.168.1.7,10.0.2.2,.onrender.com')
+_raw_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,192.168.1.7,10.0.2.2,.onrender.com,192.168.1.84')
 ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(',') if h.strip()]
 # Note: when DESKTOP_MODE is true, settings_desktop is imported at the very
 # bottom of this file so it overrides DATABASES, DATABASE_ROUTERS, MEDIA_ROOT,
