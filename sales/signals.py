@@ -3,10 +3,21 @@ Signals to synchronize Sales Order changes to related Invoices, Deliveries, and 
 """
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.db import transaction
+from django.db import router, transaction
 
 from sales.models import SalesOrder, DeliveryNote, SalesPickup
 from core.models import Invoice
+
+# The alias these models' writes actually land on (see
+# inventory_system/db_router.py — 'local_cache' in neon_primary mode,
+# 'default' in offline mode). A bare transaction.atomic() defaults to
+# 'default', which is the WRONG connection whenever SYNC_MODE=neon_primary:
+# the delete-then-recreate below would run with no real transaction boundary
+# on the database it actually writes to, and no serialization against a
+# concurrent caller doing the same thing for the same invoice — exactly the
+# gap that let two overlapping resyncs interleave and leave two generations
+# of InvoiceLine rows coexisting (see missing_conversions-era invoice audit).
+_WRITE_DB = router.db_for_write(Invoice) or 'default'
 
 
 # Fields whose save must NOT trigger a document resync. A pure status/payment
@@ -46,14 +57,16 @@ def sync_sales_order_changes_to_related_documents(sender, instance, created, **k
         return
 
     def do_sync():
-        # Use transaction to ensure all updates are atomic
-        with transaction.atomic():
+        # using=_WRITE_DB: must match the alias these models actually write
+        # to, or this transaction boundary (and the lock below) protects a
+        # database connection nothing here touches. See _WRITE_DB above.
+        with transaction.atomic(using=_WRITE_DB):
             # 1. Update related invoices
             _sync_invoices(instance)
-            
+
             # 2. Update related deliveries
             _sync_deliveries(instance)
-            
+
             # 3. Update related pickups
             _sync_pickups(instance)
 

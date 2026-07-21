@@ -2,7 +2,7 @@ from decimal import Decimal
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.db import transaction
+from django.db import router, transaction
 from django.db.models import Prefetch
 from django.utils import timezone
 
@@ -13,6 +13,14 @@ from services.forms import (
     CustomerServiceForm, CustomerServiceEditForm,
     ServiceLineFormSet, ServiceOtherMaterialFormSet, ServiceBundleFormSet,
 )
+from core.models import Invoice
+
+# Alias Invoice/CustomerService writes actually land on — see the matching
+# note in services/signals.py. A bare @transaction.atomic defaults to
+# 'default', the wrong connection whenever SYNC_MODE=neon_primary, which let
+# the invoice-line delete+recreate below run with no real transaction/lock
+# on the database it actually writes to.
+_WRITE_DB = router.db_for_write(Invoice) or 'default'
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -133,23 +141,36 @@ def service_invoice_detail(request, pk):
         correct_discount = discount_amt
 
         if inv.grand_total != correct_grand_total or inv.subtotal != correct_subtotal:
+            # This runs on a plain GET, so two concurrent page loads for the
+            # same stale invoice could both reach here at once. Do the actual
+            # fix inside a real transaction on the alias these models write
+            # to (using=_WRITE_DB — see module-level note), locking the row
+            # and re-checking under the lock so at most one request ever
+            # performs the delete+recreate (see sales/signals.py for the
+            # same class of bug this mirrors).
+            from core.models import InvoiceLine
+            with transaction.atomic(using=_WRITE_DB):
+                locked_inv = Invoice.objects.select_for_update().get(pk=inv.pk)
+                if locked_inv.grand_total != correct_grand_total or locked_inv.subtotal != correct_subtotal:
+                    locked_inv.subtotal = correct_subtotal
+                    locked_inv.discount_total = correct_discount
+                    locked_inv.grand_total = correct_grand_total
+                    locked_inv.save(update_fields=['subtotal', 'discount_total', 'grand_total', 'updated_at'])
+
+                    # Also fix the invoice lines: replace everything with one quotation line
+                    locked_inv.lines.all().delete()
+                    InvoiceLine.objects.create(
+                        invoice=locked_inv,
+                        item_code='SVC-QUOT',
+                        item_name=svc.service_name or 'Service',
+                        qty=Decimal('1'),
+                        unit='svc',
+                        unit_price=svc.quotation_amount,
+                        line_total=svc.quotation_amount,
+                    )
             inv.subtotal = correct_subtotal
             inv.discount_total = correct_discount
             inv.grand_total = correct_grand_total
-            inv.save(update_fields=['subtotal', 'discount_total', 'grand_total', 'updated_at'])
-
-            # Also fix the invoice lines: replace everything with one quotation line
-            from core.models import InvoiceLine
-            inv.lines.all().delete()
-            InvoiceLine.objects.create(
-                invoice=inv,
-                item_code='SVC-QUOT',
-                item_name=svc.service_name or 'Service',
-                qty=Decimal('1'),
-                unit='svc',
-                unit_price=svc.quotation_amount,
-                line_total=svc.quotation_amount,
-            )
 
     # Running balance for payment history
     payments = list(inv.payments.order_by('date', 'created_at'))
@@ -642,7 +663,7 @@ def service_start(request, pk):
 # COMPLETE — generates invoice with COGS/ROI (inventory already deducted on Start)
 # ═══════════════════════════════════════════════════════════════════════════
 @login_required
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 @write_denied_for_viewer
 def service_complete(request, pk):
     svc = get_object_or_404(CustomerService, pk=pk)

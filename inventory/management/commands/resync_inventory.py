@@ -2132,6 +2132,104 @@ class Command(BaseCommand):
         for err in sorted(unique_errors, key=lambda e: e.item_code):
             self._warn(f'    {err.item_code:40s}  {err.from_unit} → {err.to_unit}')
 
+        # Detailed report output to console
+        self._warn('\n  Detailed Missing Conversions with Document/Move references:')
+        for err in sorted(_conversion_errors, key=lambda e: (e.item_code, e.label)):
+            self._warn(f'    Item: {err.item_code} | {err.from_unit} → {err.to_unit} | Context: {err.label} | Message: {err.message}')
+
+        # Write detailed report to a file in the workspace
+        import os
+        from django.db.models import Q
+        from catalog.models import Item, UnitConversion, Unit
+        from procurement.models import GoodsReceiptLine, PurchaseReturnLine
+        from sales.models import DeliveryLine, SalesPickupLine, SalesReturnLine
+        from inventory.models import StockTransferLine, StockAdjustmentLine, DamagedReportLine, InventoryToSupplyTransferLine
+        from pos.models import POSSaleLine, POSRefundLine
+        from services.models import ServiceLine
+
+        report_path = os.path.join('D:/PsyChoNyMouz/Projects/BusinessWebsite/Business-Management-System', 'missing_conversions_detailed_report.txt')
+        try:
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write("=== DETAILED MISSING UNIT CONVERSIONS REPORT ===\n")
+                f.write(f"Total Errors: {len(_conversion_errors)}\n")
+                f.write(f"Unique item/unit pairs: {len(unique_errors)}\n\n")
+                
+                f.write("--- Unique Missing Conversions ---\n")
+                for err in sorted(unique_errors, key=lambda e: e.item_code):
+                    f.write(f"{err.item_code:40s}  {err.from_unit} → {err.to_unit}\n")
+                
+                f.write("\n--- All Occurrences with Context ---\n")
+                for err in sorted(_conversion_errors, key=lambda e: (e.item_code, e.label)):
+                    f.write(f"Item: {err.item_code}\n")
+                    f.write(f"  Conversion: {err.from_unit} → {err.to_unit}\n")
+                    f.write(f"  Context/Label: {err.label}\n")
+                    f.write(f"  Error Message: {err.message}\n")
+                    f.write("-" * 50 + "\n")
+                
+                f.write("\n=== DATABASE ANALYSIS OF AFFECTED ITEMS ===\n")
+                affected_item_codes = sorted(list(set(err.item_code for err in _conversion_errors)))
+                
+                models_to_check = [
+                    ('GoodsReceiptLine', GoodsReceiptLine, 'goods_receipt'),
+                    ('DeliveryLine', DeliveryLine, 'delivery'),
+                    ('SalesPickupLine', SalesPickupLine, 'pickup'),
+                    ('StockTransferLine', StockTransferLine, 'transfer'),
+                    ('StockAdjustmentLine', StockAdjustmentLine, 'adjustment'),
+                    ('DamagedReportLine', DamagedReportLine, 'report'),
+                    ('POSSaleLine', POSSaleLine, 'sale'),
+                    ('POSRefundLine', POSRefundLine, 'refund'),
+                    ('InventoryToSupplyTransferLine', InventoryToSupplyTransferLine, 'transfer'),
+                    ('PurchaseReturnLine', PurchaseReturnLine, 'purchase_return'),
+                    ('SalesReturnLine', SalesReturnLine, 'sales_return'),
+                    ('ServiceLine', ServiceLine, 'service'),
+                ]
+
+                for code in affected_item_codes:
+                    f.write(f"\nItem Code: {code}\n")
+                    try:
+                        item = Item.objects.get(code=code)
+                        f.write(f"  Name: {item.name}\n")
+                        f.write(f"  Default Unit: {item.default_unit.abbreviation} ({item.default_unit.name}) [ID: {item.default_unit.pk}]\n")
+                        f.write(f"  Selling Unit: {item.selling_unit.abbreviation if item.selling_unit else 'None'} [ID: {item.selling_unit.pk if item.selling_unit else 'None'}]\n")
+                        
+                        # Existing conversions involving this item or global
+                        convs = UnitConversion.objects.filter(
+                            Q(item=item) | Q(item__isnull=True)
+                        ).filter(
+                            Q(from_unit=item.default_unit) | Q(to_unit=item.default_unit) |
+                            (Q(from_unit=item.selling_unit) | Q(to_unit=item.selling_unit) if item.selling_unit else Q())
+                        )
+                        f.write("  Existing Conversions in Database:\n")
+                        for conv in convs:
+                            f.write(f"    - 1 {conv.from_unit.abbreviation} = {conv.factor} {conv.to_unit.abbreviation} (Scope: {conv.item.code if conv.item else 'Global'}, Active: {conv.is_active})\n")
+                    except Item.DoesNotExist:
+                        f.write("  Name: [ITEM NOT FOUND IN DATABASE]\n")
+                        continue
+                    
+                    f.write("  Document References:\n")
+                    for model_name, model_cls, fk_field in models_to_check:
+                        lines = model_cls.objects.filter(item=item)
+                        if lines.exists():
+                            f.write(f"    In {model_name}:\n")
+                            for line in lines:
+                                doc = getattr(line, fk_field)
+                                doc_status = getattr(doc, 'status', 'N/A')
+                                doc_num = (
+                                    getattr(doc, 'document_number', None)
+                                    or getattr(doc, 'sale_no', None)
+                                    or getattr(doc, 'refund_no', None)
+                                    or getattr(doc, 'service_number', None)
+                                    or getattr(doc, 'pk', '?')
+                                )
+                                qty = line.qty if hasattr(line, 'qty') else (getattr(line, 'qty_counted', 0) - getattr(line, 'qty_system', 0))
+                                f.write(f"      - Doc: {doc_num} ({doc_status}) | Qty: {qty} | Unit: {line.unit.abbreviation} [ID: {line.unit.pk}]\n")
+                    
+                    f.write("-" * 60 + "\n")
+                    
+            self._info(f'\n  Detailed report written to: {report_path}')
+        except Exception as e:
+            self._warn(f'\n  Failed to write report file: {e}')
+
     # ── Phase 0: clean up StockMoves ─────────────────────────────────────────
 
     def _run_phase_so_rebuild(self, dry_run):

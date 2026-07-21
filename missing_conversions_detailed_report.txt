@@ -1,0 +1,395 @@
+=== DETAILED MISSING UNIT CONVERSIONS REPORT ===
+Total Errors: 42
+Unique item/unit pairs: 5
+
+--- Unique Missing Conversions ---
+ACC-ALCOMESH #36-HA                       pcs → ft
+ACC-ExpandWire#36-HA                      ft → m
+ACC-S-48-HA-SKY                           roll → m
+ACC-ScreenMesh-#48-A                      m → ft
+ACC-ScreenMesh-#48-A                      ft → m
+
+--- All Occurrences with Context ---
+Item: ACC-ALCOMESH #36-HA
+  Conversion: pcs → ft
+  Context/Label: GRN#161 cost-replay item=ACC-ALCOMESH #36-HA
+  Error Message: No unit conversion configured between Piece (pcs) and Foot (ft) for item ACC-ALCOMESH #36-HA. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ALCOMESH #36-HA
+  Conversion: pcs → ft
+  Context/Label: GRN#161 item=ACC-ALCOMESH #36-HA
+  Error Message: No unit conversion configured between Piece (pcs) and Foot (ft) for item ACC-ALCOMESH #36-HA. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ALCOMESH #36-HA
+  Conversion: pcs → ft
+  Context/Label: GRN#161 value-pass item=ACC-ALCOMESH #36-HA
+  Error Message: No unit conversion configured between Piece (pcs) and Foot (ft) for item ACC-ALCOMESH #36-HA. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ALCOMESH #36-HA
+  Conversion: pcs → ft
+  Context/Label: GoodsReceipt item=ACC-ALCOMESH #36-HA
+  Error Message: No unit conversion configured between Piece (pcs) and Foot (ft) for item ACC-ALCOMESH #36-HA. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ALCOMESH #36-HA
+  Conversion: pcs → ft
+  Context/Label: Move#5410
+  Error Message: No unit conversion configured between Piece (pcs) and Foot (ft) for item ACC-ALCOMESH #36-HA. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ExpandWire#36-HA
+  Conversion: ft → m
+  Context/Label: GRN#139 cost-replay item=ACC-ExpandWire#36-HA
+  Error Message: No unit conversion configured between Foot (ft) and Meter (m) for item ACC-ExpandWire#36-HA. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ExpandWire#36-HA
+  Conversion: ft → m
+  Context/Label: GRN#139 item=ACC-ExpandWire#36-HA
+  Error Message: No unit conversion configured between Foot (ft) and Meter (m) for item ACC-ExpandWire#36-HA. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ExpandWire#36-HA
+  Conversion: ft → m
+  Context/Label: GRN#139 value-pass item=ACC-ExpandWire#36-HA
+  Error Message: No unit conversion configured between Foot (ft) and Meter (m) for item ACC-ExpandWire#36-HA. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ExpandWire#36-HA
+  Conversion: ft → m
+  Context/Label: GoodsReceipt item=ACC-ExpandWire#36-HA
+  Error Message: No unit conversion configured between Foot (ft) and Meter (m) for item ACC-ExpandWire#36-HA. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ExpandWire#36-HA
+  Conversion: ft → m
+  Context/Label: Move#3930
+  Error Message: No unit conversion configured between Foot (ft) and Meter (m) for item ACC-ExpandWire#36-HA. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#120 cost-replay item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#120 item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#120 value-pass item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#155 cost-replay item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#155 item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#155 value-pass item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#189 cost-replay item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#189 item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#189 value-pass item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#200 cost-replay item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#200 item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#200 value-pass item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#215 cost-replay item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#215 item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#215 value-pass item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#66 cost-replay item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#66 item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GRN#66 value-pass item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GoodsReceipt item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GoodsReceipt item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GoodsReceipt item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GoodsReceipt item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GoodsReceipt item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: GoodsReceipt item=ACC-S-48-HA-SKY
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: Move#1135
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: Move#2755
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: Move#5008
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: Move#7335
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: Move#8331
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-S-48-HA-SKY
+  Conversion: roll → m
+  Context/Label: Move#9414
+  Error Message: No unit conversion configured between Roll (roll) and Meter (m) for item ACC-S-48-HA-SKY. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ScreenMesh-#48-A
+  Conversion: ft → m
+  Context/Label: COST GRN GRN-000091
+  Error Message: No unit conversion found between ft and m for item ACC-ScreenMesh-#48-A. Add one under Catalog → Unit Conversions.
+--------------------------------------------------
+Item: ACC-ScreenMesh-#48-A
+  Conversion: m → ft
+  Context/Label: QTY-RECEIVED GRN GRN-000091
+  Error Message: No unit conversion configured between Meter (m) and Foot (ft) for item ACC-ScreenMesh-#48-A. Please add one under Catalog → Unit Conversions.
+--------------------------------------------------
+
+=== DATABASE ANALYSIS OF AFFECTED ITEMS ===
+
+Item Code: ACC-ALCOMESH #36-HA
+  Name: Alcomesh #36 HA (sell by 7ft)
+  Default Unit: ft (Foot) [ID: 13]
+  Selling Unit: ft [ID: 13]
+  Existing Conversions in Database:
+  Document References:
+    In GoodsReceiptLine:
+      - Doc: GRN-000099 (POSTED) | Qty: 28.0000 | Unit: ft [ID: 13]
+      - Doc: GRN-000108 (POSTED) | Qty: 28.0000 | Unit: ft [ID: 13]
+      - Doc: GRN-000139 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+      - Doc: GRN-000161 (POSTED) | Qty: 3.0000 | Unit: pcs [ID: 1]
+      - Doc: GRN-000192 (POSTED) | Qty: 14.0000 | Unit: ft [ID: 13]
+      - Doc: GRN-000199 (POSTED) | Qty: 14.0000 | Unit: ft [ID: 13]
+      - Doc: GRN-000214 (POSTED) | Qty: 28.0000 | Unit: ft [ID: 13]
+      - Doc: GRN-000216 (POSTED) | Qty: 14.0000 | Unit: ft [ID: 13]
+    In DeliveryLine:
+      - Doc: DN-000281 (POSTED) | Qty: 14.0000 | Unit: ft [ID: 13]
+      - Doc: DN-000165 (POSTED) | Qty: 4.0000 | Unit: ft [ID: 13]
+      - Doc: DN-000138 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+      - Doc: DN-000088 (POSTED) | Qty: 14.0000 | Unit: ft [ID: 13]
+    In SalesPickupLine:
+      - Doc: PU-001076 (POSTED) | Qty: 6.0000 | Unit: ft [ID: 13]
+      - Doc: PU-000704 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+      - Doc: PU-000682 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+      - Doc: PU-000615 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+      - Doc: PU-000546 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+      - Doc: PU-000438 (POSTED) | Qty: 0.5000 | Unit: ft [ID: 13]
+      - Doc: PU-000275 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+      - Doc: PU-000096 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+      - Doc: PU-000079 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+      - Doc: PU-000063 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+      - Doc: PU-000013 (POSTED) | Qty: 7.0000 | Unit: ft [ID: 13]
+    In StockAdjustmentLine:
+      - Doc: ADJ-000024 (POSTED) | Qty: 15.0000 | Unit: ft [ID: 13]
+    In ServiceLine:
+      - Doc: SVC-014 (COMPLETED) | Qty: 3.0000 | Unit: ft [ID: 13]
+------------------------------------------------------------
+
+Item Code: ACC-ExpandWire#36-HA
+  Name: Expanded Wire #36 Analok
+  Default Unit: m (Meter) [ID: 2]
+  Selling Unit: m [ID: 2]
+  Existing Conversions in Database:
+  Document References:
+    In GoodsReceiptLine:
+      - Doc: GRN-000099 (POSTED) | Qty: 18.0000 | Unit: m [ID: 2]
+      - Doc: GRN-000139 (POSTED) | Qty: 60.0000 | Unit: ft [ID: 13]
+      - Doc: GRN-000158 (POSTED) | Qty: 36.5760 | Unit: m [ID: 2]
+      - Doc: GRN-000207 (POSTED) | Qty: 36.0000 | Unit: m [ID: 2]
+    In DeliveryLine:
+      - Doc: DN-000299 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: DN-000286 (POSTED) | Qty: 5.0000 | Unit: m [ID: 2]
+      - Doc: DN-000088 (POSTED) | Qty: 4.0000 | Unit: m [ID: 2]
+    In SalesPickupLine:
+      - Doc: PU-000412 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000983 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000950 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000929 (POSTED) | Qty: 1.5000 | Unit: m [ID: 2]
+      - Doc: PU-000895 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000851 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: PU-000601 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: PU-000546 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000520 (POSTED) | Qty: 3.0000 | Unit: m [ID: 2]
+      - Doc: PU-000522 (POSTED) | Qty: 10.0000 | Unit: m [ID: 2]
+      - Doc: PU-000510 (POSTED) | Qty: 5.0000 | Unit: m [ID: 2]
+      - Doc: PU-000511 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000170 (POSTED) | Qty: 3.5000 | Unit: m [ID: 2]
+      - Doc: PU-000079 (POSTED) | Qty: 5.0000 | Unit: m [ID: 2]
+      - Doc: PU-000013 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+    In StockAdjustmentLine:
+      - Doc: ADJ00120 (POSTED) | Qty: 3.5000 | Unit: m [ID: 2]
+    In ServiceLine:
+      - Doc: SVC-004 (COMPLETED) | Qty: 4.0000 | Unit: m [ID: 2]
+      - Doc: SVC-014 (COMPLETED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: SVC-000016 (COMPLETED) | Qty: 4.0000 | Unit: m [ID: 2]
+      - Doc: SVC-000034 (COMPLETED) | Qty: 6.0000 | Unit: m [ID: 2]
+      - Doc: SVC-000040 (COMPLETED) | Qty: 1.5000 | Unit: m [ID: 2]
+      - Doc: SVC-000045 (COMPLETED) | Qty: 2.0000 | Unit: m [ID: 2]
+------------------------------------------------------------
+
+Item Code: ACC-S-48-HA-SKY
+  Name: ScreenMesh # 48 Analok (Roll)
+  Default Unit: m (Meter) [ID: 2]
+  Selling Unit: m [ID: 2]
+  Existing Conversions in Database:
+  Document References:
+    In GoodsReceiptLine:
+      - Doc: GRN-000001 (POSTED) | Qty: 1.0000 | Unit: roll [ID: 7]
+      - Doc: GRN-000120 (POSTED) | Qty: 1.0000 | Unit: roll [ID: 7]
+      - Doc: GRN-000155 (POSTED) | Qty: 1.0000 | Unit: roll [ID: 7]
+      - Doc: GRN-000188 (POSTED) | Qty: 1.0000 | Unit: roll [ID: 7]
+      - Doc: GRN-000199 (POSTED) | Qty: 1.0000 | Unit: roll [ID: 7]
+      - Doc: GRN-000214 (POSTED) | Qty: 1.0000 | Unit: roll [ID: 7]
+    In DeliveryLine:
+      - Doc: DN-000238 (POSTED) | Qty: 1.5000 | Unit: m [ID: 2]
+      - Doc: DN-000233 (POSTED) | Qty: 3.0000 | Unit: m [ID: 2]
+      - Doc: DN-000183 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: DN-000182 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: DN-000178 (POSTED) | Qty: 3.0000 | Unit: m [ID: 2]
+      - Doc: DN-000165 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: DN-000148 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: DN-000138 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: DN-000131 (POSTED) | Qty: 5.0000 | Unit: m [ID: 2]
+      - Doc: DN-000059 (POSTED) | Qty: 5.0000 | Unit: m [ID: 2]
+      - Doc: DN-000193 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+    In SalesPickupLine:
+      - Doc: PU-001079 (POSTED) | Qty: 3.0000 | Unit: m [ID: 2]
+      - Doc: PU-001076 (POSTED) | Qty: 2.5000 | Unit: m [ID: 2]
+      - Doc: PU-001005 (POSTED) | Qty: 2.5000 | Unit: m [ID: 2]
+      - Doc: PU-000990 (POSTED) | Qty: 5.0000 | Unit: m [ID: 2]
+      - Doc: PU-000998 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000944 (POSTED) | Qty: 3.0000 | Unit: m [ID: 2]
+      - Doc: PU-000848 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000840 (POSTED) | Qty: 4.0000 | Unit: m [ID: 2]
+      - Doc: PU-000837 (POSTED) | Qty: 1.5000 | Unit: m [ID: 2]
+      - Doc: PU-000816 (POSTED) | Qty: 4.0000 | Unit: m [ID: 2]
+      - Doc: PU-000798 (POSTED) | Qty: 5.0000 | Unit: m [ID: 2]
+      - Doc: PU-000785 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000713 (POSTED) | Qty: 10.0000 | Unit: m [ID: 2]
+      - Doc: PU-000702 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000684 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: PU-000674 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000666 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000596 (POSTED) | Qty: 3.0000 | Unit: m [ID: 2]
+      - Doc: PU-000520 (POSTED) | Qty: 3.0000 | Unit: m [ID: 2]
+      - Doc: PU-000510 (POSTED) | Qty: 3.0000 | Unit: m [ID: 2]
+      - Doc: PU-000498 (POSTED) | Qty: 4.0000 | Unit: m [ID: 2]
+      - Doc: PU-000457 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: PU-000444 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: PU-000426 (POSTED) | Qty: 5.0000 | Unit: m [ID: 2]
+      - Doc: PU-000379 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: PU-000317 (POSTED) | Qty: 4.0000 | Unit: m [ID: 2]
+      - Doc: PU-000302 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: PU-000280 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000279 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000171 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: PU-000170 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000159 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: PU-000067 (POSTED) | Qty: 5.0000 | Unit: m [ID: 2]
+      - Doc: PU-000046 (POSTED) | Qty: 4.0000 | Unit: m [ID: 2]
+      - Doc: PU-000032 (POSTED) | Qty: 2.5000 | Unit: m [ID: 2]
+      - Doc: PU-000030 (POSTED) | Qty: 5.0000 | Unit: m [ID: 2]
+      - Doc: PU-000355 (POSTED) | Qty: 3.0000 | Unit: m [ID: 2]
+      - Doc: PU-000361 (POSTED) | Qty: 4.0000 | Unit: m [ID: 2]
+    In ServiceLine:
+      - Doc: SVC-000016 (COMPLETED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: SVC-000044 (COMPLETED) | Qty: 2.0000 | Unit: m [ID: 2]
+------------------------------------------------------------
+
+Item Code: ACC-ScreenMesh-#48-A
+  Name: ScreenMesh #48 Anodize
+  Default Unit: m (Meter) [ID: 2]
+  Selling Unit: m [ID: 2]
+  Existing Conversions in Database:
+  Document References:
+    In GoodsReceiptLine:
+      - Doc: GRN-000091 (POSTED) | Qty: 30.0000 | Unit: m [ID: 2]
+      - Doc: GRN-000218 (POSTED) | Qty: 30.0000 | Unit: m [ID: 2]
+    In DeliveryLine:
+      - Doc: DN-000277 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+    In SalesPickupLine:
+      - Doc: PU-000921 (POSTED) | Qty: 1.0000 | Unit: m [ID: 2]
+      - Doc: PU-000928 (POSTED) | Qty: 1.5000 | Unit: m [ID: 2]
+      - Doc: PU-000909 (POSTED) | Qty: 1.5000 | Unit: m [ID: 2]
+      - Doc: PU-000833 (DRAFT) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000751 (POSTED) | Qty: 2.0000 | Unit: m [ID: 2]
+      - Doc: PU-000144 (POSTED) | Qty: 3.0000 | Unit: m [ID: 2]
+    In ServiceLine:
+      - Doc: SVC-000041 (COMPLETED) | Qty: 2.0000 | Unit: m [ID: 2]
+------------------------------------------------------------
