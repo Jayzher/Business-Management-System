@@ -1,0 +1,40 @@
+{% extends "theme/base.html" %}
+{% block title %}Delete Invoice{% endblock %}
+{% block page_title %}Delete Invoice{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card card-outline card-danger">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-exclamation-triangle mr-1 text-danger"></i> Confirm Deletion</h3>
+      </div>
+      <div class="card-body py-4">
+        <div class="text-center mb-3"><i class="fas fa-trash-alt fa-3x text-danger"></i></div>
+        <p class="lead text-center mb-3">Delete invoice <strong class="text-danger">INV-{{ object.invoice_number }}</strong>?</p>
+        {% if object.sales_order %}
+        <div class="alert alert-warning mb-0">
+          <p class="mb-2"><strong>This cascades.</strong> Deleting this invoice will also:</p>
+          <ul class="mb-2">
+            <li>Delete its lines and payment records</li>
+            <li>Delete the posted pickup(s)/delivery note(s) for
+              <strong>{{ object.sales_order.document_number }}</strong> and reverse their stock movements</li>
+            <li>Reset the delivered quantities back on the sales order</li>
+          </ul>
+          <p class="mb-0">The <strong>Sales Order is kept</strong>. Re-approve it to rebuild the pickup, stock, and invoice.</p>
+        </div>
+        {% else %}
+        <p class="text-muted small text-center">This deletes the invoice, its lines, and its payment records. This action cannot be undone.</p>
+        {% endif %}
+      </div>
+      <div class="card-footer d-flex justify-content-center">
+        <form method="post" class="d-inline">
+          {% csrf_token %}
+          <a href="{% url 'invoice_detail' object.pk %}" class="btn btn-secondary mr-2"><i class="fas fa-arrow-left mr-1"></i> Cancel</a>
+          <button type="submit" class="btn btn-danger"><i class="fas fa-trash mr-1"></i> Yes, Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

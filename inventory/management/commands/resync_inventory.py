@@ -908,7 +908,7 @@ def _recompute_so_qty_delivered(dry_run, info_fn, warn_fn):
     — it runs off the DN/PU documents directly (via _all_manager), not the SO.
     """
     from sales.models import DeliveryNote, SalesPickup, SalesOrderLine
-    from inventory.services import _pick_so_line
+    from inventory.services import _pick_so_line, is_bundle_component_line
 
     so_line_ids = set(
         DeliveryNote.objects
@@ -950,11 +950,18 @@ def _recompute_so_qty_delivered(dry_run, info_fn, warn_fn):
     fulfilment_docs.sort(key=lambda t: (t[0], t[1], t[2].pk))
 
     running = defaultdict(lambda: Decimal('0'))
+    affected_so_ids = set()
     updated = 0
     skipped = 0
     for _ts, _kind, doc in fulfilment_docs:
         so = doc.sales_order
+        affected_so_ids.add(so.pk)
         for line in doc.lines.all():
+            # Bundle-component lines are billed via a separate BUNDLE invoice
+            # line, so they move stock but must NOT count toward any flat SO
+            # line's qty_delivered — see inventory.services.is_bundle_component_line.
+            if is_bundle_component_line(line):
+                continue
             so_line = _pick_so_line(so, line.item, line.unit)
             if so_line is None:
                 skipped += 1
@@ -984,7 +991,98 @@ def _recompute_so_qty_delivered(dry_run, info_fn, warn_fn):
             SalesOrderLine.objects.filter(pk=pk).update(qty_delivered=total)
 
     info_fn(f'  [QTY-DELIVERED] Applied {updated} fulfilment line(s); skipped {skipped}.')
+
+    # Corrected qty_delivered above via .update() (no signal), so the linked
+    # invoices still hold lines derived from the OLD (possibly doubled)
+    # qty_delivered. Rebuild each affected SO's non-void invoice lines/totals
+    # from the freshly-corrected values so the invoice stops double-billing.
+    # This is the data-repair path for invoices already corrupted before the
+    # posting fix landed. Reads qty_delivered from the DB, so it needs no unit
+    # conversions and can't trip this run's missing-conversion abort.
+    resynced = 0
+    if not dry_run and affected_so_ids:
+        from core.models import Invoice
+        from sales.models import SalesOrder
+        from inventory.automation import sync_invoice_totals_from_so
+        for so in SalesOrder.objects.filter(pk__in=affected_so_ids):
+            for invoice in Invoice.objects.filter(sales_order=so, is_void=False):
+                sync_invoice_totals_from_so(invoice, so, count_new_lines=False)
+                resynced += 1
+    info_fn(f'  [QTY-DELIVERED] Resynced {resynced} linked invoice(s) from corrected qty_delivered.')
     return updated, skipped
+
+
+def _recompute_service_line_delivery(dry_run, info_fn, warn_fn):
+    """Audit CustomerService lines whose consumed (posted SERVICE_OUT) stock
+    disagrees with the ServiceLine.qty the customer is billed for, and resync
+    each drifted service's invoice from its (authoritative, human-entered)
+    lines.
+
+    Services have no qty_ordered/qty_delivered split — ServiceLine.qty is BOTH
+    the amount billed and the amount that should have been deducted from stock.
+    Phase 1 already corrects each SERVICE_OUT move's qty to match its
+    ServiceLine, so this is a consistency sweep: it reports residual drift
+    between what was billed and what actually left stock, and rebuilds the
+    invoice of any drifted service so the billed document can't lag behind an
+    edited service. Unlike Sales Orders, a service invoice bills ServiceLine.qty
+    directly (never a derived qty_delivered), so it cannot be bundle-doubled the
+    way SO invoices were.
+
+    Uses _convert_qty_safe (silent None on a missing conversion) rather than
+    _safe_convert, so a service item lacking a UnitConversion is skipped here
+    instead of aborting the whole Phases 0-2 run for an unrelated line.
+    """
+    from services.models import CustomerService, ServiceStatus
+    from inventory.models import StockMove, MoveStatus, MoveType
+    from inventory.services import _convert_qty_safe
+
+    # Delivered (consumed) qty per (service, item) from posted SERVICE_OUT moves,
+    # in the item's stock unit. Reversal (REV-) rows are excluded — they net out
+    # a cancelled original and aren't a real consumption.
+    delivered = defaultdict(lambda: Decimal('0'))
+    for m in (StockMove.objects
+              .filter(reference_type='CustomerService',
+                      move_type=MoveType.SERVICE_OUT,
+                      status=MoveStatus.POSTED)
+              .exclude(reference_number__startswith='REV-')
+              .values('reference_id', 'item_id', 'qty')):
+        delivered[(m['reference_id'], m['item_id'])] += (m['qty'] or Decimal('0'))
+
+    mismatches = 0
+    affected_service_ids = set()
+    for svc in (CustomerService.objects
+                .filter(status=ServiceStatus.COMPLETED)
+                .prefetch_related('lines__item__default_unit',
+                                  'lines__item__selling_unit', 'lines__unit')):
+        for line in svc.lines.all():
+            if getattr(line, 'is_scrap', False):
+                continue
+            item = line.item
+            stock_unit = _inventory_unit(item)
+            ordered_base = _convert_qty_safe(line.qty, line.unit, stock_unit, item)
+            if ordered_base is None:
+                continue  # missing conversion — can't compare, leave for a human
+            delivered_base = delivered.get((svc.pk, item.id), Decimal('0'))
+            if abs(delivered_base - ordered_base) > Decimal('0.0001'):
+                mismatches += 1
+                affected_service_ids.add(svc.pk)
+                warn_fn(
+                    f'  [SERVICE-QTY] {svc.service_number} {item.code}: billed '
+                    f'{ordered_base} != consumed {delivered_base} (stock unit).'
+                )
+
+    info_fn(f'  [SERVICE-QTY] {mismatches} service line(s) with billed-vs-consumed drift.')
+
+    resynced = 0
+    if not dry_run and affected_service_ids:
+        from services.automation import sync_invoice_from_service
+        for svc in (CustomerService.objects
+                    .filter(pk__in=affected_service_ids, invoice__isnull=False)
+                    .select_related('invoice')):
+            sync_invoice_from_service(svc.invoice, svc)
+            resynced += 1
+    info_fn(f'  [SERVICE-QTY] Resynced {resynced} drifted service invoice(s).')
+    return mismatches, resynced
 
 
 def _rebuild_fulfilment_docs_from_so(dry_run, info_fn, warn_fn):
@@ -2800,6 +2898,15 @@ class Command(BaseCommand):
                 transaction.set_rollback(True)
         self._resync_summary['changes']['so_qty_delivered_lines'] = qd_updated
         self._resync_summary['changes']['so_qty_delivered_skipped'] = qd_skipped
+
+        with transaction.atomic():
+            svc_mismatch, svc_resynced = _recompute_service_line_delivery(
+                dry_run, self._info, self._warn,
+            )
+            if dry_run:
+                transaction.set_rollback(True)
+        self._resync_summary['changes']['service_qty_mismatch_lines'] = svc_mismatch
+        self._resync_summary['changes']['service_invoices_resynced'] = svc_resynced
 
         with transaction.atomic():
             cost_updated, cost_unchanged, cost_skipped, cost_preserved = _recompute_item_cost_price(

@@ -683,6 +683,52 @@ def invoice_delete_payment(request, pk, payment_pk):
     return redirect('invoice_detail', pk=pk)
 
 
+@login_required
+@write_denied_for_viewer
+def invoice_delete(request, pk):
+    """Hard-delete an invoice and cascade the full fulfillment unwind.
+
+    Deletes the invoice (lines + payments cascade) and, for an SO-linked
+    invoice, the SO's posted pickups/deliveries too — restoring stock and
+    reversing qty_delivered. The Sales Order is kept as the rebuildable source
+    of truth (re-approve → re-post regenerates everything). See
+    inventory.automation.cascade_delete_invoice.
+    """
+    inv = get_object_or_404(Invoice.objects.select_related('sales_order'), pk=pk)
+    if request.method == 'POST':
+        from inventory.automation import cascade_delete_invoice
+        from inventory.services import _WRITE_DB
+        from django.db import transaction
+        number = inv.invoice_number
+        had_so = inv.sales_order is not None
+        try:
+            with transaction.atomic(using=_WRITE_DB):
+                cascade_delete_invoice(inv, request.user)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Cascade delete failed for invoice %s', number,
+            )
+            messages.error(
+                request,
+                f'Invoice {number} was NOT deleted: an error occurred while '
+                'unwinding its fulfillment. Nothing was changed. This has been '
+                'logged for an administrator.',
+            )
+            return redirect('invoice_detail', pk=pk)
+        if had_so:
+            messages.success(
+                request,
+                f'Invoice {number} deleted — its stock movements and the sales '
+                "order's delivered quantities were reversed. The Sales Order was "
+                'kept; re-approve it to rebuild.',
+            )
+        else:
+            messages.success(request, f'Invoice {number} deleted.')
+        return redirect('invoice_list')
+    return render(request, 'core/invoice_delete.html', {'object': inv})
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # SUPPLIES INVENTORY
 # ═══════════════════════════════════════════════════════════════════════════

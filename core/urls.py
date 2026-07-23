@@ -37,6 +37,7 @@ urlpatterns = [
     path('invoices/<int:pk>/add-payment/', views.invoice_add_payment, name='invoice_add_payment'),
     path('invoices/<int:pk>/mark-paid/', views.invoice_mark_paid, name='invoice_mark_paid'),
     path('invoices/<int:pk>/payments/<int:payment_pk>/delete/', views.invoice_delete_payment, name='invoice_delete_payment'),
+    path('invoices/<int:pk>/delete/', views.invoice_delete, name='invoice_delete'),
 
     # Supply Categories
     path('supply-categories/', views.supply_category_list, name='supply_category_list'),

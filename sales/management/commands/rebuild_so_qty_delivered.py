@@ -54,7 +54,7 @@ def replay_qty_delivered(so):
     (inventory.services._pick_so_line) against every POSTED pickup/delivery
     linked to this SO, oldest first.
     """
-    from inventory.services import _pick_so_line, _convert_qty_safe
+    from inventory.services import _pick_so_line, _convert_qty_safe, is_bundle_component_line
 
     computed = {sl.pk: Decimal('0') for sl in so.lines.all()}
 
@@ -64,6 +64,10 @@ def replay_qty_delivered(so):
 
     for doc in docs:
         for line in doc.lines.select_related('item', 'unit').all():
+            # Bundle-component lines are billed via a separate BUNDLE invoice
+            # line and must not count toward any flat SO line's qty_delivered.
+            if is_bundle_component_line(line):
+                continue
             so_line = _pick_so_line(so, line.item, line.unit)
             if so_line is None:
                 continue

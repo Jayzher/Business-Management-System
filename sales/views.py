@@ -18,7 +18,7 @@ from sales.forms import (
 from django.db import transaction
 from django.utils import timezone
 from inventory.services import post_delivery, reserve_stock, cancel_document, post_sales_pickup, release_reservations
-from inventory.services import save_with_document_number, _WRITE_DB
+from inventory.services import save_with_document_number, _WRITE_DB, reverse_so_qty_delivered
 from core.models import DocumentStatus
 from core.utils import redirect_back
 from accounts.decorators import write_denied_for_viewer,  sales_access
@@ -275,52 +275,6 @@ def delivery_post_view(request, pk):
     return redirect_back(request, 'delivery_detail', pk=pk)
 
 
-def _reverse_so_qty_delivered(doc):
-    """Reverse qty_delivered on the SO lines a cancelled delivery/pickup fulfilled.
-
-    Prefer the exact SO line each doc line fulfilled (sales_order_line, stamped
-    at posting time), falling back to an item-based match only for lines posted
-    before that FK existed (which can over-reverse if the SO has more than one
-    line for the same item).
-
-    Accumulates every reversal in memory keyed by SO-line pk and writes them in
-    a single bulk_update — the old per-line .save() issued one UPDATE (plus a
-    sync enqueue) per doc line, and the fallback branch re-queried the SO's
-    lines once per doc line. Accumulating also fixes a latent bug in the old
-    per-line-save loop: when two doc lines fulfilled the SAME SO line, each held
-    its own stale copy and the second save clobbered the first instead of
-    stacking — mirrors the accumulation the posting path already does.
-    """
-    if not doc.sales_order_id:
-        return
-    from sales.models import SalesOrderLine
-
-    updates = {}  # so_line.pk -> SalesOrderLine (mutated in place, deduped)
-    so_lines_by_item = None  # built lazily, only if a legacy line needs it
-
-    for line in doc.lines.select_related('item', 'sales_order_line').all():
-        if line.sales_order_line_id:
-            so_line = updates.get(line.sales_order_line_id)
-            if so_line is None:
-                so_line = line.sales_order_line
-                updates[so_line.pk] = so_line
-            so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
-        else:
-            if so_lines_by_item is None:
-                so_lines_by_item = {}
-                for sl in doc.sales_order.lines.all():
-                    so_lines_by_item.setdefault(sl.item_id, []).append(sl)
-            for sl in so_lines_by_item.get(line.item_id, []):
-                so_line = updates.get(sl.pk)
-                if so_line is None:
-                    so_line = sl
-                    updates[sl.pk] = so_line
-                so_line.qty_delivered = max(so_line.qty_delivered - line.qty, 0)
-
-    if updates:
-        SalesOrderLine.objects.bulk_update(list(updates.values()), ['qty_delivered'])
-
-
 @login_required
 @sales_access
 @write_denied_for_viewer
@@ -332,7 +286,7 @@ def delivery_cancel_view(request, pk):
             cancel_document(dn, request.user)
             messages.success(request, f'Delivery Note {dn.document_number} cancelled.')
             if was_posted:
-                _reverse_so_qty_delivered(dn)
+                reverse_so_qty_delivered(dn)
                 # Void the linked invoice
                 from core.models import Invoice
                 inv = Invoice.objects.filter(
@@ -679,8 +633,26 @@ def delivery_edit_view(request, pk):
 def delivery_delete_view(request, pk):
     dn = get_object_or_404(DeliveryNote, pk=pk)
     if request.method == 'POST':
-        dn.soft_delete()
-        messages.success(request, f'Delivery Note {dn.document_number} deleted.')
+        # Cascade: unwind stock moves, qty_delivered, and the linked invoice,
+        # then delete the delivery. The Sales Order is kept and can rebuild it.
+        from inventory.automation import cascade_delete_fulfillment
+        try:
+            with transaction.atomic(using=_WRITE_DB):
+                cascade_delete_fulfillment(dn, request.user)
+        except Exception:
+            logger.exception('Cascade delete failed for delivery %s', dn.document_number)
+            messages.error(
+                request,
+                f'Delivery Note {dn.document_number} was NOT deleted: an error occurred '
+                'while unwinding its stock/invoice. Nothing was changed. This has '
+                'been logged for an administrator.',
+            )
+            return redirect_back(request, 'delivery_detail', pk=pk)
+        messages.success(
+            request,
+            f'Delivery Note {dn.document_number} deleted — stock, delivered quantities, '
+            'and the linked invoice were reversed. The Sales Order was kept.',
+        )
         return redirect('delivery_list')
     return render(request, 'sales/delivery_delete.html', {'object': dn})
 
@@ -839,8 +811,28 @@ def pickup_edit_view(request, pk):
 def pickup_delete_view(request, pk):
     pickup = get_object_or_404(SalesPickup, pk=pk)
     if request.method == 'POST':
-        pickup.soft_delete()
-        messages.success(request, f'Pickup {pickup.document_number} deleted.')
+        # Cascade: unwind everything this pickup caused (stock moves, the SO's
+        # qty_delivered, and the linked invoice), then delete it. The Sales
+        # Order is kept as the source of truth — re-approving/re-posting
+        # rebuilds the whole chain. See inventory.automation.
+        from inventory.automation import cascade_delete_fulfillment
+        try:
+            with transaction.atomic(using=_WRITE_DB):
+                cascade_delete_fulfillment(pickup, request.user)
+        except Exception:
+            logger.exception('Cascade delete failed for pickup %s', pickup.document_number)
+            messages.error(
+                request,
+                f'Pickup {pickup.document_number} was NOT deleted: an error occurred '
+                'while unwinding its stock/invoice. Nothing was changed. This has '
+                'been logged for an administrator.',
+            )
+            return redirect_back(request, 'pickup_detail', pk=pk)
+        messages.success(
+            request,
+            f'Pickup {pickup.document_number} deleted — stock, delivered quantities, '
+            'and the linked invoice were reversed. The Sales Order was kept.',
+        )
         return redirect('pickup_list')
     return render(request, 'sales/pickup_delete.html', {'object': pickup})
 
@@ -896,7 +888,7 @@ def pickup_cancel_view(request, pk):
             cancel_document(pickup, request.user)
             messages.success(request, f'Pickup {pickup.document_number} cancelled.')
             if was_posted:
-                _reverse_so_qty_delivered(pickup)
+                reverse_so_qty_delivered(pickup)
                 # Void the linked invoice
                 from core.models import Invoice
                 inv = Invoice.objects.filter(
