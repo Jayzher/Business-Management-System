@@ -47,17 +47,22 @@ def _convert_qty_safe(qty, from_unit, to_unit, item):
 # stock BUT must never contribute to any flat SalesOrderLine.qty_delivered —
 # otherwise an item that is BOTH a flat SO line and a bundle component gets its
 # delivered qty (and therefore its invoice qty) double-counted, billing it once
-# on the flat line and again inside the bundle. Identified by the note stamped
-# at line-creation time (auto_create_{delivery,pickup}_from_so and
-# _ensure_so_bundle_lines_on_{delivery,pickup}), matching the same convention
-# sales.views._split_pickup_lines uses to separate bundle summaries.
-_BUNDLE_LINE_NOTE_PREFIXES = ('From bundle ', 'Auto-added from bundle:')
-
-
+# on the flat line and again inside the bundle.
+#
+# These lines are identified by the note stamped at line-creation time. Every
+# bundle-generating path phrases that note with the substring "from bundle":
+#   - "From bundle {name}"           (auto_create_{delivery,pickup}_from_so)
+#   - "Synced from bundle {name}"    (sales.signals._recreate_{delivery,pickup}_lines)
+#   - "Auto-added from bundle: {name}" (_ensure_so_bundle_lines_on_{delivery,pickup})
+# while flat lines say "... SO line". Matching the "from bundle" substring
+# (rather than a fixed set of prefixes) is deliberate: an earlier prefix-only
+# check silently missed the "Synced from bundle" variant, leaving hundreds of
+# bundle lines counted as product lines and doubling qty_delivered. This is the
+# same convention sales.views._split_pickup_lines uses to separate bundles.
 def is_bundle_component_line(line):
     """True if a delivery/pickup line represents an SO bundle component and so
     must be excluded from flat-SO-line qty_delivered accounting."""
-    return (getattr(line, 'notes', '') or '').startswith(_BUNDLE_LINE_NOTE_PREFIXES)
+    return 'from bundle' in (getattr(line, 'notes', '') or '').lower()
 
 
 def _pick_po_line_for_grn(po, grn_item, grn_unit):

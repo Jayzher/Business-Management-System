@@ -659,8 +659,13 @@ def delivery_delete_view(request, pk):
 
 def _split_pickup_lines(pickup):
     """Separate pickup lines into regular lines and bundle summaries."""
+    from inventory.services import is_bundle_component_line
     all_lines = list(pickup.lines.all())
-    regular_lines = [l for l in all_lines if not l.notes.startswith('From bundle ')]
+    # A bundle-component line may be noted "From bundle …", "Synced from
+    # bundle …", or "Auto-added from bundle: …" depending on which path created
+    # it — use the shared detector so none are mis-shown as regular product
+    # lines (the same variants that were doubling qty_delivered).
+    regular_lines = [l for l in all_lines if not is_bundle_component_line(l)]
     # Build bundle summaries from the SO's price_list_lines if available
     bundles = []
     if pickup.sales_order:
@@ -670,16 +675,19 @@ def _split_pickup_lines(pickup):
                 'qty': bl.qty_multiplier,
             })
     else:
-        # No SO — group by bundle name from notes
+        # No SO — group by bundle name parsed from the note (drop everything up
+        # to and including "from bundle "/"from bundle: ").
+        import re
         from collections import OrderedDict
         seen = OrderedDict()
         for l in all_lines:
-            if l.notes.startswith('From bundle '):
-                bname = l.notes[len('From bundle '):]
-                if bname not in seen:
-                    seen[bname] = {'name': bname, 'qty': l.qty}
-                else:
-                    seen[bname]['qty'] += l.qty
+            if not is_bundle_component_line(l):
+                continue
+            bname = re.split(r'from bundle:?\s*', l.notes or '', flags=re.IGNORECASE)[-1].strip()
+            if bname not in seen:
+                seen[bname] = {'name': bname, 'qty': l.qty}
+            else:
+                seen[bname]['qty'] += l.qty
         bundles = list(seen.values())
     return regular_lines, bundles
 

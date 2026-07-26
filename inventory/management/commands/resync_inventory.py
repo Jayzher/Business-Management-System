@@ -1340,6 +1340,52 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
     return updated, unchanged, skipped_lines, preserved
 
 
+def _recompute_invoice_cogs(dry_run, info_fn, warn_fn):
+    """Recompute Invoice.grand_total_cogs from each invoice's source document.
+
+    Invoice COGS is a DERIVED total: an SO-linked invoice costs its lines at
+    qty_delivered × item.cost_price (see core.cogs.sales_order_cogs), and the
+    two Phase 1c steps above just rebuilt BOTH of those inputs — so every stored
+    grand_total_cogs is now potentially stale. It's normally written only once,
+    when the invoice is first marked paid, using whatever qty_delivered /
+    cost_price existed at that moment; an invoice paid while its SO lines still
+    read qty_delivered=0 was frozen at cogs=0 and is exactly what the Phase 3
+    [NO COGS] audit reports. Recompute it here — after qty_delivered and
+    cost_price — so the audit and every downstream margin / PNL figure agree
+    with the rebuilt data instead of a stale snapshot.
+
+    compute_invoice_cogs swallows per-line conversion errors (see core.cogs),
+    so a missing UnitConversion silently drops that one line rather than
+    aborting this run.
+    """
+    from core.models import Invoice
+    from core.cogs import compute_invoice_cogs
+
+    updated = 0
+    unchanged = 0
+    errored = 0
+    for inv in Invoice.objects.select_related('pos_sale', 'sales_order').iterator():
+        try:
+            cogs = compute_invoice_cogs(inv)
+        except Exception as exc:  # defensive: never let one invoice abort the sweep
+            errored += 1
+            warn_fn(f'  [INVOICE-COGS] {inv.invoice_number}: {exc}')
+            continue
+        if inv.grand_total_cogs != cogs:
+            if not dry_run:
+                inv.grand_total_cogs = cogs
+                inv.save(update_fields=['grand_total_cogs'])
+            updated += 1
+        else:
+            unchanged += 1
+
+    info_fn(
+        f'  [INVOICE-COGS] Recomputed COGS: {updated} updated, '
+        f'{unchanged} unchanged, {errored} errored.'
+    )
+    return updated, unchanged, errored
+
+
 # ── line-lookup functions per document type ──────────────────────────────────
 
 def _make_grn_lookup():
@@ -2918,6 +2964,19 @@ class Command(BaseCommand):
         self._resync_summary['changes']['item_cost_unchanged'] = cost_unchanged
         self._resync_summary['changes']['item_cost_skipped'] = cost_skipped
         self._resync_summary['changes']['item_cost_preserved'] = cost_preserved
+
+        # Invoice COGS depends on the qty_delivered and cost_price just rebuilt,
+        # so refresh every invoice's stored grand_total_cogs last — otherwise
+        # invoices paid while their inputs were still wrong stay frozen at the
+        # stale value the Phase 3 [NO COGS] audit flags.
+        with transaction.atomic():
+            cogs_updated, cogs_unchanged, cogs_errored = _recompute_invoice_cogs(
+                dry_run, self._info, self._warn,
+            )
+            if dry_run:
+                transaction.set_rollback(True)
+        self._resync_summary['changes']['invoice_cogs_updated'] = cogs_updated
+        self._resync_summary['changes']['invoice_cogs_errored'] = cogs_errored
 
         # Fix reversal moves: their qty should mirror the corrected original
         rev_moves = StockMove.objects.filter(
