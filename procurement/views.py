@@ -680,9 +680,9 @@ def _update_item_cost_from_supplier_catalog(item_ids=None):
         for e in entries:
             if not e.unit_price or e.unit_price <= 0:
                 continue
-            if e.unit_id == base_unit.pk:
+            if base_unit and e.unit_id == base_unit.pk:
                 price_in_base = Decimal(str(e.unit_price))
-            else:
+            elif base_unit:
                 try:
                     price_in_base = convert_price_for_unit(
                         e.unit_price, e.unit, base_unit,
@@ -692,6 +692,8 @@ def _update_item_cost_from_supplier_catalog(item_ids=None):
                 except ValueError:
                     # Missing conversion — silently skip this catalog entry
                     continue
+            else:
+                price_in_base = Decimal(str(e.unit_price))
 
             if best_price is None or price_in_base > best_price:
                 best_price = price_in_base
@@ -923,55 +925,115 @@ def supplier_catalog_sync_view(request):
     supplier price on record (converted to the item's default unit).
     """
     if request.method == 'POST':
+        import time
         from decimal import Decimal
+        from django.db import transaction, OperationalError
+        from sync.background_sync import pause_worker, resume_worker
 
-        # Get all PO lines from posted/approved POs
-        po_lines = (
-            PurchaseOrderLine.objects
-            .filter(purchase_order__status__in=['POSTED', 'APPROVED'])
-            .select_related('purchase_order__supplier', 'item', 'unit')
-            .order_by('purchase_order__order_date')
-        )
+        pause_worker()
+        try:
+            max_retries = 5
+            cost_stats = {'updated_count': 0, 'unchanged_count': 0, 'skipped_count': 0}
+            created_count = 0
+            updated_count = 0
 
-        created_count = 0
-        updated_count = 0
-        touched_items = set()
+            for attempt in range(max_retries):
+                try:
+                    with transaction.atomic():
+                        po_lines = (
+                            PurchaseOrderLine.objects
+                            .filter(
+                                purchase_order__status__in=['POSTED', 'APPROVED'],
+                                purchase_order__supplier__isnull=False,
+                                item__isnull=False,
+                                unit__isnull=False,
+                                unit_price__isnull=False,
+                                unit_price__gt=0,
+                            )
+                            .select_related('purchase_order', 'purchase_order__supplier', 'item', 'unit')
+                            .order_by('purchase_order__order_date', 'purchase_order__id', 'id')
+                        )
 
-        for line in po_lines:
-            if not line.unit_price or line.unit_price <= 0:
-                continue
+                        latest_po_data = {}
+                        touched_items = set()
 
-            po = line.purchase_order
-            entry, created = SupplierCatalogEntry.objects.update_or_create(
-                supplier=po.supplier,
-                item=line.item,
-                unit=line.unit,
-                defaults={
-                    'unit_price': line.unit_price,
-                    'currency': po.currency or 'PHP',
-                    'last_po_date': po.order_date,
-                    'last_po_number': po.document_number,
-                },
+                        for line in po_lines:
+                            po = line.purchase_order
+                            key = (po.supplier_id, line.item_id, line.unit_id)
+                            latest_po_data[key] = {
+                                'supplier_id': po.supplier_id,
+                                'item_id': line.item_id,
+                                'unit_id': line.unit_id,
+                                'unit_price': line.unit_price,
+                                'currency': po.currency or 'PHP',
+                                'last_po_date': po.order_date,
+                                'last_po_number': po.document_number or '',
+                            }
+                            touched_items.add(line.item_id)
+
+                        existing_entries = {
+                            (e.supplier_id, e.item_id, e.unit_id): e
+                            for e in SupplierCatalogEntry.objects.filter(
+                                item_id__in=list(touched_items)
+                            )
+                        }
+
+                        to_create = []
+                        to_update = []
+                        created_count = 0
+                        updated_count = 0
+
+                        for key, data in latest_po_data.items():
+                            existing = existing_entries.get(key)
+                            if existing:
+                                existing.unit_price = data['unit_price']
+                                existing.currency = data['currency']
+                                existing.last_po_date = data['last_po_date']
+                                existing.last_po_number = data['last_po_number']
+                                to_update.append(existing)
+                                updated_count += 1
+                            else:
+                                to_create.append(SupplierCatalogEntry(
+                                    supplier_id=data['supplier_id'],
+                                    item_id=data['item_id'],
+                                    unit_id=data['unit_id'],
+                                    unit_price=data['unit_price'],
+                                    currency=data['currency'],
+                                    last_po_date=data['last_po_date'],
+                                    last_po_number=data['last_po_number'],
+                                ))
+                                created_count += 1
+
+                        if to_create:
+                            SupplierCatalogEntry.objects.bulk_create(to_create, batch_size=500)
+                        if to_update:
+                            SupplierCatalogEntry.objects.bulk_update(
+                                to_update,
+                                ['unit_price', 'currency', 'last_po_date', 'last_po_number'],
+                                batch_size=500,
+                            )
+
+                        cost_stats = _update_item_cost_from_supplier_catalog(
+                            item_ids=touched_items or None
+                        )
+                    break
+                except OperationalError as e:
+                    if 'locked' in str(e).lower() and attempt < max_retries - 1:
+                        time.sleep(0.5 * (attempt + 1))
+                        continue
+                    raise
+
+            messages.success(
+                request,
+                f'Sync complete: {created_count} new entries created, '
+                f'{updated_count} entries updated from past PO data. '
+                f'Item costs updated: {cost_stats["updated_count"]} '
+                f'(unchanged: {cost_stats["unchanged_count"]}, '
+                f'skipped: {cost_stats["skipped_count"]}).',
             )
-            if created:
-                created_count += 1
-            else:
-                updated_count += 1
-            touched_items.add(line.item_id)
+        finally:
+            resume_worker()
 
-        # ── Update Item.cost_price to the highest supplier price ──
-        cost_stats = _update_item_cost_from_supplier_catalog(
-            item_ids=touched_items or None
-        )
-
-        messages.success(
-            request,
-            f'Sync complete: {created_count} new entries created, '
-            f'{updated_count} entries updated from past PO data. '
-            f'Item costs updated: {cost_stats["updated_count"]} '
-            f'(unchanged: {cost_stats["unchanged_count"]}, '
-            f'skipped: {cost_stats["skipped_count"]}).',
-        )
         return redirect('supplier_catalog_list')
 
     # GET: show confirmation page
@@ -1005,107 +1067,154 @@ def supplier_catalog_sync_grn_view(request):
     supplier price on record (converted to the item's default unit).
     """
     if request.method == 'POST':
-        # Get all posted GRN lines that have an associated PO
-        grn_lines = (
-            GoodsReceiptLine.objects
-            .filter(
-                goods_receipt__status='POSTED',
-                goods_receipt__purchase_order__isnull=False,
+        import time
+        from decimal import Decimal
+        from django.db import transaction, OperationalError
+        from sync.background_sync import pause_worker, resume_worker
+
+        pause_worker()
+        try:
+            max_retries = 5
+            cost_stats = {'updated_count': 0, 'unchanged_count': 0, 'skipped_count': 0}
+            created_count = 0
+            updated_count = 0
+            fallback_unit_count = 0
+
+            for attempt in range(max_retries):
+                try:
+                    with transaction.atomic():
+                        grn_lines = (
+                            GoodsReceiptLine.objects
+                            .filter(
+                                goods_receipt__status='POSTED',
+                                goods_receipt__purchase_order__isnull=False,
+                                goods_receipt__supplier__isnull=False,
+                                item__isnull=False,
+                            )
+                            .select_related(
+                                'goods_receipt',
+                                'goods_receipt__supplier',
+                                'goods_receipt__purchase_order',
+                                'item', 'unit',
+                            )
+                            .order_by('goods_receipt__receipt_date', 'goods_receipt__id', 'id')
+                        )
+
+                        po_ids = {l.goods_receipt.purchase_order_id for l in grn_lines if l.goods_receipt.purchase_order_id}
+                        po_lines_qs = (
+                            PurchaseOrderLine.objects
+                            .filter(
+                                purchase_order_id__in=list(po_ids),
+                                unit_price__isnull=False,
+                                unit_price__gt=0,
+                            )
+                            .select_related('unit')
+                        )
+
+                        po_line_exact = {}
+                        po_line_fallback = {}
+
+                        for pol in po_lines_qs:
+                            po_line_exact[(pol.purchase_order_id, pol.item_id, pol.unit_id)] = pol.unit_price
+                            if (pol.purchase_order_id, pol.item_id) not in po_line_fallback:
+                                po_line_fallback[(pol.purchase_order_id, pol.item_id)] = (pol.unit, pol.unit_price)
+
+                        latest_grn_data = {}
+                        fallback_unit_count = 0
+                        touched_items = set()
+
+                        for grn_line in grn_lines:
+                            grn = grn_line.goods_receipt
+                            po_id = grn.purchase_order_id
+
+                            exact_price = po_line_exact.get((po_id, grn_line.item_id, grn_line.unit_id))
+                            if exact_price is not None:
+                                entry_unit = grn_line.unit
+                                entry_price = exact_price
+                            else:
+                                fallback = po_line_fallback.get((po_id, grn_line.item_id))
+                                if not fallback:
+                                    continue
+                                entry_unit, entry_price = fallback
+                                fallback_unit_count += 1
+
+                            key = (grn.supplier_id, grn_line.item_id, entry_unit.id)
+                            latest_grn_data[key] = {
+                                'supplier_id': grn.supplier_id,
+                                'item_id': grn_line.item_id,
+                                'unit': entry_unit,
+                                'unit_price': entry_price,
+                                'currency': grn.purchase_order.currency or 'PHP',
+                                'receipt_date': grn.receipt_date,
+                                'document_number': grn.document_number or '',
+                            }
+                            touched_items.add(grn_line.item_id)
+
+                        existing_entries = {
+                            (e.supplier_id, e.item_id, e.unit_id): e
+                            for e in SupplierCatalogEntry.objects.filter(item_id__in=list(touched_items))
+                        }
+
+                        to_create = []
+                        to_update = []
+                        created_count = 0
+                        updated_count = 0
+
+                        for key, data in latest_grn_data.items():
+                            existing = existing_entries.get(key)
+                            if existing:
+                                if existing.last_po_date and existing.last_po_date > data['receipt_date']:
+                                    continue
+                                existing.unit_price = data['unit_price']
+                                existing.currency = data['currency']
+                                existing.last_po_date = data['receipt_date']
+                                existing.last_po_number = data['document_number']
+                                to_update.append(existing)
+                                updated_count += 1
+                            else:
+                                to_create.append(SupplierCatalogEntry(
+                                    supplier_id=data['supplier_id'],
+                                    item_id=data['item_id'],
+                                    unit=data['unit'],
+                                    unit_price=data['unit_price'],
+                                    currency=data['currency'],
+                                    last_po_date=data['receipt_date'],
+                                    last_po_number=data['document_number'],
+                                ))
+                                created_count += 1
+
+                        if to_create:
+                            SupplierCatalogEntry.objects.bulk_create(to_create, batch_size=500)
+                        if to_update:
+                            SupplierCatalogEntry.objects.bulk_update(
+                                to_update,
+                                ['unit_price', 'currency', 'last_po_date', 'last_po_number'],
+                                batch_size=500,
+                            )
+
+                        cost_stats = _update_item_cost_from_supplier_catalog(
+                            item_ids=touched_items or None
+                        )
+                    break
+                except OperationalError as e:
+                    if 'locked' in str(e).lower() and attempt < max_retries - 1:
+                        time.sleep(0.5 * (attempt + 1))
+                        continue
+                    raise
+
+            messages.success(
+                request,
+                f'GRN Sync complete: {created_count} new entries created, '
+                f'{updated_count} entries updated from Goods Receipts '
+                f'({fallback_unit_count} recorded in their original PO unit — '
+                f'no matching PO line in the GRN\'s receiving unit). '
+                f'Item costs updated: {cost_stats["updated_count"]} '
+                f'(unchanged: {cost_stats["unchanged_count"]}, '
+                f'skipped: {cost_stats["skipped_count"]}).',
             )
-            .select_related(
-                'goods_receipt__supplier',
-                'goods_receipt__purchase_order',
-                'item', 'unit',
-            )
-            .order_by('goods_receipt__receipt_date')
-        )
+        finally:
+            resume_worker()
 
-        created_count = 0
-        updated_count = 0
-        fallback_unit_count = 0
-        touched_items = set()
-
-        for grn_line in grn_lines:
-            grn = grn_line.goods_receipt
-            # Match by item AND unit first; fall back to any other PO line for the item.
-            po_line = (
-                PurchaseOrderLine.objects
-                .filter(
-                    purchase_order=grn.purchase_order,
-                    item=grn_line.item,
-                    unit=grn_line.unit,
-                )
-                .first()
-            )
-
-            if po_line and po_line.unit_price and po_line.unit_price > 0:
-                entry_unit = grn_line.unit
-                entry_price = po_line.unit_price  # GRN unit == PO unit
-            else:
-                # No PO line in the GRN's receiving unit. Record the entry in
-                # the PO's OWN unit with its own exact price rather than
-                # converting into the GRN's unit here — that conversion would
-                # be undone (and re-rounded) a moment later when
-                # _update_item_cost_from_supplier_catalog() converts
-                # entry.unit -> item.default_unit anyway. Chaining two
-                # independently-rounded conversions can drift the final cost
-                # by a centavo even when the underlying supplier price was a
-                # clean whole number. Storing the PO's original unit+price
-                # keeps this down to the one conversion that's unavoidable.
-                fallback_po = (
-                    PurchaseOrderLine.objects
-                    .filter(purchase_order=grn.purchase_order, item=grn_line.item)
-                    .exclude(unit_price__isnull=True)
-                    .exclude(unit_price__lte=0)
-                    .first()
-                )
-                if not fallback_po:
-                    continue
-                entry_unit = fallback_po.unit
-                entry_price = fallback_po.unit_price
-                fallback_unit_count += 1
-
-            existing = SupplierCatalogEntry.objects.filter(
-                supplier=grn.supplier,
-                item=grn_line.item,
-                unit=entry_unit,
-            ).first()
-
-            if existing and existing.last_po_date and existing.last_po_date >= grn.receipt_date:
-                continue
-
-            entry, created = SupplierCatalogEntry.objects.update_or_create(
-                supplier=grn.supplier,
-                item=grn_line.item,
-                unit=entry_unit,
-                defaults={
-                    'unit_price': entry_price,
-                    'currency': grn.purchase_order.currency or 'PHP',
-                    'last_po_date': grn.receipt_date,
-                    'last_po_number': grn.document_number,
-                },
-            )
-            if created:
-                created_count += 1
-            else:
-                updated_count += 1
-            touched_items.add(grn_line.item_id)
-
-        # ── Update Item.cost_price to the highest supplier price ──
-        cost_stats = _update_item_cost_from_supplier_catalog(
-            item_ids=touched_items or None
-        )
-
-        messages.success(
-            request,
-            f'GRN Sync complete: {created_count} new entries created, '
-            f'{updated_count} entries updated from Goods Receipts '
-            f'({fallback_unit_count} recorded in their original PO unit — '
-            f'no matching PO line in the GRN\'s receiving unit). '
-            f'Item costs updated: {cost_stats["updated_count"]} '
-            f'(unchanged: {cost_stats["unchanged_count"]}, '
-            f'skipped: {cost_stats["skipped_count"]}).',
-        )
         return redirect('supplier_catalog_list')
 
     # GET: show confirmation page
