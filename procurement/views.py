@@ -600,127 +600,6 @@ def purchase_return_delete_view(request, pk):
 # ── Supplier Catalog ───────────────────────────────────────────────────────
 
 
-def _update_item_cost_from_supplier_catalog(item_ids=None):
-    """
-    Seed Item.cost_price from supplier catalog entries — but ONLY for items
-    that have no *priced* posted GRN history yet.
-
-    Rationale: the GRN posting flow (inventory.services.post_goods_receipt)
-    maintains a weighted-average cost in stock_unit. That number is the
-    authoritative cost for any item that has actually been received and
-    priced. Letting a catalog-sync overwrite it would clobber real receipt
-    history with a quote-list MAX. So once an item has a posted GRN that
-    resulted in cost_price > 0, the catalog sync leaves it alone.
-
-    However, "has a posted GRN" isn't the same as "has a priced GRN" — every
-    line on that GRN may have been skipped by the WAC calc (a $0 PO price, or
-    a cross-unit PO price with no UnitConversion available), leaving
-    cost_price at its unpriced 0 default. In that case the item is still
-    treated as unpriced, and the supplier-catalog MAX price is used to
-    rescue it instead of leaving 0 in place forever.
-
-    For items with NO posted GRN, we still use the MAX-across-suppliers price
-    converted to default_unit, so cost-of-quotation reports have a sensible
-    starting value before goods arrive.
-
-    Prices in a non-base unit are converted with raise_on_missing=True so a
-    bad/missing conversion is skipped (no silent fallback to the unconverted
-    price).
-
-    Returns:
-        dict with keys:
-            updated_count   – items whose cost_price changed
-            unchanged_count – items whose price was already correct
-            skipped_count   – items skipped (no priceable entries, or item has GRN history)
-    """
-    from decimal import Decimal
-    from catalog.models import Item
-    from catalog.utils import convert_price_for_unit
-    from procurement.models import GoodsReceiptLine
-    from core.models import DocumentStatus
-
-    qs = SupplierCatalogEntry.objects.select_related('item', 'item__default_unit', 'unit')
-    if item_ids is not None:
-        qs = qs.filter(item_id__in=list(item_ids))
-
-    # Bucket entries by item
-    per_item = {}
-    for entry in qs:
-        per_item.setdefault(entry.item_id, (entry.item, []))[1].append(entry)
-
-    # Items with at least one POSTED GRN line — their cost_price is governed
-    # by post_goods_receipt's weighted-average and must NOT be overwritten.
-    items_with_grn_history = set(
-        GoodsReceiptLine.objects
-        .filter(
-            goods_receipt__status=DocumentStatus.POSTED,
-            item_id__in=list(per_item.keys()),
-        )
-        .values_list('item_id', flat=True)
-        .distinct()
-    )
-
-    updated_count = 0
-    unchanged_count = 0
-    skipped_count = 0
-    _updated_pks = []
-
-    for item_id, (item, entries) in per_item.items():
-        # GRN history only wins if it actually produced a price. If every GRN
-        # line for this item was skipped (e.g. a $0 PO line, or a cross-unit
-        # PO price with no conversion available), cost_price is still sitting
-        # at its unpriced default — in that case fall through and let the
-        # supplier-catalog price rescue it instead of leaving it stuck at 0.
-        if item_id in items_with_grn_history and (item.cost_price or Decimal('0')) > 0:
-            skipped_count += 1
-            continue
-
-        base_unit = item.default_unit
-        best_price = None
-        for e in entries:
-            if not e.unit_price or e.unit_price <= 0:
-                continue
-            if e.unit_id == base_unit.pk:
-                price_in_base = Decimal(str(e.unit_price))
-            else:
-                try:
-                    price_in_base = convert_price_for_unit(
-                        e.unit_price, e.unit, base_unit,
-                        item=item, use_conversion_price=False,
-                        raise_on_missing=True,
-                    )
-                except ValueError:
-                    # Missing conversion — silently skip this catalog entry
-                    continue
-
-            if best_price is None or price_in_base > best_price:
-                best_price = price_in_base
-
-        if best_price is None:
-            skipped_count += 1
-            continue
-
-        current = item.cost_price or Decimal('0')
-        best_price_q = best_price.quantize(Decimal('0.0001'))
-        if current.quantize(Decimal('0.0001')) == best_price_q:
-            unchanged_count += 1
-            continue
-
-        Item.objects.filter(pk=item.pk).update(cost_price=best_price_q)
-        _updated_pks.append(item.pk)
-        updated_count += 1
-
-    if _updated_pks:
-        from sync.signals import bulk_sync_upsert
-        bulk_sync_upsert(Item, _updated_pks)
-
-    return {
-        'updated_count': updated_count,
-        'unchanged_count': unchanged_count,
-        'skipped_count': skipped_count,
-    }
-
-
 @login_required
 @procurement_access
 def supplier_catalog_list_view(request):
@@ -732,6 +611,9 @@ def supplier_catalog_list_view(request):
     from catalog.models import Item
     from partners.models import Supplier
     from core.utils import search_queryset, paginate_queryset
+    from procurement.models import SupplierCatalogSyncState
+
+    sync_state = SupplierCatalogSyncState.get_instance()
 
     supplier_id = (request.GET.get('supplier') or '').strip()
     item_type = (request.GET.get('type') or '').strip()
@@ -810,6 +692,8 @@ def supplier_catalog_list_view(request):
         'total_items': page_obj.paginator.count,
         'total_suppliers': suppliers.count(),
         'total_entries': len(price_map),
+        'catalog_sync_pending': sync_state.sync_pending,
+        'last_resync_at': sync_state.last_resync_at,
     })
 
 
@@ -917,212 +801,86 @@ def supplier_catalog_delete_view(request, pk):
 @write_denied_for_viewer
 def supplier_catalog_sync_view(request):
     """
-    Sync supplier catalog from past PO data.
-    For each POSTED or APPROVED PO line, upsert the latest unit_price into SupplierCatalogEntry.
-    After syncing, each affected Item's cost_price is updated to the highest
-    supplier price on record (converted to the item's default unit).
+    Sync the Supplier Catalog from historical procurement data — both
+    Purchase Order lines (agreed/ordered prices) and Goods Receipt lines
+    (actual received prices). GRN data is the source of truth: whenever a
+    posted GRN exists for a supplier+item+unit, its price wins over any PO
+    price, regardless of dates. PO prices are used as a fallback for items
+    that haven't been received yet. See procurement.services for the shared
+    sync logic (also used by the full inventory resync).
+
+    Item cost prices are never touched by this sync — only SupplierCatalogEntry
+    rows are created/updated, and the resulting changes are shown back to the
+    user so they can review (and jump to) each affected Supplier Catalog entry.
     """
+    from procurement.services import gather_supplier_catalog_candidates, prioritize_candidates, sync_supplier_catalog
+
     if request.method == 'POST':
-        from decimal import Decimal
+        selected_item_ids = request.POST.getlist('selected_items')
+        selected_item_ids = [int(x) for x in selected_item_ids if str(x).isdigit()]
 
-        # Get all PO lines from posted/approved POs
-        po_lines = (
-            PurchaseOrderLine.objects
-            .filter(purchase_order__status__in=['POSTED', 'APPROVED'])
-            .select_related('purchase_order__supplier', 'item', 'unit')
-            .order_by('purchase_order__order_date')
-        )
+        if not selected_item_ids:
+            messages.warning(request, 'No items were selected for sync.')
+            return redirect('supplier_catalog_sync')
 
-        created_count = 0
-        updated_count = 0
-        touched_items = set()
+        result = sync_supplier_catalog(item_ids=selected_item_ids)
 
-        for line in po_lines:
-            if not line.unit_price or line.unit_price <= 0:
-                continue
+        return render(request, 'procurement/supplier_catalog_sync_result.html', {
+            'changes': result['changes'],
+            'created_count': result['created_count'],
+            'updated_count': result['updated_count'],
+            'touched_item_count': result['touched_item_count'],
+        })
 
-            po = line.purchase_order
-            entry, created = SupplierCatalogEntry.objects.update_or_create(
-                supplier=po.supplier,
-                item=line.item,
-                unit=line.unit,
-                defaults={
-                    'unit_price': line.unit_price,
-                    'currency': po.currency or 'PHP',
-                    'last_po_date': po.order_date,
-                    'last_po_number': po.document_number,
-                },
-            )
-            if created:
-                created_count += 1
-            else:
-                updated_count += 1
-            touched_items.add(line.item_id)
+    # GET: show confirmation page with list of candidate items, merging PO
+    # and GRN sources and keeping whichever wins under GRN-source-of-truth
+    # priority for display (same ordering sync_supplier_catalog() applies).
+    candidates = prioritize_candidates(gather_supplier_catalog_candidates())
 
-        # ── Update Item.cost_price to the highest supplier price ──
-        cost_stats = _update_item_cost_from_supplier_catalog(
-            item_ids=touched_items or None
-        )
+    items_map = {}
+    for c in candidates:
+        item_id = c['item'].pk
+        entry = items_map.get(item_id)
+        if entry is None:
+            entry = items_map[item_id] = {
+                'item': c['item'],
+                'suppliers': set(),
+                'unit': c['unit'],
+                'latest_price': c['price'],
+                'latest_date': c['date'],
+                'latest_source': c['source'],
+                'line_count': 0,
+            }
+        entry['suppliers'].add(c['supplier'].name)
+        entry['line_count'] += 1
+        # Later in priority order always wins (PO layer first, GRN layer on
+        # top) — no date comparison needed here, unlike the old PO-only sync.
+        entry['unit'] = c['unit']
+        entry['latest_price'] = c['price']
+        entry['latest_date'] = c['date']
+        entry['latest_source'] = c['source']
 
-        messages.success(
-            request,
-            f'Sync complete: {created_count} new entries created, '
-            f'{updated_count} entries updated from past PO data. '
-            f'Item costs updated: {cost_stats["updated_count"]} '
-            f'(unchanged: {cost_stats["unchanged_count"]}, '
-            f'skipped: {cost_stats["skipped_count"]}).',
-        )
-        return redirect('supplier_catalog_list')
+    items_list = list(items_map.values())
+    for item_data in items_list:
+        item_data['suppliers_str'] = ", ".join(sorted(item_data['suppliers']))
 
-    # GET: show confirmation page
+    items_list.sort(key=lambda x: (x['item'].code, x['item'].name))
+
     po_count = (
         PurchaseOrder.objects
         .filter(status__in=['POSTED', 'APPROVED'])
         .count()
     )
-    line_count = (
-        PurchaseOrderLine.objects
-        .filter(
-            purchase_order__status__in=['POSTED', 'APPROVED'],
-            unit_price__gt=0,
-        )
-        .count()
-    )
-    return render(request, 'procurement/supplier_catalog_sync.html', {
-        'po_count': po_count,
-        'line_count': line_count,
-    })
-
-
-@login_required
-@procurement_access
-@write_denied_for_viewer
-def supplier_catalog_sync_grn_view(request):
-    """
-    Sync supplier catalog from GRN data (posted GRNs linked to POs).
-    Always keeps the latest price based on receipt_date.
-    After syncing, each affected Item's cost_price is updated to the highest
-    supplier price on record (converted to the item's default unit).
-    """
-    if request.method == 'POST':
-        # Get all posted GRN lines that have an associated PO
-        grn_lines = (
-            GoodsReceiptLine.objects
-            .filter(
-                goods_receipt__status='POSTED',
-                goods_receipt__purchase_order__isnull=False,
-            )
-            .select_related(
-                'goods_receipt__supplier',
-                'goods_receipt__purchase_order',
-                'item', 'unit',
-            )
-            .order_by('goods_receipt__receipt_date')
-        )
-
-        created_count = 0
-        updated_count = 0
-        fallback_unit_count = 0
-        touched_items = set()
-
-        for grn_line in grn_lines:
-            grn = grn_line.goods_receipt
-            # Match by item AND unit first; fall back to any other PO line for the item.
-            po_line = (
-                PurchaseOrderLine.objects
-                .filter(
-                    purchase_order=grn.purchase_order,
-                    item=grn_line.item,
-                    unit=grn_line.unit,
-                )
-                .first()
-            )
-
-            if po_line and po_line.unit_price and po_line.unit_price > 0:
-                entry_unit = grn_line.unit
-                entry_price = po_line.unit_price  # GRN unit == PO unit
-            else:
-                # No PO line in the GRN's receiving unit. Record the entry in
-                # the PO's OWN unit with its own exact price rather than
-                # converting into the GRN's unit here — that conversion would
-                # be undone (and re-rounded) a moment later when
-                # _update_item_cost_from_supplier_catalog() converts
-                # entry.unit -> item.default_unit anyway. Chaining two
-                # independently-rounded conversions can drift the final cost
-                # by a centavo even when the underlying supplier price was a
-                # clean whole number. Storing the PO's original unit+price
-                # keeps this down to the one conversion that's unavoidable.
-                fallback_po = (
-                    PurchaseOrderLine.objects
-                    .filter(purchase_order=grn.purchase_order, item=grn_line.item)
-                    .exclude(unit_price__isnull=True)
-                    .exclude(unit_price__lte=0)
-                    .first()
-                )
-                if not fallback_po:
-                    continue
-                entry_unit = fallback_po.unit
-                entry_price = fallback_po.unit_price
-                fallback_unit_count += 1
-
-            existing = SupplierCatalogEntry.objects.filter(
-                supplier=grn.supplier,
-                item=grn_line.item,
-                unit=entry_unit,
-            ).first()
-
-            if existing and existing.last_po_date and existing.last_po_date >= grn.receipt_date:
-                continue
-
-            entry, created = SupplierCatalogEntry.objects.update_or_create(
-                supplier=grn.supplier,
-                item=grn_line.item,
-                unit=entry_unit,
-                defaults={
-                    'unit_price': entry_price,
-                    'currency': grn.purchase_order.currency or 'PHP',
-                    'last_po_date': grn.receipt_date,
-                    'last_po_number': grn.document_number,
-                },
-            )
-            if created:
-                created_count += 1
-            else:
-                updated_count += 1
-            touched_items.add(grn_line.item_id)
-
-        # ── Update Item.cost_price to the highest supplier price ──
-        cost_stats = _update_item_cost_from_supplier_catalog(
-            item_ids=touched_items or None
-        )
-
-        messages.success(
-            request,
-            f'GRN Sync complete: {created_count} new entries created, '
-            f'{updated_count} entries updated from Goods Receipts '
-            f'({fallback_unit_count} recorded in their original PO unit — '
-            f'no matching PO line in the GRN\'s receiving unit). '
-            f'Item costs updated: {cost_stats["updated_count"]} '
-            f'(unchanged: {cost_stats["unchanged_count"]}, '
-            f'skipped: {cost_stats["skipped_count"]}).',
-        )
-        return redirect('supplier_catalog_list')
-
-    # GET: show confirmation page
     grn_count = (
         GoodsReceipt.objects
         .filter(status='POSTED', purchase_order__isnull=False)
         .count()
     )
-    grn_line_count = (
-        GoodsReceiptLine.objects
-        .filter(
-            goods_receipt__status='POSTED',
-            goods_receipt__purchase_order__isnull=False,
-        )
-        .count()
-    )
-    return render(request, 'procurement/supplier_catalog_sync_grn.html', {
+    line_count = len(candidates)
+
+    return render(request, 'procurement/supplier_catalog_sync.html', {
+        'po_count': po_count,
         'grn_count': grn_count,
-        'grn_line_count': grn_line_count,
+        'line_count': line_count,
+        'items_list': items_list,
     })

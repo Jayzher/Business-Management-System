@@ -172,3 +172,43 @@ class SupplierCatalogEntry(models.Model):
 
     def __str__(self):
         return f"{self.supplier.name} → {self.item.code}: {self.unit_price}/{self.unit.abbreviation}"
+
+
+class SupplierCatalogSyncState(models.Model):
+    """
+    Singleton tracking whether a Full Inventory Resync has been run since the
+    Supplier Catalog was last synced from PO/GRN data. Drives the "Sync
+    Supplier Catalog" badge/banner shown in the Procurement module —
+    resync_inventory sets last_resync_at, and
+    procurement.services.sync_supplier_catalog() sets last_catalog_sync_at,
+    so the pending state clears itself the moment someone actually syncs.
+    """
+    last_resync_at = models.DateTimeField(null=True, blank=True)
+    last_catalog_sync_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Supplier Catalog Sync State'
+        verbose_name_plural = 'Supplier Catalog Sync State'
+
+    def save(self, *args, **kwargs):
+        # Singleton: ensure only one row exists
+        if not self.pk and SupplierCatalogSyncState.objects.exists():
+            existing = SupplierCatalogSyncState.objects.first()
+            self.pk = existing.pk
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_instance(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @property
+    def sync_pending(self):
+        if not self.last_resync_at:
+            return False
+        if not self.last_catalog_sync_at:
+            return True
+        return self.last_resync_at > self.last_catalog_sync_at
+
+    def __str__(self):
+        return f"resync={self.last_resync_at}  catalog_sync={self.last_catalog_sync_at}"

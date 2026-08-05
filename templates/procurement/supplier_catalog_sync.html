@@ -1,27 +1,27 @@
 {% extends "theme/base.html" %}
 
-{% block title %}Sync Supplier Catalog from POs{% endblock %}
+{% block title %}Sync Supplier Catalog{% endblock %}
 {% block page_title %}Sync Supplier Catalog{% endblock %}
 {% block breadcrumb %}
 <li class="breadcrumb-item"><a href="{% url 'supplier_catalog_list' %}">Supplier Catalog</a></li>
-<li class="breadcrumb-item active">Sync from POs</li>
+<li class="breadcrumb-item active">Sync</li>
 {% endblock %}
 
 {% block content %}
 <div class="card card-outline card-success">
   <div class="card-header">
-    <h3 class="card-title"><i class="fas fa-sync-alt mr-1"></i> Sync Supplier Catalog from Purchase Orders</h3>
+    <h3 class="card-title"><i class="fas fa-sync-alt mr-1"></i> Sync Supplier Catalog from Purchase Orders &amp; Goods Receipts</h3>
   </div>
   <div class="card-body">
     <div class="alert alert-info">
       <i class="fas fa-info-circle mr-1"></i>
-      This will scan all <strong>Approved</strong> and <strong>Posted</strong> Purchase Orders and import supplier prices into the Supplier Catalog.
-      <br><br>
-      <strong>Note:</strong> After syncing, each item's <strong>Cost Price</strong> will be automatically updated to the <strong>highest price</strong> found across all suppliers in the catalog. This ensures conservative COGS and inventory valuation.
+      This scans all <strong>Approved</strong>/<strong>Posted</strong> Purchase Orders and <strong>Posted</strong> Goods Receipts and imports supplier prices into the Supplier Catalog.
+      <strong>Goods Receipts are the source of truth</strong> — whenever a posted GRN exists for an item/supplier/unit, its price wins over any PO price. PO prices are used as a fallback for items not yet received.
+      Select which items to include below. Item Cost Prices are never changed by this sync — only Supplier Catalog entries are created/updated.
     </div>
 
     <div class="row mb-3">
-      <div class="col-md-6">
+      <div class="col-md-3">
         <div class="info-box bg-light">
           <span class="info-box-icon bg-primary"><i class="fas fa-clipboard-list"></i></span>
           <div class="info-box-content">
@@ -30,29 +30,184 @@
           </div>
         </div>
       </div>
-      <div class="col-md-6">
+      <div class="col-md-3">
+        <div class="info-box bg-light">
+          <span class="info-box-icon bg-warning"><i class="fas fa-truck-loading"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Eligible GRNs</span>
+            <span class="info-box-number">{{ grn_count }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
         <div class="info-box bg-light">
           <span class="info-box-icon bg-success"><i class="fas fa-list"></i></span>
           <div class="info-box-content">
-            <span class="info-box-text">PO Lines with Prices</span>
+            <span class="info-box-text">Priced Lines</span>
             <span class="info-box-number">{{ line_count }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="info-box bg-light">
+          <span class="info-box-icon bg-info"><i class="fas fa-boxes"></i></span>
+          <div class="info-box-content">
+            <span class="info-box-text">Candidate Items</span>
+            <span class="info-box-number">{{ items_list|length }}</span>
           </div>
         </div>
       </div>
     </div>
 
-    <p>For each supplier + item + unit combination, the <strong>latest PO price</strong> will be used. Existing entries will be updated if a newer PO is found.</p>
-
-    <form method="post">
+    <form method="post" id="sync-form">
       {% csrf_token %}
-      <button type="submit" class="btn btn-success btn-lg"
-              onclick="return confirm('This will sync {{ line_count }} PO line(s) into the Supplier Catalog. Existing entries will be updated with latest prices. Continue?')">
-        <i class="fas fa-sync-alt mr-1"></i> Start Sync
-      </button>
-      <a href="{% url 'supplier_catalog_list' %}" class="btn btn-secondary btn-lg ml-2">
-        <i class="fas fa-times mr-1"></i> Cancel
-      </a>
+
+      <!-- Item Selection List -->
+      <div class="card card-outline card-primary mb-3">
+        <div class="card-header d-flex align-items-center justify-content-between py-2">
+          <h3 class="card-title text-sm"><i class="fas fa-tasks mr-1"></i> Items to Include in Sync</h3>
+          <div class="card-tools d-flex align-items-center">
+            <input type="text" id="sync-item-search" class="form-control form-control-sm mr-2" style="width: 220px;" placeholder="Search item code or name...">
+            <button type="button" class="btn btn-xs btn-outline-primary mr-1" id="btn-select-all">Select All</button>
+            <button type="button" class="btn btn-xs btn-outline-secondary" id="btn-deselect-all">Deselect All</button>
+          </div>
+        </div>
+        <div class="card-body p-0 table-responsive" style="max-height: 400px;">
+          {% if items_list %}
+          <table class="table table-sm table-hover table-striped mb-0" id="sync-items-table">
+            <thead class="thead-light sticky-top" style="z-index: 1;">
+              <tr>
+                <th style="width: 40px;" class="text-center">
+                  <input type="checkbox" id="master-toggle" checked title="Toggle All">
+                </th>
+                <th>Item Code</th>
+                <th>Item Name</th>
+                <th>Supplier(s)</th>
+                <th>Unit</th>
+                <th class="text-right">Current Cost</th>
+                <th class="text-right">Latest Price</th>
+                <th class="text-center">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item_data in items_list %}
+              <tr class="sync-item-row">
+                <td class="text-center">
+                  <input type="checkbox" name="selected_items" value="{{ item_data.item.id }}" class="item-checkbox" checked>
+                </td>
+                <td class="font-weight-bold item-code">{{ item_data.item.code }}</td>
+                <td class="item-name">{{ item_data.item.name }}</td>
+                <td class="text-muted"><small>{{ item_data.suppliers_str }}</small></td>
+                <td>{{ item_data.unit.symbol|default:item_data.unit.name }}</td>
+                <td class="text-right">₱{{ item_data.item.cost_price|floatformat:2|default:"0.00" }}</td>
+                <td class="text-right font-weight-bold text-success">₱{{ item_data.latest_price|floatformat:2 }}</td>
+                <td class="text-center">
+                  {% if item_data.latest_source == 'GRN' %}
+                  <span class="badge badge-warning" title="From a Goods Receipt">GRN</span>
+                  {% else %}
+                  <span class="badge badge-primary" title="From a Purchase Order">PO</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div class="p-4 text-center text-muted">
+            <i class="fas fa-exclamation-triangle fa-2x mb-2 d-block text-warning"></i>
+            No eligible Purchase Orders or Goods Receipts with priced items found for syncing.
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="d-flex align-items-center mt-3">
+        <button type="submit" class="btn btn-success btn-lg" id="btn-submit-sync" {% if not items_list %}disabled{% endif %}>
+          <i class="fas fa-sync-alt mr-1"></i> Start Sync (<span id="selected-count">{{ items_list|length }}</span> Items)
+        </button>
+        <a href="{% url 'supplier_catalog_list' %}" class="btn btn-secondary btn-lg ml-2">
+          <i class="fas fa-times mr-1"></i> Cancel
+        </a>
+      </div>
     </form>
   </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var masterToggle = document.getElementById('master-toggle');
+  var checkboxes = document.querySelectorAll('.item-checkbox');
+  var selectedCountSpan = document.getElementById('selected-count');
+  var submitBtn = document.getElementById('btn-submit-sync');
+  var btnSelectAll = document.getElementById('btn-select-all');
+  var btnDeselectAll = document.getElementById('btn-deselect-all');
+  var searchInput = document.getElementById('sync-item-search');
+
+  function updateSelectedCount() {
+    var checked = document.querySelectorAll('.item-checkbox:checked');
+    var total = checkboxes.length;
+    if (selectedCountSpan) selectedCountSpan.textContent = checked.length;
+    if (submitBtn) submitBtn.disabled = (checked.length === 0);
+    if (masterToggle) {
+      masterToggle.checked = (checked.length === total && total > 0);
+      masterToggle.indeterminate = (checked.length > 0 && checked.length < total);
+    }
+  }
+
+  if (masterToggle) {
+    masterToggle.addEventListener('change', function() {
+      var isChecked = this.checked;
+      checkboxes.forEach(function(cb) {
+        var row = cb.closest('tr');
+        if (row && row.style.display !== 'none') {
+          cb.checked = isChecked;
+        }
+      });
+      updateSelectedCount();
+    });
+  }
+
+  checkboxes.forEach(function(cb) {
+    cb.addEventListener('change', updateSelectedCount);
+  });
+
+  if (btnSelectAll) {
+    btnSelectAll.addEventListener('click', function() {
+      checkboxes.forEach(function(cb) {
+        var row = cb.closest('tr');
+        if (row && row.style.display !== 'none') cb.checked = true;
+      });
+      updateSelectedCount();
+    });
+  }
+
+  if (btnDeselectAll) {
+    btnDeselectAll.addEventListener('click', function() {
+      checkboxes.forEach(function(cb) {
+        var row = cb.closest('tr');
+        if (row && row.style.display !== 'none') cb.checked = false;
+      });
+      updateSelectedCount();
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', function() {
+      var term = this.value.toLowerCase().trim();
+      var rows = document.querySelectorAll('.sync-item-row');
+      rows.forEach(function(row) {
+        var code = row.querySelector('.item-code').textContent.toLowerCase();
+        var name = row.querySelector('.item-name').textContent.toLowerCase();
+        if (code.includes(term) || name.includes(term)) {
+          row.style.display = '';
+        } else {
+          row.style.display = 'none';
+        }
+      });
+    });
+  }
+
+  updateSelectedCount();
+});
+</script>
 {% endblock %}

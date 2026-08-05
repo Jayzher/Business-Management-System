@@ -58,6 +58,11 @@ def sidebar_menu(request):
     else:
         user_roles = set()
 
+    catalog_sync_pending = False
+    if user_roles:
+        from procurement.models import SupplierCatalogSyncState
+        catalog_sync_pending = SupplierCatalogSyncState.get_instance().sync_pending
+
     menu = [
         {
             'label': 'Dashboard',
@@ -99,11 +104,17 @@ def sidebar_menu(request):
             'label': 'Procurement',
             'icon': 'fas fa-truck-loading',
             'tour_id': 'nav-procurement',
+            'badge': 'Sync' if catalog_sync_pending else None,
+            'badge_title': 'Supplier Catalog sync suggested — a Full Inventory Resync ran since the last sync' if catalog_sync_pending else '',
             'children': [
                 {'label': 'Purchase Orders', 'url': '/procurement/purchase-orders/', 'active_prefix': '/procurement/purchase-orders', 'icon': 'fas fa-clipboard-list'},
                 {'label': 'Goods Receipts', 'url': '/procurement/goods-receipts/', 'active_prefix': '/procurement/goods-receipts', 'icon': 'fas fa-inbox'},
                 {'label': 'Purchase Returns', 'url': '/procurement/purchase-returns/', 'active_prefix': '/procurement/purchase-returns', 'icon': 'fas fa-undo-alt'},
-                {'label': 'Supplier Catalog', 'url': '/procurement/supplier-catalog/', 'active_prefix': '/procurement/supplier-catalog', 'icon': 'fas fa-balance-scale'},
+                {
+                    'label': 'Supplier Catalog', 'url': '/procurement/supplier-catalog/', 'active_prefix': '/procurement/supplier-catalog', 'icon': 'fas fa-balance-scale',
+                    'badge': 'Sync' if catalog_sync_pending else None,
+                    'badge_title': 'A Full Inventory Resync ran since the Supplier Catalog was last synced' if catalog_sync_pending else '',
+                },
             ],
         },
         {

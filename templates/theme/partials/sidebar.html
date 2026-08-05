@@ -27,14 +27,19 @@
           <li class="nav-item{% if item.is_open %} menu-open{% endif %}"{% if item.tour_id %} data-tour-id="{{ item.tour_id }}"{% endif %}>
             <a href="#" class="nav-link{% if item.is_open %} active{% endif %}">
               <i class="nav-icon {{ item.icon }}"></i>
-              <p>{{ item.label }}<i class="right fas fa-angle-left"></i></p>
+              <p>{{ item.label }}
+                {% if item.badge %}<span class="badge badge-warning" title="{{ item.badge_title }}">{{ item.badge }}</span>{% endif %}
+                <i class="right fas fa-angle-left"></i>
+              </p>
             </a>
             <ul class="nav nav-treeview">
               {% for child in item.children %}
               <li class="nav-item">
                 <a href="{{ child.url }}" class="nav-link{% if child.is_active %} active{% endif %}">
                   <i class="nav-icon child-icon {{ child.icon|default:'fas fa-circle' }}"></i>
-                  <p class="child-label">{{ child.label }}</p>
+                  <p class="child-label">{{ child.label }}
+                    {% if child.badge %}<span class="badge badge-warning right" title="{{ child.badge_title }}">{{ child.badge }}</span>{% endif %}
+                  </p>
                 </a>
               </li>
               {% endfor %}

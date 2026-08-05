@@ -15,6 +15,10 @@ Handles:
     atomically (no silent fallback, no partial commit)
   - SO bundle components missing from DN/PU → backfilled
   - Financial statements → recalculated after inventory changes
+  - Supplier Catalog → flagged as needing a review sync (GRN/PO history may
+    have changed); the actual price sync is a deliberate, separate action —
+    see procurement.services.sync_supplier_catalog and the badge/banner in
+    Procurement → Supplier Catalog
 
 Phases:
   Phase 0 — Clean StockMoves
@@ -25,6 +29,9 @@ Phases:
   Phase 1 — Fix StockMove quantities
     Recalculate qty from source document lines with correct unit conversion.
     Backfill missing moves for document lines that have no StockMove.
+    Phase 1c also recomputes qty_received/qty_delivered and Item.cost_price,
+    and flags the Supplier Catalog as pending a review sync (see
+    procurement.models.SupplierCatalogSyncState).
 
   Phase 2 — Rebuild StockBalance from scratch
     Ignores existing balances.  Walks every POSTED document chronologically,
@@ -1240,6 +1247,29 @@ def _recompute_item_cost_price(dry_run, info_fn, warn_fn):
         f'unchanged {unchanged}, skipped {skipped_lines}.'
     )
     return updated, unchanged, skipped_lines, preserved
+
+
+def _flag_supplier_catalog_sync_pending(info_fn):
+    """Mark that a Full Inventory Resync has run since the Supplier Catalog
+    was last synced from PO/GRN data.
+
+    Does NOT run the sync itself — a resync can touch a lot of GRN/PO
+    history and the operator should review the changes deliberately via the
+    "Sync Supplier Catalog" screen, rather than have prices silently rewritten
+    as a side effect. This just flips a flag; procurement.views/templates
+    surface it as a badge (sidebar) and a banner (Supplier Catalog page)
+    until the user actually runs the sync, which clears it.
+    """
+    from django.utils import timezone
+    from procurement.models import SupplierCatalogSyncState
+
+    state = SupplierCatalogSyncState.get_instance()
+    state.last_resync_at = timezone.now()
+    state.save(update_fields=['last_resync_at'])
+    info_fn(
+        '  [CATALOG] Flagged Supplier Catalog sync as pending — '
+        'review and run it from Procurement → Supplier Catalog.'
+    )
 
 
 # ── line-lookup functions per document type ──────────────────────────────────
@@ -2811,6 +2841,14 @@ class Command(BaseCommand):
         self._resync_summary['changes']['item_cost_unchanged'] = cost_unchanged
         self._resync_summary['changes']['item_cost_skipped'] = cost_skipped
         self._resync_summary['changes']['item_cost_preserved'] = cost_preserved
+
+        # Flag the Supplier Catalog as needing a review sync — GRN/PO history
+        # just changed, but we don't rewrite catalog prices automatically;
+        # the operator reviews and applies it from Procurement -> Supplier
+        # Catalog (badge/banner shown there until they do).
+        if not dry_run:
+            _flag_supplier_catalog_sync_pending(self._info)
+        self._resync_summary['changes']['supplier_catalog_sync_flagged'] = not dry_run
 
         # Fix reversal moves: their qty should mirror the corrected original
         rev_moves = StockMove.objects.filter(
