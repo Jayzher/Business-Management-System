@@ -645,3 +645,82 @@ def auto_create_invoice_from_pos_sale(sale, user):
         )
 
     return inv
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CASCADE DELETE
+#
+# Deleting a fulfillment document (Delivery/Pickup) or an Invoice unwinds
+# everything it caused — stock moves, SO qty_delivered, and the linked
+# invoice with its lines/payments — but NEVER the Sales Order. The SO is the
+# source of truth: re-approving it regenerates the pickup/delivery, and
+# re-posting that rebuilds the stock moves and invoice. This is a hard delete
+# (rows are removed, not soft-deleted) precisely because everything downstream
+# is reproducible from the SO.
+# ═══════════════════════════════════════════════════════════════════════════
+@transaction.atomic(using=_WRITE_DB)
+def cascade_delete_fulfillment(doc, user):
+    """Hard-delete a Delivery Note / Sales Pickup and unwind its effects.
+
+    - POSTED: restore stock balances, delete its StockMoves, reverse the SO's
+      qty_delivered, and delete the SO's linked invoice(s) (lines + payments
+      cascade, cashflow post_delete signals recalc).
+    - CANCELLED: its stock/qty_delivered were already reversed at cancel time,
+      so only its (original + reversal) StockMove rows are cleared.
+    - DRAFT/APPROVED: never moved stock or created an invoice — just deleted.
+
+    The Sales Order is left untouched so it can rebuild the whole chain.
+    """
+    from core.models import DocumentStatus, Invoice
+    from inventory.services import unwind_document_stock, reverse_so_qty_delivered
+
+    posted = doc.status == DocumentStatus.POSTED
+    cancelled = doc.status == DocumentStatus.CANCELLED
+
+    # Stock: restore balances only for a still-POSTED doc (a cancelled one was
+    # already netted out); either way clear the move rows.
+    unwind_document_stock(doc, restore_balances=posted)
+
+    if posted:
+        reverse_so_qty_delivered(doc)
+        # The invoice reflects this fulfillment; drop it so it rebuilds cleanly
+        # from the SO on the next post. One non-void invoice per SO, but filter
+        # broadly to sweep any void remnants too.
+        if doc.sales_order_id:
+            for inv in Invoice.objects.filter(sales_order_id=doc.sales_order_id):
+                inv.delete()
+
+    doc.lines.all().delete()
+    doc.delete()
+    return doc
+
+
+@transaction.atomic(using=_WRITE_DB)
+def cascade_delete_invoice(invoice, user):
+    """Hard-delete an Invoice and fully unwind the fulfillment behind it.
+
+    For an SO-linked invoice this deletes the SO's POSTED pickups/deliveries
+    via cascade_delete_fulfillment (which restores stock, reverses
+    qty_delivered, and deletes this invoice along the way). For a POS-linked or
+    fulfillment-less invoice it just deletes the invoice (lines + payments
+    cascade). The Sales Order (if any) is kept so it can rebuild.
+    """
+    from core.models import DocumentStatus, Invoice
+    from sales.models import DeliveryNote, SalesPickup
+
+    so_id = invoice.sales_order_id
+    invoice_pk = invoice.pk
+
+    if so_id:
+        docs = list(SalesPickup.objects.filter(
+            sales_order_id=so_id, status=DocumentStatus.POSTED,
+        )) + list(DeliveryNote.objects.filter(
+            sales_order_id=so_id, status=DocumentStatus.POSTED,
+        ))
+        for d in docs:
+            # Each posted fulfillment doc's cascade also deletes this invoice.
+            cascade_delete_fulfillment(d, user)
+
+    # No posted fulfillment backed it (POS sale, or lines were built directly),
+    # or it somehow survived — delete it now. Lines/payments cascade via FK.
+    Invoice.objects.filter(pk=invoice_pk).delete()

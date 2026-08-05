@@ -39,6 +39,9 @@
             <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Mark this invoice as fully paid?')"><i class="fas fa-check-circle mr-1"></i> Mark Paid</button>
           </form>
           {% endif %}
+          {% if not is_view_only and not is_web_version %}
+          <a href="{% url 'invoice_delete' invoice.pk %}" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash mr-1"></i> Delete</a>
+          {% endif %}
           <a href="{% url 'invoice_list' %}" class="btn btn-sm btn-secondary"><i class="fas fa-arrow-left mr-1"></i> Back</a>
         </div>
       </div>

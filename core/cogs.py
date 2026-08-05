@@ -40,22 +40,32 @@ def pos_sale_cogs(pos_sale):
 
 
 
-def sales_order_cogs(sales_order):
+def sales_order_cogs(sales_order, qty_field='qty_delivered'):
     """
     Calculate COGS for a sales order with unit conversions applied.
-    
+
     Includes both regular lines and price list bundle lines.
     Gracefully handles missing items (orphaned FKs) by skipping them.
+
+    qty_field selects which quantity the regular lines are costed at:
+      - 'qty_delivered' (default) — what a fulfillment-built invoice actually
+        bills (see _create_invoice_lines_from_so), so a partially-fulfilled
+        SO's COGS stays in the same scope as its revenue.
+      - 'qty_ordered' — used by compute_invoice_cogs for a direct SO invoice
+        that was billed and paid before ANY delivery/pickup was posted (so
+        every line's qty_delivered is 0). There the invoice charged the full
+        order, so COGS must too, or it collapses to 0 against real revenue.
+    Bundle lines have no partial-fulfilment tracking and are always billed in
+    full, so they're costed in full regardless of qty_field.
     """
     total = Decimal('0')
-    
-    # Regular order lines — costed at qty_delivered (what's actually billed on
-    # the invoice, see _create_invoice_lines_from_so), not the full qty_ordered,
-    # so a partially-fulfilled SO's COGS stays in the same scope as its revenue.
+
+    # Regular order lines — costed at the chosen quantity field (see docstring).
     for line in sales_order.lines.select_related('item', 'item__default_unit', 'unit').all():
         try:
             if line.item and line.unit:
-                cogs = calculate_line_cogs_with_conversion(line.item, line.qty_delivered, line.unit)
+                qty = getattr(line, qty_field, None) or Decimal('0')
+                cogs = calculate_line_cogs_with_conversion(line.item, qty, line.unit)
                 total += cogs
         except Exception:
             # Skip lines with missing items or other errors
@@ -140,12 +150,34 @@ def service_invoice_cogs(invoice):
 
 
 
+def _sales_order_has_posted_fulfillment(sales_order):
+    """True if the SO has any POSTED delivery or pickup — i.e. its lines'
+    qty_delivered reflects real fulfillment. When False, an invoice for this SO
+    was necessarily billed at qty_ordered (a direct SO invoice paid before any
+    fulfillment), so its COGS must be costed at qty_ordered too."""
+    from core.models import DocumentStatus
+    return (
+        sales_order.deliveries.filter(status=DocumentStatus.POSTED).exists()
+        or sales_order.pickups.filter(status=DocumentStatus.POSTED).exists()
+    )
+
+
 def compute_invoice_cogs(invoice):
-    """Compute COGS from linked source document with unit conversions."""
+    """Compute COGS from the linked source document with unit conversions.
+
+    For SO-linked invoices, COGS is costed at qty_delivered when the SO has
+    real (posted) fulfillment, and at qty_ordered otherwise — so a direct SO
+    invoice that was billed and paid before any delivery/pickup was posted
+    (qty_delivered still 0) is costed at what it actually charged instead of
+    collapsing to 0. Both branches cost through the SO's own line/item FKs, so
+    they're robust to renamed/synthetic invoice-line codes.
+    """
     if invoice.pos_sale_id:
         cogs = pos_sale_cogs(invoice.pos_sale)
     elif invoice.sales_order_id:
-        cogs = sales_order_cogs(invoice.sales_order)
+        so = invoice.sales_order
+        qty_field = 'qty_delivered' if _sales_order_has_posted_fulfillment(so) else 'qty_ordered'
+        cogs = sales_order_cogs(so, qty_field=qty_field)
     else:
         cogs = service_invoice_cogs(invoice)
     return cogs.quantize(Decimal('0.01'))
