@@ -96,7 +96,12 @@ class StockAdjustmentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='post')
     def post_adjustment(self, request, pk=None):
         adjustment = self.get_object()
-        force = bool(request.data.get('force'))
+        # NOTE: bool(request.data.get('force')) would be wrong here — a
+        # client explicitly sending force="false" or force="0" as a string
+        # (rather than a real JSON boolean) would evaluate to True, since
+        # any non-empty string is truthy in Python. Match against the
+        # values that actually mean "yes" instead.
+        force = request.data.get('force') in (True, 'true', 'True', '1', 1)
         try:
             adjustment = post_adjustment(adjustment, request.user, force=force)
             return Response({'status': 'posted', 'document_number': adjustment.document_number})

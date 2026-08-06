@@ -217,7 +217,8 @@ def _update_balance(item, location, qty_delta, reserved_delta=Decimal('0')):
 
 
 def _sync_moves(moves):
-    """Enqueue newly bulk_created StockMoves onto the background sync queue.
+    """Enqueue newly bulk_created StockMoves onto the background sync queue,
+    once the enclosing transaction actually commits.
 
     bulk_create() never fires post_save, so without this call every move
     created by this module stays local-only forever (never reaches Neon or
@@ -225,11 +226,29 @@ def _sync_moves(moves):
     it — see sync/signals.py's BULK OPERATION HELPERS section. StockBalance
     is unaffected by this (it's always written via individual .save() calls,
     which fire signals normally); this is specifically for StockMove.
+
+    Deferred via on_commit — same as the normal per-row signal path in
+    sync/signals.py — rather than called eagerly. Every caller of this
+    function runs inside @transaction.atomic(using=_WRITE_DB) and does more
+    work afterward (updating the parent document's status, writing an audit
+    log entry, etc.). If that later code raises, the whole transaction rolls
+    back, including these StockMove rows — but an eager call here would have
+    already durably queued them for push to Neon, with no way to un-queue on
+    rollback. The background worker reconstructs a row for Neon purely from
+    the row_data captured at enqueue time without re-checking it still
+    exists locally, so that would push a ghost StockMove to Neon with no
+    corresponding local row. on_commit (a no-op wrapper when there's no
+    active transaction) makes this safe either way.
     """
     if not moves:
         return
-    from sync.signals import bulk_sync_upsert
-    bulk_sync_upsert(StockMove, [m.pk for m in moves])
+    pks = [m.pk for m in moves]
+
+    def _enqueue():
+        from sync.signals import bulk_sync_upsert
+        bulk_sync_upsert(StockMove, pks)
+
+    transaction.on_commit(_enqueue, using=_WRITE_DB)
 
 
 def _create_audit(user, action, obj, changes=None):
