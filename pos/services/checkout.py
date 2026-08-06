@@ -1,13 +1,23 @@
 """
 POS posting engine — checkout, refund, void, shift management.
 All stock changes delegate to inventory.services._update_balance for consistency.
+
+NOTE: every atomic block below is explicitly pinned to _WRITE_DB (imported
+from inventory.services), never left as a bare decorator with no `using`.
+A bare decorator wraps the 'default' alias — but this app's local-first DB
+router sends all of these functions' actual writes to 'local_cache'
+whenever SYNC_MODE=neon_primary. Leaving it bare would open a transaction
+on the wrong connection, so a mid-function failure wouldn't roll back the
+StockMove/StockBalance writes that already happened on local_cache — they'd
+be left half-applied instead of the all-or-nothing guarantee this decorator
+is supposed to provide.
 """
 from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
 from inventory.models import StockMove, StockBalance, MoveType, MoveStatus
-from inventory.services import _update_balance, _create_audit, _sync_moves
+from inventory.services import _update_balance, _create_audit, _sync_moves, _WRITE_DB
 from catalog.models import convert_to_base_unit
 from pos.models import (
     POSSale, POSSaleLine, POSSaleBundleLine, POSPayment,
@@ -31,7 +41,7 @@ def generate_refund_number():
     return f"RFN-{next_num:06d}"
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def open_shift(register, user, opening_cash=Decimal('0')):
     """Open a new cash shift for a register."""
     # Check no other OPEN shift on this register
@@ -49,7 +59,7 @@ def open_shift(register, user, opening_cash=Decimal('0')):
     return shift
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def close_shift(shift, user, closing_cash_declared=Decimal('0')):
     """Close an open shift, computing variance."""
     if shift.status != ShiftStatus.OPEN:
@@ -115,7 +125,7 @@ def close_shift(shift, user, closing_cash_declared=Decimal('0')):
     return shift
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_pos_sale(sale_id, user):
     """
     Post a POS sale: validate payments, create StockMove rows, update balances.
@@ -259,7 +269,7 @@ def post_pos_sale(sale_id, user):
     return sale
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def sync_pos_sale_stock_moves(sale_id, user):
     """Idempotent backfill: ensure StockMove rows exist for a completed POS sale.
 
@@ -330,7 +340,7 @@ def sync_pos_sale_stock_moves(sale_id, user):
     return sale
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def post_pos_refund(refund_id, user):
     """
     Post a POS refund: create RETURN_IN StockMove rows, update balances and shift.
@@ -399,7 +409,7 @@ def post_pos_refund(refund_id, user):
     return refund
 
 
-@transaction.atomic
+@transaction.atomic(using=_WRITE_DB)
 def void_sale(sale_id, user):
     """
     Void a POS sale.
