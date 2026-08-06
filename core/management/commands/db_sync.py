@@ -8,7 +8,7 @@ import os
 from collections import defaultdict, deque
 from django.core.management.base import BaseCommand
 from django.apps import apps
-from django.db import connections
+from django.db import connections, transaction
 from django.conf import settings
 import dj_database_url
 
@@ -179,11 +179,32 @@ class Command(BaseCommand):
                     obj._state.adding = True
                     obj._state.db = dst
 
-                for i in range(0, len(objs), BATCH_SIZE):
-                    batch = objs[i:i + BATCH_SIZE]
-                    self._all_manager(model).using(dst).bulk_create(
-                        batch, batch_size=BATCH_SIZE, ignore_conflicts=True,
-                    )
+                # Wrap this table's batches in one transaction: if a later
+                # batch raises, earlier ones for the SAME table roll back too,
+                # so a failed table ends up fully empty (and reported as
+                # failed) instead of partially populated. A half-populated
+                # parent table is exactly how a child row ends up pointing at
+                # a PK that silently never made it across.
+                with transaction.atomic(using=dst):
+                    for i in range(0, len(objs), BATCH_SIZE):
+                        batch = objs[i:i + BATCH_SIZE]
+                        self._all_manager(model).using(dst).bulk_create(
+                            batch, batch_size=BATCH_SIZE, ignore_conflicts=True,
+                        )
+
+                # Reset this table's PK sequence immediately, not in one big
+                # pass after every table has copied. The truncate reset
+                # Neon's sequence to 1; until it's moved past whatever was
+                # just copied in, any direct-to-Neon insert (bypassing this
+                # command) could be auto-assigned a PK that a still-pending
+                # table's row is about to claim explicitly. ignore_conflicts
+                # would then silently drop that row — its children would
+                # keep referencing a PK that now belongs to something else
+                # entirely. Resetting right after each table's own copy
+                # shrinks that window from "the whole sync" to "this table".
+                if dst_is_pg:
+                    self._reset_sequence_for_model(dst, model)
+
                 total_copied += cnt
                 self.stdout.write(f'  OK    {name}: {cnt} rows')
             except Exception as exc:
@@ -210,28 +231,17 @@ class Command(BaseCommand):
             self.stdout.write('\nStep 4/5: (no FK constraints to restore)')
 
         # -- Reset sequences (PostgreSQL only) --------------------------------
+        # Every non-empty table already had its sequence reset immediately
+        # after its own copy, in Step 3, to minimize the collision window.
+        # This pass is the catch-all: zero-row tables (never entered that
+        # loop, but were still truncated to empty and need their sequence
+        # back at 1) and failed tables (defensive — reset to whatever
+        # partial/rolled-back state they ended up in).
         pg_alias = 'neon' if direction == 'local_to_neon' else None
         if pg_alias:
-            self.stdout.write(f'\nStep 5/5: Resetting PostgreSQL sequences...')
-            with connections[pg_alias].cursor() as cursor:
-                for model in all_models:
-                    if not model._meta.managed:
-                        continue
-                    db_table = model._meta.db_table
-                    pk_col = model._meta.pk.column if model._meta.pk else None
-                    if pk_col:
-                        try:
-                            cursor.execute(f"""
-                                SELECT setval(
-                                    pg_get_serial_sequence('{db_table}', '{pk_col}'),
-                                    COALESCE(
-                                        (SELECT MAX("{pk_col}") FROM "{db_table}"), 1
-                                    ),
-                                    true
-                                )
-                            """)
-                        except Exception:
-                            pass
+            self.stdout.write(f'\nStep 5/5: Resetting remaining PostgreSQL sequences...')
+            for model in all_models:
+                self._reset_sequence_for_model(pg_alias, model)
             self.stdout.write('Sequences reset.')
         else:
             self.stdout.write(f'\nStep 5/5: (SQLite target — no sequence reset needed)')
@@ -334,6 +344,35 @@ class Command(BaseCommand):
         destination", not just hidden.
         """
         return getattr(model, 'all_objects', model.objects)
+
+    @staticmethod
+    def _reset_sequence_for_model(db_alias, model):
+        """Move a PostgreSQL table's PK sequence past its current MAX(pk).
+
+        Safe to call for non-serial PKs (e.g. UUID) — pg_get_serial_sequence
+        returns NULL for those and setval() is skipped via the exception
+        guard below. Safe to call on an empty table too — COALESCE falls
+        back to 1.
+        """
+        if not model._meta.managed:
+            return
+        db_table = model._meta.db_table
+        pk_col = model._meta.pk.column if model._meta.pk else None
+        if not pk_col:
+            return
+        try:
+            with connections[db_alias].cursor() as cursor:
+                cursor.execute(f"""
+                    SELECT setval(
+                        pg_get_serial_sequence('{db_table}', '{pk_col}'),
+                        COALESCE(
+                            (SELECT MAX("{pk_col}") FROM "{db_table}"), 1
+                        ),
+                        true
+                    )
+                """)
+        except Exception:
+            pass
 
     @staticmethod
     def _unrecord_drifted_migrations(db_alias):
