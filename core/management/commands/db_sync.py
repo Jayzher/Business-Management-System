@@ -21,6 +21,17 @@ NEON_URL = getattr(_settings, 'NEON_URL', (
 ))
 BATCH_SIZE = 500
 
+# The 'sync' app's own bookkeeping tables (SyncOutbox, NeonChangeLog,
+# ChangelogReplayFailure) must never go through the generic truncate+copy
+# sweep below. They aren't business data — they're this device's/Neon's own
+# record of what still needs to sync. Truncating NeonChangeLog on the
+# destination would erase the history every OTHER device relies on to catch
+# up incrementally (their saved checkpoint would then point past a table
+# that no longer has that history, and they'd wrongly conclude they're
+# already up to date). Truncating SyncOutbox would silently drop this
+# device's own pending-write record.
+_EXCLUDED_APP_LABELS = {'sync'}
+
 
 class Command(BaseCommand):
     help = 'Sync data between local SQLite and Neon PostgreSQL in either direction.'
@@ -69,7 +80,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f'  Source migration warning: {e}'))
 
         # -- Topologically sort models by FK deps (parents first) -------------
-        all_models = self._topo_sort_models()
+        all_models = [
+            m for m in self._topo_sort_models()
+            if m._meta.app_label not in _EXCLUDED_APP_LABELS
+        ]
 
         # -- Count source rows -----------------------------------------------
         self.stdout.write(f'\nCounting rows on {label_src}...')
@@ -78,7 +92,7 @@ class Command(BaseCommand):
         for model in all_models:
             name = f'{model._meta.app_label}.{model._meta.model_name}'
             try:
-                cnt = model.objects.using(src).count()
+                cnt = self._all_manager(model).using(src).count()
             except Exception:
                 cnt = 0
             if cnt:
@@ -150,17 +164,24 @@ class Command(BaseCommand):
         self.stdout.write(f'Step 3/5: Copying data {label_src} -> {label_dst}')
         total_copied = 0
         errors = []
+        failed_tables = set()
 
         for model, name, cnt in model_counts:
             try:
-                objs = list(model.objects.using(src).all())
+                # Use all_objects where available (SoftDeleteModel subclasses)
+                # instead of the filtered default manager. The destination
+                # was just fully truncated, so any soft-deleted row the
+                # filtered manager doesn't see here is not merely hidden from
+                # this copy — it's permanently gone from the destination
+                # afterward, with no way back.
+                objs = list(self._all_manager(model).using(src).all())
                 for obj in objs:
                     obj._state.adding = True
                     obj._state.db = dst
 
                 for i in range(0, len(objs), BATCH_SIZE):
                     batch = objs[i:i + BATCH_SIZE]
-                    model.objects.using(dst).bulk_create(
+                    self._all_manager(model).using(dst).bulk_create(
                         batch, batch_size=BATCH_SIZE, ignore_conflicts=True,
                     )
                 total_copied += cnt
@@ -169,6 +190,7 @@ class Command(BaseCommand):
                 msg = f'  ERROR {name}: {exc}'
                 self.stdout.write(msg)
                 errors.append(msg)
+                failed_tables.add(model._meta.db_table)
 
         # -- Re-enable FK constraints ----------------------------------------
         if dst_is_pg and saved_fks:
@@ -234,10 +256,84 @@ class Command(BaseCommand):
             self.stdout.write('  Run: python manage.py cleanup_orphaned_fks')
         else:
             self.stdout.write('  FK integrity OK')
-        
+
         self.stdout.write('=' * 60)
 
+        # -- SyncOutbox reconciliation (local_to_neon only) -------------------
+        # A full local_to_neon push just made Neon match this device's
+        # current local state for every table it touched — any SyncOutbox
+        # row still queued for one of those tables is now moot (Neon already
+        # has this row's current state, in full, not just the queued delta).
+        # Only reconcile tables that actually copied without error; a table
+        # that failed still needs its outbox rows to retry normally later.
+        if direction == 'local_to_neon':
+            self._reconcile_outbox_after_full_push(all_models, failed_tables)
+
+    def _reconcile_outbox_after_full_push(self, all_models, failed_tables):
+        self.stdout.write('\nReconciling SyncOutbox after full push to Neon...')
+        try:
+            from sync.models import SyncOutbox
+
+            synced_tables = {
+                m._meta.db_table for m in all_models
+                if m._meta.db_table not in failed_tables
+            }
+            cleared, _ = (
+                SyncOutbox.objects.using('local_cache')
+                .filter(db_table__in=synced_tables)
+                .delete()
+            )
+            self.stdout.write(
+                f'  Cleared {cleared} outbox entr{"y" if cleared == 1 else "ies"} '
+                f'for {len(synced_tables)} table(s) now fully pushed to Neon.'
+            )
+        except Exception as exc:
+            self.stdout.write(self.style.WARNING(f'  Outbox cleanup skipped (non-fatal): {exc}'))
+            return
+
+        if failed_tables:
+            self.stdout.write(self.style.WARNING(
+                f'  Left outbox entries in place for {len(failed_tables)} table(s) '
+                'that had copy errors — fix and re-run before relying on them.'
+            ))
+
+        # Only reset the changelog checkpoint when EVERY table made it across
+        # cleanly — it's a single global cursor, not per-table, so resetting
+        # it while some tables are known-incomplete would make this device
+        # (and anyone catching up via its changes) think it's caught up with
+        # Neon when it isn't.
+        if not failed_tables:
+            try:
+                from sync.startup_sync import _set_checkpoint_to_latest, _set_last_sync_time
+                from django.utils import timezone
+                _set_checkpoint_to_latest()
+                _set_last_sync_time(timezone.now())
+                self.stdout.write(
+                    '  Changelog checkpoint reset — this device is caught up with Neon. '
+                    'Normal incremental sync (SyncOutbox + NeonChangeLog) resumes from here.'
+                )
+            except Exception as exc:
+                self.stdout.write(self.style.WARNING(f'  Checkpoint reset skipped (non-fatal): {exc}'))
+        else:
+            self.stdout.write(self.style.WARNING(
+                '  Skipped changelog checkpoint reset — some tables had errors above.'
+            ))
+
     # -- helpers --------------------------------------------------------------
+
+    @staticmethod
+    def _all_manager(model):
+        """Return the unfiltered manager for a model when it has one.
+
+        Models built on SoftDeleteModel (core/models.py) expose an
+        all_objects manager that bypasses the is_active=True filter the
+        default 'objects' manager applies. Using the filtered manager here
+        would mean every soft-deleted row is invisible to this command —
+        and since the destination table gets fully truncated before the
+        copy, "invisible" here means "permanently deleted from the
+        destination", not just hidden.
+        """
+        return getattr(model, 'all_objects', model.objects)
 
     @staticmethod
     def _unrecord_drifted_migrations(db_alias):
@@ -486,13 +582,19 @@ class Command(BaseCommand):
     @staticmethod
     def _truncate_all(db_alias):
         """
-        Truncate every managed table on the destination database.
+        Truncate every managed table on the destination database, EXCEPT the
+        'sync' app's own bookkeeping tables (SyncOutbox/NeonChangeLog/
+        ChangelogReplayFailure) — see _EXCLUDED_APP_LABELS at module scope
+        for why those must never be wiped by this command.
         Uses TRUNCATE … CASCADE on PostgreSQL, DELETE on SQLite.
         Skips tables that don't exist.
         """
         is_pg = 'postgresql' in settings.DATABASES[db_alias].get('ENGINE', '')
         all_models = apps.get_models(include_auto_created=True)
-        tables = [m._meta.db_table for m in all_models if m._meta.managed]
+        tables = [
+            m._meta.db_table for m in all_models
+            if m._meta.managed and m._meta.app_label not in _EXCLUDED_APP_LABELS
+        ]
 
         with connections[db_alias].cursor() as cursor:
             if is_pg:
