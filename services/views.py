@@ -535,6 +535,7 @@ def service_start(request, pk):
     if lines or bundles:
         try:
             from inventory.models import StockMove, StockBalance, MoveType, MoveStatus
+            from inventory.services import _sync_moves
             from catalog.models import convert_to_base_unit
             from warehouses.models import Location
 
@@ -633,6 +634,7 @@ def service_start(request, pk):
 
             if moves:
                 StockMove.objects.bulk_create(moves)
+                _sync_moves(moves)
 
             if missing_location_items:
                 messages.warning(

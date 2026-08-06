@@ -1,0 +1,29 @@
+{# Date-range scoping controls for the Full Inventory Resync action cards.
+   Included from tests_syncs.html for both 'resync_inventory' and
+   'resync_inventory_dry'. Field IDs are keyed by {{ a.key }} so the JS in
+   tests_syncs.html can read the right card's values regardless of which
+   button was clicked. #}
+<div class="ts-resync-range mt-2 mb-2" data-range-for="{{ a.key }}">
+  <div class="form-check form-check-sm mb-1">
+    <input class="form-check-input ts-resync-full" type="checkbox" checked
+           id="full-{{ a.key }}">
+    <label class="form-check-label small" for="full-{{ a.key }}">
+      Full Inventory Resync (ignore date range)
+    </label>
+  </div>
+  <div class="d-flex gap-2 ts-resync-dates" id="dates-{{ a.key }}" style="display:none;">
+    <div>
+      <label class="form-label small mb-0" for="start-{{ a.key }}">From</label>
+      <input type="date" class="form-control form-control-sm" id="start-{{ a.key }}">
+    </div>
+    <div>
+      <label class="form-label small mb-0" for="end-{{ a.key }}">To</label>
+      <input type="date" class="form-control form-control-sm" id="end-{{ a.key }}">
+    </div>
+  </div>
+  <div class="small text-muted ts-resync-dates" id="hint-{{ a.key }}" style="display:none;">
+    Scopes cleanup + quantity-fix/backfill to documents posted in this range.
+    Balance and running-total recomputes (qty received/delivered, cost price)
+    always use full history regardless of this range.
+  </div>
+</div>

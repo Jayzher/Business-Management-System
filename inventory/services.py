@@ -216,6 +216,22 @@ def _update_balance(item, location, qty_delta, reserved_delta=Decimal('0')):
     return balance
 
 
+def _sync_moves(moves):
+    """Enqueue newly bulk_created StockMoves onto the background sync queue.
+
+    bulk_create() never fires post_save, so without this call every move
+    created by this module stays local-only forever (never reaches Neon or
+    other devices) until an unrelated full resync/hydration happens to catch
+    it — see sync/signals.py's BULK OPERATION HELPERS section. StockBalance
+    is unaffected by this (it's always written via individual .save() calls,
+    which fire signals normally); this is specifically for StockMove.
+    """
+    if not moves:
+        return
+    from sync.signals import bulk_sync_upsert
+    bulk_sync_upsert(StockMove, [m.pk for m in moves])
+
+
 def _create_audit(user, action, obj, changes=None):
     """Create a rich audit log entry with automatic detail extraction."""
     details = changes or {}
@@ -413,6 +429,7 @@ def post_goods_receipt(grn, user):
                 po_line.qty_received = (po_line.qty_received or Decimal('0')) + received_in_po_unit
 
     StockMove.objects.bulk_create(moves)
+    _sync_moves(moves)
 
     # Batch-update all PO line qty_received in one round-trip
     if po_line_updates:
@@ -788,6 +805,7 @@ def post_delivery(delivery, user):
 
     if moves:
         StockMove.objects.bulk_create(moves)
+        _sync_moves(moves)
 
     if delivery_line_updates:
         DeliveryLine.objects.bulk_update(delivery_line_updates, ['sales_order_line'])
@@ -945,6 +963,7 @@ def post_sales_pickup(pickup, user):
 
     if moves:
         StockMove.objects.bulk_create(moves)
+        _sync_moves(moves)
 
     if pickup_line_updates:
         SalesPickupLine.objects.bulk_update(pickup_line_updates, ['sales_order_line'])
@@ -1040,6 +1059,7 @@ def post_transfer(transfer, user):
         _update_balance(line.item, line.to_location, base_qty)
 
     StockMove.objects.bulk_create(moves)
+    _sync_moves(moves)
 
     transfer.status = DocumentStatus.POSTED
     transfer.posted_by = user
@@ -1052,11 +1072,22 @@ def post_transfer(transfer, user):
 
 
 @transaction.atomic(using=_WRITE_DB)
-def post_adjustment(adjustment, user):
+def post_adjustment(adjustment, user, force=False):
     """
     Post a Stock Adjustment: sets stock directly TO the new qty (qty_counted).
     Locks the balance row first, then overwrites qty_on_hand to the new value
     so the result is always exactly what was counted.
+
+    STALE COUNT GUARD: line.qty_system is a snapshot taken when the line was
+    last saved as a draft (see StockAdjustmentLineForm). If the live balance
+    has moved since then — e.g. a sale posted while this adjustment sat as a
+    draft — that snapshot (and, for an Increase/Decrease-mode line, the
+    qty_counted derived from it) no longer reflects reality. Rather than
+    silently applying a correction computed against a baseline that's since
+    changed, this raises so the operator can recount or explicitly force it.
+    Pass force=True to apply qty_counted as-is regardless (the live balance
+    is always what actually gets read/written either way — this only gates
+    whether a mismatch blocks or is accepted).
     """
     from core.models import DocumentStatus
 
@@ -1073,6 +1104,7 @@ def post_adjustment(adjustment, user):
     now = timezone.now()
     moves = []
     skipped = []
+    stale_lines = []
 
     for line in lines:
         # Convert the new counted qty to base/stock units
@@ -1087,6 +1119,18 @@ def post_adjustment(adjustment, user):
             defaults={'qty_on_hand': Decimal('0'), 'qty_reserved': Decimal('0')},
         )
         old_qty = balance.qty_on_hand
+
+        # The count was taken against line.qty_system — if the live balance
+        # has since drifted away from that snapshot, flag it before applying
+        # anything derived from the stale number.
+        if line.qty_system != old_qty:
+            stale_lines.append(
+                f"{line.item.code} @ {line.location}: counted against system qty "
+                f"{line.qty_system}, but current system qty is {old_qty}"
+            )
+            if not force:
+                continue  # don't apply this line yet — see the raise below
+
         base_diff = new_qty - old_qty
 
         if base_diff == 0:
@@ -1122,7 +1166,18 @@ def post_adjustment(adjustment, user):
         )
         moves.append(move)
 
+    if stale_lines and not force:
+        raise ValueError(
+            f"Adjustment {adjustment.document_number}: {len(stale_lines)} line(s) were "
+            f"counted against a system quantity that has since changed — "
+            "posting was NOT applied to avoid overwriting stock with a stale count.\n"
+            + "\n".join(f"  - {s}" for s in stale_lines)
+            + "\nRecount the affected line(s), or force-post to apply the counted "
+            "quantities as entered regardless."
+        )
+
     StockMove.objects.bulk_create(moves)
+    _sync_moves(moves)
 
     adjustment.status = DocumentStatus.POSTED
     adjustment.posted_by = user
@@ -1179,6 +1234,7 @@ def post_damaged_report(report, user):
         _update_balance(line.item, line.location, -base_qty)
 
     StockMove.objects.bulk_create(moves)
+    _sync_moves(moves)
 
     report.status = DocumentStatus.POSTED
     report.posted_by = user
@@ -1304,6 +1360,7 @@ def cancel_document(doc, user):
                 _update_balance(orig.item, orig.from_location, orig.qty)
 
         StockMove.objects.bulk_create(reversal_moves)
+        _sync_moves(reversal_moves)
 
     doc.status = DocumentStatus.CANCELLED
     doc.save(update_fields=['status', 'updated_at'])
@@ -1457,6 +1514,7 @@ def post_purchase_return(pr, user):
         _update_balance(line.item, line.location, -base_qty)
 
     StockMove.objects.bulk_create(moves)
+    _sync_moves(moves)
 
     pr.status = DocumentStatus.POSTED
     pr.posted_by = user
@@ -1513,6 +1571,7 @@ def post_sales_return(sr, user):
         _update_balance(line.item, line.location, base_qty)
 
     StockMove.objects.bulk_create(moves)
+    _sync_moves(moves)
 
     sr.status = DocumentStatus.POSTED
     sr.posted_by = user
@@ -1618,6 +1677,7 @@ def post_inventory_to_supply(ist, user):
         supply_movements.append(sm)
 
     StockMove.objects.bulk_create(moves)
+    _sync_moves(moves)
 
     # Save supply movements individually so the .save() triggers current_stock recalc
     for sm in supply_movements:
@@ -1679,6 +1739,7 @@ def cancel_inventory_to_supply(ist, user):
                 _update_balance(orig.item, orig.from_location, orig.qty)
 
         StockMove.objects.bulk_create(reversal_moves)
+        _sync_moves(reversal_moves)
 
         # Reverse SupplyMovements: add OUT movements to cancel each IN
         for line in ist.lines.select_related('supply_item', 'unit').all():

@@ -38,4 +38,49 @@
     <a href="{% url 'adjustment_list' %}" class="btn btn-secondary"><i class="fas fa-times mr-1"></i> Cancel</a>
   </div>
 </form>
+
+<script>
+(function () {
+  // Toggle between "Counted Qty" and "Increase/Decrease By" inputs per line,
+  // based on that line's Adjustment Type dropdown.
+  function applyAdjMode(row, mode) {
+    var countedCol = row.querySelector('.qty-counted-input');
+    var deltaCol = row.querySelector('.adj-delta-input');
+    countedCol = countedCol ? countedCol.closest('.col-md-6') : null;
+    deltaCol = deltaCol ? deltaCol.closest('.col-md-6') : null;
+    var isCount = (mode || 'count') === 'count';
+    if (countedCol) countedCol.style.display = isCount ? '' : 'none';
+    if (deltaCol) deltaCol.style.display = isCount ? 'none' : '';
+  }
+
+  function initRow(row) {
+    var sel = row.querySelector('.adj-mode-select');
+    if (sel) applyAdjMode(row, sel.value);
+  }
+
+  document.addEventListener('change', function (e) {
+    if (!e.target.classList || !e.target.classList.contains('adj-mode-select')) return;
+    var row = e.target.closest('.formset-row');
+    if (row) applyAdjMode(row, e.target.value);
+  });
+
+  var body = document.getElementById('formset-body');
+  if (body) {
+    document.querySelectorAll('#formset-body .formset-row').forEach(initRow);
+    // New rows (added via the "Add Row" button) start in 'count' mode by
+    // default, which is already what the markup shows — but if a future
+    // change makes the default something else, this keeps new rows correct
+    // without needing to touch the shared add-row script.
+    new MutationObserver(function (mutations) {
+      mutations.forEach(function (m) {
+        m.addedNodes.forEach(function (node) {
+          if (node.nodeType === 1 && node.classList && node.classList.contains('formset-row')) {
+            initRow(node);
+          }
+        });
+      });
+    }).observe(body, { childList: true });
+  }
+})();
+</script>
 {% endblock %}

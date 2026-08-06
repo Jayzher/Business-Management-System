@@ -1395,10 +1395,25 @@ def run_sync_action(request):
     if not spec:
         return JsonResponse({'ok': False, 'error': f'Unknown action: {action_key}'}, status=400)
 
+    run_args = list(spec['args'])
+
+    # resync_inventory / resync_inventory_dry: optional date-range scoping.
+    # The "full" checkbox (default checked in the UI) disables the date
+    # inputs and means "resync everything" — the command's own default when
+    # no dates are passed. Unchecking it and supplying both dates scopes
+    # Phase 0/1 to that window (see resync_inventory.py for why Phase 1c/2
+    # never get scoped).
+    if action_key in ('resync_inventory', 'resync_inventory_dry'):
+        full = request.POST.get('full', '1') in ('1', 'true', 'on', 'True')
+        start_date = (request.POST.get('start_date') or '').strip()
+        end_date = (request.POST.get('end_date') or '').strip()
+        if not full and start_date and end_date:
+            run_args += ['--start-date', start_date, '--end-date', end_date]
+
     from django.core.management import call_command
     buf = io.StringIO()
     try:
-        call_command(spec['command'], *spec['args'], stdout=buf, stderr=buf)
+        call_command(spec['command'], *run_args, stdout=buf, stderr=buf)
         output = buf.getvalue()
         response = {'ok': True, 'output': output}
 

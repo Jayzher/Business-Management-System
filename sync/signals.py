@@ -362,10 +362,8 @@ def on_model_delete(sender, instance, using, **kwargs):
 #   - Raw SQL
 #
 # Any code that uses these operations on synced models MUST call the
-# appropriate helper below to ensure:
-#   1. The change is logged to NeonChangeLog (for other devices)
-#   2. The change is mirrored to local_cache (for this device)
-#   3. A WebSocket broadcast is sent (for connected clients)
+# appropriate helper below to ensure the change actually reaches Neon and
+# other devices — otherwise it silently stays local-only forever.
 #
 # Usage:
 #   from sync.signals import bulk_sync_upsert, bulk_sync_delete
@@ -378,23 +376,45 @@ def on_model_delete(sender, instance, using, **kwargs):
 #   pks = list(MyModel.objects.filter(...).values_list('id', flat=True))
 #   MyModel.objects.filter(pk__in=pks).delete()
 #   bulk_sync_delete(MyModel, pks)
+#
+# IMPORTANT — these enqueue onto the background worker, they do not push to
+# Neon synchronously. An earlier version of this file fetched the rows via
+# `.using('default')` and wrote NeonChangeLog inline on the caller's thread,
+# on the assumption that the bulk operation had written straight to Neon.
+# That assumption doesn't hold in this app: AppEnvironmentRouter sends every
+# unqualified write (including bulk_create/bulk_update/.update()) to
+# 'local_cache' in neon_primary mode, so that fetch-from-Neon always came up
+# empty and both helpers were a silent no-op. It also had no durable
+# fallback — if Neon was unreachable at the exact moment a bulk operation
+# ran, that sync was lost forever, unlike every other write path in this
+# module, which records a SyncOutbox row before attempting anything over the
+# network. Routing through enqueue_save()/enqueue_delete() (the same
+# functions the per-row signal handlers use) fixes both: rows are read back
+# from local_cache — where they actually are — and each one gets the same
+# outbox-first durability and retry as a normal save.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
 def bulk_sync_upsert(model, pks: list, source: str = '') -> int:
     """
-    Log + mirror a batch of upserted rows to NeonChangeLog and local_cache.
+    Enqueue a batch of bulk-created/bulk-updated rows onto the background
+    sync worker's queue — the same path individual saves use.
 
-    Call this AFTER a bulk_create/bulk_update/QuerySet.update() on Neon.
-    The rows must already exist on Neon (default DB) at the time of this call.
+    Call this AFTER a bulk_create()/bulk_update()/QuerySet.update() on a
+    synced model. Reads the rows back from local_cache (where an unqualified
+    bulk write actually lands under the local-first router) and hands each
+    one to enqueue_save(), which durably records it to SyncOutbox before
+    queuing — so nothing is lost even if Neon is unreachable right now; the
+    worker (or drain_sync_outbox on next boot) picks it up when it can.
 
     Args:
         model: The Django model class.
         pks: List of primary keys that were created/updated.
-        source: Optional label for source_device in the changelog.
+        source: Unused today (kept for call-site compatibility) — the queue
+            path always attributes changes to this device's own id.
 
     Returns:
-        Number of rows successfully synced.
+        Number of rows enqueued.
     """
     if not pks:
         return 0
@@ -403,67 +423,47 @@ def bulk_sync_upsert(model, pks: list, source: str = '') -> int:
     if not _is_neon_primary():
         return 0
 
+    from sync.background_sync import enqueue_save
+
     table = model._meta.db_table
     app_label = model._meta.app_label
     model_name = model._meta.model_name
-    device_id = source or _get_device_id()
 
-    BATCH_SIZE = 200
-    synced = 0
+    BATCH_SIZE = 500
+    queued = 0
 
     for i in range(0, len(pks), BATCH_SIZE):
         batch_pks = pks[i:i + BATCH_SIZE]
 
-        # Fetch current state from Neon
-        objs = list(
-            model._default_manager.using('default').filter(pk__in=batch_pks)
-        )
+        # Read back the current state from local_cache — that's where the
+        # router actually put these rows, not Neon.
+        objs = model._default_manager.using('local_cache').filter(pk__in=batch_pks)
 
-        # Log each to NeonChangeLog
-        changelog_entries = []
         for obj in objs:
             row_data = _instance_to_dict(obj)
-            changelog_entries.append({
-                'action': 'upsert',
-                'table': table,
-                'app_label': app_label,
-                'model_name': model_name,
-                'pk': obj.pk,
-                'row_data': row_data,
-                'device_id': device_id,
-            })
+            enqueue_save(model, obj.pk, table, app_label, model_name, row_data)
+            queued += 1
 
-        # Batch-insert changelog entries
-        if changelog_entries:
-            _bulk_log_to_neon_changelog(changelog_entries)
-
-        # Mirror to local_cache (upsert)
-        if objs and not _SYNC_IN_PROGRESS.is_set():
-            _bulk_mirror_to_local_cache(model, objs)
-
-        synced += len(objs)
-
-    # Broadcast
-    if synced > 0:
-        broadcast_table_changed([table])
-
-    return synced
+    return queued
 
 
 def bulk_sync_delete(model, pks: list, source: str = '') -> int:
     """
-    Log + mirror a batch of deleted rows to NeonChangeLog and local_cache.
+    Enqueue a batch of bulk-deleted rows onto the background sync worker's
+    queue — the same path individual deletes use.
 
-    Call this AFTER a QuerySet.delete() on Neon.
-    The rows must already be deleted from Neon at the time of this call.
+    Call this AFTER a QuerySet.delete() on a synced model — the rows must
+    already be gone from local_cache by the time this runs (a bare
+    QuerySet.delete() already routes there under the local-first router).
+    Each pk gets the same outbox-first durability as a normal delete.
 
     Args:
         model: The Django model class.
         pks: List of primary keys that were deleted.
-        source: Optional label for source_device in the changelog.
+        source: Unused today (kept for call-site compatibility).
 
     Returns:
-        Number of rows logged.
+        Number of rows enqueued.
     """
     if not pks:
         return 0
@@ -472,109 +472,13 @@ def bulk_sync_delete(model, pks: list, source: str = '') -> int:
     if not _is_neon_primary():
         return 0
 
+    from sync.background_sync import enqueue_delete
+
     table = model._meta.db_table
     app_label = model._meta.app_label
     model_name = model._meta.model_name
-    device_id = source or _get_device_id()
 
-    # Log to NeonChangeLog
-    changelog_entries = []
     for pk in pks:
-        changelog_entries.append({
-            'action': 'delete',
-            'table': table,
-            'app_label': app_label,
-            'model_name': model_name,
-            'pk': pk,
-            'row_data': None,
-            'device_id': device_id,
-        })
-
-    if changelog_entries:
-        _bulk_log_to_neon_changelog(changelog_entries)
-
-    # Mirror deletes to local_cache
-    if not _SYNC_IN_PROGRESS.is_set():
-        try:
-            model._default_manager.using('local_cache').filter(pk__in=pks).delete()
-        except Exception as exc:
-            logger.warning('Bulk mirror-delete failed (%s): %s', model.__name__, exc)
-
-    # Broadcast
-    broadcast_data_changed(table, 'delete', [{'id': pk} for pk in pks])
+        enqueue_delete(model, pk, table, app_label, model_name)
 
     return len(pks)
-
-
-def _bulk_log_to_neon_changelog(entries: list[dict]) -> None:
-    """Batch-insert multiple entries to NeonChangeLog on Neon."""
-    if getattr(_CHANGELOG_ACTIVE, 'value', False):
-        return
-
-    _CHANGELOG_ACTIVE.value = True
-    try:
-        from sync.models import NeonChangeLog
-        objs = [
-            NeonChangeLog(
-                action=e['action'],
-                db_table=e['table'],
-                app_label=e['app_label'],
-                model_name=e['model_name'],
-                row_pk=e['pk'],
-                row_data=e['row_data'],
-                source_device=e.get('device_id', ''),
-            )
-            for e in entries
-        ]
-        NeonChangeLog.objects.using('default').bulk_create(objs)
-    except Exception as exc:
-        logger.debug('Bulk NeonChangeLog write failed: %s', exc)
-    finally:
-        _CHANGELOG_ACTIVE.value = False
-
-
-def _bulk_mirror_to_local_cache(model, objs: list) -> None:
-    """Upsert a batch of objects to local_cache."""
-    if getattr(_MIRROR_ACTIVE, 'value', False):
-        return
-
-    _MIRROR_ACTIVE.value = True
-    try:
-        concrete_fields = [
-            f for f in model._meta.concrete_fields if not f.primary_key
-        ]
-        update_fields = [f.attname for f in concrete_fields]
-
-        # Temporarily disable auto_now/auto_now_add
-        auto_fields = []
-        for field in model._meta.get_fields():
-            if hasattr(field, 'auto_now') and field.auto_now:
-                field.auto_now = False
-                auto_fields.append(('auto_now', field))
-            if hasattr(field, 'auto_now_add') and field.auto_now_add:
-                field.auto_now_add = False
-                auto_fields.append(('auto_now_add', field))
-
-        try:
-            for obj in objs:
-                obj._state.adding = True
-                obj._state.db = 'local_cache'
-
-            if update_fields:
-                model._default_manager.using('local_cache').bulk_create(
-                    objs,
-                    update_conflicts=True,
-                    update_fields=update_fields,
-                    unique_fields=['id'],
-                )
-            else:
-                model._default_manager.using('local_cache').bulk_create(
-                    objs, ignore_conflicts=True,
-                )
-        finally:
-            for attr, field in auto_fields:
-                setattr(field, attr, True)
-    except Exception as exc:
-        logger.warning('Bulk mirror to local_cache failed (%s): %s', model.__name__, exc)
-    finally:
-        _MIRROR_ACTIVE.value = False

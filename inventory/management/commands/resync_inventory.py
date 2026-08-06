@@ -54,6 +54,7 @@ Usage:
 """
 from collections import defaultdict
 from contextlib import ExitStack
+from datetime import datetime, time as dt_time
 from decimal import Decimal, InvalidOperation
 
 from django.core.management.base import BaseCommand, CommandError
@@ -149,7 +150,7 @@ def _safe_convert(qty, from_unit, to_unit, label, warn_fn, item=None):
 
 # ── Phase 0 helpers ─────────────────────────────────────────────────────────
 
-def _deduplicate_moves(dry_run, warn_fn):
+def _deduplicate_moves(dry_run, warn_fn, date_range=None):
     """
     Remove duplicate POSTED StockMoves whose (reference_type, reference_id,
     item_id, from_location_id, to_location_id) tuple appears more than once.
@@ -159,13 +160,22 @@ def _deduplicate_moves(dry_run, warn_fn):
     moves with NULL from/to locations alongside real moves with concrete
     locations for the same (ref_type, ref_id, item). The NULL-location ghost
     is deleted so real inventory impact is preserved.
+
+    date_range: optional (start_dt, end_dt) — when given, scopes detection to
+    moves whose posted_at falls in the range. A duplicate whose partner move
+    lies outside the range is NOT touched (a full, unscoped run is needed to
+    catch those) — this keeps a scoped run from reaching outside its window.
+
     Returns (removed_count, groups_count).
     """
     from django.db.models import Count
 
+    qs = StockMove.objects.filter(status=MoveStatus.POSTED)
+    if date_range:
+        qs = qs.filter(posted_at__range=date_range)
+
     dupes = list(
-        StockMove.objects
-        .filter(status=MoveStatus.POSTED)
+        qs
         .exclude(reference_number__startswith='REV-')
         .exclude(reference_number__startswith='VOID-')
         .values('reference_type', 'reference_id', 'item_id',
@@ -176,18 +186,20 @@ def _deduplicate_moves(dry_run, warn_fn):
 
     removed = 0
     for grp in dupes:
+        moves_qs = StockMove.objects.filter(
+            reference_type=grp['reference_type'],
+            reference_id=grp['reference_id'],
+            item_id=grp['item_id'],
+            from_location_id=grp['from_location_id'],
+            to_location_id=grp['to_location_id'],
+            batch_number=grp['batch_number'],
+            serial_number=grp['serial_number'],
+            status=MoveStatus.POSTED,
+        ).exclude(reference_number__startswith='REV-').exclude(reference_number__startswith='VOID-')
+        if date_range:
+            moves_qs = moves_qs.filter(posted_at__range=date_range)
         moves = list(
-            StockMove.objects.filter(
-                reference_type=grp['reference_type'],
-                reference_id=grp['reference_id'],
-                item_id=grp['item_id'],
-                from_location_id=grp['from_location_id'],
-                to_location_id=grp['to_location_id'],
-                batch_number=grp['batch_number'],
-                serial_number=grp['serial_number'],
-                status=MoveStatus.POSTED,
-            ).exclude(reference_number__startswith='REV-')
-             .exclude(reference_number__startswith='VOID-')
+            moves_qs
              .order_by('id')
              .select_related('item__default_unit', 'item__selling_unit', 'unit')
         )
@@ -210,18 +222,24 @@ def _deduplicate_moves(dry_run, warn_fn):
     # group has both from_location and to_location NULL AND another move has a
     # concrete location, the NULL move is a backfill phantom produced by the
     # pre-fix bug.  Delete the phantom, keep the real ones.
-    phantom_removed, phantom_groups = _remove_phantom_null_location_moves(dry_run, warn_fn)
+    phantom_removed, phantom_groups = _remove_phantom_null_location_moves(dry_run, warn_fn, date_range)
     return removed + phantom_removed, len(dupes) + phantom_groups
 
 
-def _remove_phantom_null_location_moves(dry_run, warn_fn):
+def _remove_phantom_null_location_moves(dry_run, warn_fn, date_range=None):
     """Delete moves with NULL from/to location when a concrete-location move
-    exists for the same (ref_type, ref_id, item).  Returns (removed, groups)."""
+    exists for the same (ref_type, ref_id, item).  Returns (removed, groups).
+
+    date_range: optional (start_dt, end_dt) — see _deduplicate_moves docstring.
+    """
     from django.db.models import Count, Q
 
+    loose_qs = StockMove.objects.filter(status=MoveStatus.POSTED)
+    if date_range:
+        loose_qs = loose_qs.filter(posted_at__range=date_range)
+
     loose_keys = list(
-        StockMove.objects
-        .filter(status=MoveStatus.POSTED)
+        loose_qs
         .exclude(reference_number__startswith='REV-')
         .exclude(reference_number__startswith='VOID-')
         .values('reference_type', 'reference_id', 'item_id')
@@ -232,15 +250,16 @@ def _remove_phantom_null_location_moves(dry_run, warn_fn):
     removed = 0
     groups = 0
     for key in loose_keys:
+        moves_qs = StockMove.objects.filter(
+            reference_type=key['reference_type'],
+            reference_id=key['reference_id'],
+            item_id=key['item_id'],
+            status=MoveStatus.POSTED,
+        ).exclude(reference_number__startswith='REV-').exclude(reference_number__startswith='VOID-')
+        if date_range:
+            moves_qs = moves_qs.filter(posted_at__range=date_range)
         moves = list(
-            StockMove.objects.filter(
-                reference_type=key['reference_type'],
-                reference_id=key['reference_id'],
-                item_id=key['item_id'],
-                status=MoveStatus.POSTED,
-            )
-            .exclude(reference_number__startswith='REV-')
-            .exclude(reference_number__startswith='VOID-')
+            moves_qs
             .order_by('id')
             .select_related('item')
         )
@@ -264,7 +283,7 @@ def _remove_phantom_null_location_moves(dry_run, warn_fn):
     return removed, groups
 
 
-def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
+def _delete_orphaned_moves(dry_run, warn_fn, info_fn, date_range=None):
     """
     Delete POSTED StockMoves whose source document no longer exists in the DB.
 
@@ -273,6 +292,10 @@ def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
     missing.  Any StockMove pointing to a missing document is an orphan and
     is deleted so that Phase 2 balance recalculation isn't corrupted by
     moves that were never reversed when their document was hard-deleted.
+
+    date_range: optional (start_dt, end_dt) — when given, only StockMoves
+    posted within the range are scanned for orphan status.
+
     Returns (deleted_count, orphaned_groups).
     """
     from procurement.models import GoodsReceipt, PurchaseReturn
@@ -301,9 +324,11 @@ def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
 
     # Also warn about completely unknown reference_types
     known_types = set(model_map.keys())
+    unknown_type_qs = StockMove.objects.filter(status=MoveStatus.POSTED)
+    if date_range:
+        unknown_type_qs = unknown_type_qs.filter(posted_at__range=date_range)
     unknown_type_moves = (
-        StockMove.objects
-        .filter(status=MoveStatus.POSTED)
+        unknown_type_qs
         .exclude(reference_type__in=known_types)
         .exclude(reference_type='')
         .values_list('reference_type', flat=True)
@@ -315,9 +340,11 @@ def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
     for ref_type, Model in model_map.items():
         # Collect all reference_ids used by POSTED moves of this type
         # (exclude NULL reference_id — those are special system/manual moves)
+        move_ref_qs = StockMove.objects.filter(status=MoveStatus.POSTED, reference_type=ref_type)
+        if date_range:
+            move_ref_qs = move_ref_qs.filter(posted_at__range=date_range)
         move_ref_ids = set(
-            StockMove.objects
-            .filter(status=MoveStatus.POSTED, reference_type=ref_type)
+            move_ref_qs
             .exclude(reference_id__isnull=True)
             .values_list('reference_id', flat=True)
             .distinct()
@@ -342,6 +369,8 @@ def _delete_orphaned_moves(dry_run, warn_fn, info_fn):
             reference_type=ref_type,
             reference_id__in=orphaned_ids,
         )
+        if date_range:
+            orphaned_qs = orphaned_qs.filter(posted_at__range=date_range)
 
         for m in orphaned_qs.select_related('item').order_by('id')[:200]:  # log up to 200
             if ref_type == 'StockAdjustment':
@@ -586,26 +615,38 @@ def _ensure_grn_purchase_orders(warn_fn, dry_run, info_fn):
     return created
 
 
-def _iter_expected_moves(warn_fn):
+def _iter_expected_moves(warn_fn, date_range=None):
+    """Yield expected-move payloads for every POSTED/COMPLETED document.
+
+    date_range: optional (start_dt, end_dt) — when given, only documents
+    whose posted_at (or completed date, for CustomerService) falls in the
+    range are scanned. Applies to Phase 1's backfill/fix scan only — Phase 2
+    (StockBalance rebuild, via _build_balance_from_documents) and Phase 1c's
+    cumulative recomputes always walk full history regardless of this, since
+    they're running totals that a partial scan would silently corrupt.
+    """
     from procurement.models import GoodsReceipt, PurchaseReturn
     from sales.models import DeliveryNote, SalesPickup, SalesReturn
     from inventory.models import StockTransfer, StockAdjustment, DamagedReport, InventoryToSupplyTransfer
     from pos.models import POSSale, POSRefund, SaleStatus, RefundStatus
     from services.models import CustomerService, ServiceStatus
 
+    def _dr(qs):
+        return qs.filter(posted_at__range=date_range) if date_range else qs
+
     doc_specs = [
-        ('GoodsReceipt', _all_manager(GoodsReceipt).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('DeliveryNote', _all_manager(DeliveryNote).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('SalesPickup', _all_manager(SalesPickup).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('StockTransfer', _all_manager(StockTransfer).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__from_location', 'lines__to_location')),
-        ('StockAdjustment', _all_manager(StockAdjustment).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('DamagedReport', _all_manager(DamagedReport).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('POSSale', POSSale.objects.filter(status=SaleStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('location')),
-        ('POSRefund', POSRefund.objects.filter(status=RefundStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('InventoryToSupplyTransfer', _all_manager(InventoryToSupplyTransfer).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('PurchaseReturn', _all_manager(PurchaseReturn).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('SalesReturn', _all_manager(SalesReturn).filter(status=DocumentStatus.POSTED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
-        ('CustomerService', CustomerService.objects.filter(status=ServiceStatus.COMPLETED).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('warehouse')),
+        ('GoodsReceipt', _dr(_all_manager(GoodsReceipt).filter(status=DocumentStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('DeliveryNote', _dr(_all_manager(DeliveryNote).filter(status=DocumentStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('SalesPickup', _dr(_all_manager(SalesPickup).filter(status=DocumentStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('StockTransfer', _dr(_all_manager(StockTransfer).filter(status=DocumentStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__from_location', 'lines__to_location')),
+        ('StockAdjustment', _dr(_all_manager(StockAdjustment).filter(status=DocumentStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('DamagedReport', _dr(_all_manager(DamagedReport).filter(status=DocumentStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('POSSale', _dr(POSSale.objects.filter(status=SaleStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('location')),
+        ('POSRefund', _dr(POSRefund.objects.filter(status=RefundStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('InventoryToSupplyTransfer', _dr(_all_manager(InventoryToSupplyTransfer).filter(status=DocumentStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('PurchaseReturn', _dr(_all_manager(PurchaseReturn).filter(status=DocumentStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('SalesReturn', _dr(_all_manager(SalesReturn).filter(status=DocumentStatus.POSTED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location')),
+        ('CustomerService', _dr(CustomerService.objects.filter(status=ServiceStatus.COMPLETED)).prefetch_related('lines__item__default_unit', 'lines__item__selling_unit', 'lines__unit', 'lines__location').select_related('warehouse')),
     ]
 
     for ref_type, docs in doc_specs:
@@ -643,9 +684,9 @@ def _iter_expected_moves(warn_fn):
     # ── Service bundle component moves (not represented by ServiceLine) ────────
     from services.models import CustomerService as _CustomerService, ServiceStatus as _ServiceStatus
     from warehouses.models import Location as _Location
-    for svc in _CustomerService.objects.filter(
+    for svc in _dr(_CustomerService.objects.filter(
         status=_ServiceStatus.COMPLETED,
-    ).prefetch_related(
+    )).prefetch_related(
         'bundles__price_list__items__item__default_unit',
         'bundles__price_list__items__item__selling_unit',
         'bundles__price_list__items__unit',
@@ -698,7 +739,7 @@ def _iter_expected_moves(warn_fn):
                 }
 
     # ── POS bundle component moves (not represented by POSSaleLine) ──────────
-    for sale in POSSale.objects.filter(status=SaleStatus.POSTED).prefetch_related(
+    for sale in _dr(POSSale.objects.filter(status=SaleStatus.POSTED)).prefetch_related(
         'bundle_lines__price_list__items__item__default_unit',
         'bundle_lines__price_list__items__item__selling_unit',
         'bundle_lines__price_list__items__item__stock_unit',
@@ -741,7 +782,12 @@ def _iter_expected_moves(warn_fn):
                 }
 
 
-def _backfill_missing_moves(warn_fn, dry_run, info_fn):
+def _backfill_missing_moves(warn_fn, dry_run, info_fn, date_range=None):
+    # NOTE: existing_keys/existing_loose_keys below deliberately scan the
+    # FULL StockMove table regardless of date_range — a scoped run must still
+    # correctly recognize an already-existing move (created at any time) so
+    # it never creates a duplicate. Only the "what SHOULD exist" side
+    # (_iter_expected_moves below) is scoped to the date range.
     existing_keys = set(
         StockMove.objects.filter(status=MoveStatus.POSTED)
         .exclude(reference_number__startswith='REV-')
@@ -770,7 +816,7 @@ def _backfill_missing_moves(warn_fn, dry_run, info_fn):
     )
 
     created = 0
-    for payload in _iter_expected_moves(warn_fn):
+    for payload in _iter_expected_moves(warn_fn, date_range=date_range):
         key = (
             payload['reference_type'],
             payload['reference_id'],
@@ -2030,6 +2076,32 @@ class Command(BaseCommand):
                 'existing DN/PU lines instead.'
             ),
         )
+        parser.add_argument(
+            '--start-date',
+            default=None,
+            help=(
+                'YYYY-MM-DD. Scope Phase 0 (cleanup) and Phase 1 (quantity fix + '
+                'backfill) to documents posted on/after this date. Requires '
+                '--end-date. Phase 1c and Phase 2 always process full history '
+                'regardless of this range — they compute cumulative/running '
+                'totals (qty_received, qty_delivered, cost_price, StockBalance) '
+                'that a partial-history replay would silently corrupt.'
+            ),
+        )
+        parser.add_argument(
+            '--end-date',
+            default=None,
+            help='YYYY-MM-DD. Upper (inclusive) bound for --start-date.',
+        )
+        parser.add_argument(
+            '--full',
+            action='store_true',
+            default=False,
+            help=(
+                'Ignore --start-date/--end-date and resync full history. This '
+                'is also the default when no date range is given.'
+            ),
+        )
 
     # ── internal output helpers ──────────────────────────────────────────────
 
@@ -2051,6 +2123,43 @@ class Command(BaseCommand):
         except UnicodeEncodeError:
             self.stdout.write(self.style.WARNING(self._safe_str(msg)))
 
+    # ── date range parsing ────────────────────────────────────────────────────
+
+    def _parse_date_range(self, options):
+        """Return (start_dt, end_dt) — timezone-aware datetimes spanning the
+        full days requested — or None for a full (unscoped) run.
+
+        --full, or omitting both dates, means "no scoping" (today's default
+        behavior, unchanged). Providing only one of --start-date/--end-date
+        is a usage error — a half-open range is ambiguous for a resync.
+        """
+        if options.get('full'):
+            return None
+
+        start_raw = options.get('start_date')
+        end_raw = options.get('end_date')
+        if not start_raw and not end_raw:
+            return None
+        if not start_raw or not end_raw:
+            raise CommandError(
+                'Both --start-date and --end-date are required for a scoped '
+                'resync (or pass --full / omit both for a full resync).'
+            )
+
+        try:
+            start_d = datetime.strptime(start_raw, '%Y-%m-%d').date()
+            end_d = datetime.strptime(end_raw, '%Y-%m-%d').date()
+        except ValueError as exc:
+            raise CommandError(f'--start-date/--end-date must be in YYYY-MM-DD format: {exc}')
+
+        if start_d > end_d:
+            raise CommandError('--start-date must be on or before --end-date.')
+
+        return (
+            timezone.make_aware(datetime.combine(start_d, dt_time.min)),
+            timezone.make_aware(datetime.combine(end_d, dt_time.max)),
+        )
+
     # ── entry point ──────────────────────────────────────────────────────────
 
     def handle(self, *args, **options):
@@ -2059,6 +2168,10 @@ class Command(BaseCommand):
         phase = options['phase']
         detect_only = options.get('detect_only', False)
         apply_fixes_path = options.get('apply_fixes')
+
+        # ── Parse/validate the optional date range (Phase 0/1 scoping only —
+        # see _run_phase1/_run_phase2 for why Phase 1c/2 ignore it) ───────
+        self._date_range = self._parse_date_range(options)
 
         # Reset the global error collector at the start of each run.
         _conversion_errors.clear()
@@ -2095,6 +2208,10 @@ class Command(BaseCommand):
             'started_at': timezone.now().isoformat(),
             'dry_run': dry_run,
             'phase': phase,
+            'date_range': (
+                [self._date_range[0].isoformat(), self._date_range[1].isoformat()]
+                if self._date_range else None
+            ),
             'changes': {},
         }
 
@@ -2102,6 +2219,14 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'\n=== resync_inventory [{mode}] phase={phase} ===\n'
         ))
+        if self._date_range:
+            self.stdout.write(self.style.WARNING(
+                f'  Scoped run: Phase 0/1 limited to documents posted '
+                f'{self._date_range[0].date()} .. {self._date_range[1].date()}. '
+                f'Phase 1c/2 still run against full history (see above).\n'
+            ))
+        else:
+            self.stdout.write('  Full run: all phases process complete history.\n')
 
         if dry_run:
             self.stdout.write(self.style.WARNING(
@@ -2272,6 +2397,10 @@ class Command(BaseCommand):
             if not parts:
                 parts.append('No changes needed — data was already consistent')
 
+            if summary.get('date_range'):
+                start_s, end_s = summary['date_range']
+                parts.append(f'scoped to {start_s[:10]}..{end_s[:10]} (Phase 0/1 only)')
+
             reason = 'resync_inventory: ' + '; '.join(parts)
 
             ManualLog.objects.create(
@@ -2430,7 +2559,9 @@ class Command(BaseCommand):
 
         # Step 0a: remove orphaned moves (document deleted, move not cleaned up)
         self.stdout.write('\n--- Phase 0a: Removing orphaned StockMoves ---')
-        deleted, orph_groups = _delete_orphaned_moves(dry_run, self._warn, self._info)
+        deleted, orph_groups = _delete_orphaned_moves(
+            dry_run, self._warn, self._info, date_range=self._date_range,
+        )
         mode = '(dry-run) would delete' if dry_run else 'Deleted'
         self.stdout.write(self.style.SUCCESS(
             f'  {mode} {deleted} orphaned move(s) across {orph_groups} missing document(s).'
@@ -2442,7 +2573,7 @@ class Command(BaseCommand):
 
         # Step 0b: remove exact duplicate moves
         self.stdout.write('\n--- Phase 0b: Deduplicating StockMoves ---')
-        removed, groups = _deduplicate_moves(dry_run, self._warn)
+        removed, groups = _deduplicate_moves(dry_run, self._warn, date_range=self._date_range)
         mode = '(dry-run) would remove' if dry_run else 'Removed'
         self.stdout.write(self.style.SUCCESS(
             f'  {mode} {removed} duplicate move(s) across {groups} group(s).'
@@ -2926,6 +3057,8 @@ class Command(BaseCommand):
                 reference_type=ref_type,
                 status=MoveStatus.POSTED,
             ).exclude(reference_number__startswith='REV-')
+            if self._date_range:
+                moves_qs = moves_qs.filter(posted_at__range=self._date_range)
 
             count = moves_qs.count()
             if count == 0:
@@ -2949,7 +3082,9 @@ class Command(BaseCommand):
                 total_stats[k] += v
 
         with transaction.atomic():
-            backfilled = _backfill_missing_moves(self._warn, dry_run, self._info)
+            backfilled = _backfill_missing_moves(
+                self._warn, dry_run, self._info, date_range=self._date_range,
+            )
             if dry_run:
                 transaction.set_rollback(True)
         self._info(f'  Missing moves backfilled: {backfilled}')
@@ -2959,7 +3094,20 @@ class Command(BaseCommand):
         # Fixes drift from the pre-fix bug where line.qty (in the document's
         # own unit) was added to PO/SO unit fields without converting, and
         # where Item.cost_price was averaged using mixed units.
+        #
+        # INTENTIONALLY NOT date-scoped: qty_received/qty_delivered/cost_price
+        # are all running/cumulative figures (reset-then-chronologically-
+        # replay-from-the-beginning). Restricting the replay to a date window
+        # would reset these to 0 and only replay part of history, silently
+        # under-counting everything — so Phase 1c always processes full
+        # history regardless of --start-date/--end-date. Same reasoning
+        # applies to Phase 2 (StockBalance) below.
         self.stdout.write('\n--- Phase 1c: Recomputing derived totals ---')
+        if self._date_range:
+            self.stdout.write(self.style.WARNING(
+                '  (Phase 1c always runs against full history — cumulative '
+                'totals cannot be safely scoped to a date range.)'
+            ))
 
         with transaction.atomic():
             qr_updated, qr_skipped = _recompute_po_qty_received(dry_run, self._info, self._warn)
@@ -3056,6 +3204,11 @@ class Command(BaseCommand):
 
     def _run_phase2(self, dry_run):
         self.stdout.write('\n--- Phase 2: Recalculating StockBalance ---')
+        if self._date_range:
+            self.stdout.write(self.style.WARNING(
+                '  (Phase 2 always runs against full history — StockBalance is '
+                'a running total and cannot be safely scoped to a date range.)'
+            ))
 
         self.stdout.write('  Building correct balances from all posted documents...')
         correct_bal = _build_balance_from_documents(self._warn)

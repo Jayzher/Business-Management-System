@@ -279,10 +279,23 @@ def _calculate_inventory_value(as_of_date):
                 ],
             ).aggregate(total=Coalesce(Sum('qty'), Decimal('0')))['total']
 
-            adjustments = StockMove.objects.filter(
+            # ADJUST moves store qty as an unsigned magnitude — direction is
+            # encoded via which location field is set (see post_adjustment
+            # in inventory/services.py: to_location = increase, from_location
+            # = decrease). Summing qty alone would treat every adjustment as
+            # an increase regardless of direction, silently inflating
+            # inventory value on every decrease adjustment.
+            adjustments_increase = StockMove.objects.filter(
                 item_id=item_id, status=MoveStatus.POSTED, posted_at__lt=as_of_dt,
-                move_type=MoveType.ADJUST,
+                move_type=MoveType.ADJUST, to_location__isnull=False,
             ).aggregate(total=Coalesce(Sum('qty'), Decimal('0')))['total']
+
+            adjustments_decrease = StockMove.objects.filter(
+                item_id=item_id, status=MoveStatus.POSTED, posted_at__lt=as_of_dt,
+                move_type=MoveType.ADJUST, from_location__isnull=False,
+            ).aggregate(total=Coalesce(Sum('qty'), Decimal('0')))['total']
+
+            adjustments = adjustments_increase - adjustments_decrease
 
             net_qty = receives - delivers + adjustments
             if net_qty > 0:

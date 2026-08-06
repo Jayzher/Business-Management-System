@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from inventory.models import StockMove, StockBalance, MoveType, MoveStatus
-from inventory.services import _update_balance, _create_audit
+from inventory.services import _update_balance, _create_audit, _sync_moves
 from catalog.models import convert_to_base_unit
 from pos.models import (
     POSSale, POSSaleLine, POSSaleBundleLine, POSPayment,
@@ -238,6 +238,7 @@ def post_pos_sale(sale_id, user):
             balance.save()
 
     StockMove.objects.bulk_create(moves)
+    _sync_moves(moves)
 
     sale.status = SaleStatus.POSTED
     sale.posted_by = user
@@ -320,6 +321,7 @@ def sync_pos_sale_stock_moves(sale_id, user):
         ))
 
     StockMove.objects.bulk_create(moves)
+    _sync_moves(moves)
     sale.stock_deducted = True
     # If the sale was PAID but not POSTED, we keep the status as-is (this is sync only).
     sale.save(update_fields=['stock_deducted', 'updated_at'])
@@ -373,6 +375,7 @@ def post_pos_refund(refund_id, user):
         _update_balance(line.item, line.location, base_qty)
 
     StockMove.objects.bulk_create(moves)
+    _sync_moves(moves)
 
     refund.status = RefundStatus.POSTED
     refund.posted_by = user
@@ -442,6 +445,7 @@ def void_sale(sale_id, user):
                 _update_balance(orig.item, orig.from_location, orig.qty)
 
         StockMove.objects.bulk_create(reversal_moves)
+        _sync_moves(reversal_moves)
 
     sale.status = SaleStatus.VOID
     sale.save(update_fields=['status', 'updated_at'])

@@ -26,6 +26,23 @@
 {% endif %}
 
 {% include "theme/partials/doc_actions.html" with obj=adjustment edit_url_name="adjustment_edit" delete_url_name="adjustment_delete" approve_url_name="adjustment_approve" post_url_name="adjustment_post" cancel_url_name="adjustment_cancel" list_url_name="adjustment_list" pending_docs=pending_docs %}
+
+{% if adjustment.status == 'DRAFT' or adjustment.status == 'APPROVED' %}
+<div class="mb-3">
+  <form method="post" action="{% url 'adjustment_post' adjustment.pk %}" class="d-inline">
+    {% csrf_token %}
+    <input type="hidden" name="force" value="1">
+    <button type="submit" class="btn btn-sm btn-outline-warning"
+            data-confirm="Force-post this adjustment using the counted quantities as entered, even if the system quantity has changed since the count was taken? Only do this if you've confirmed the current numbers are still correct.">
+      <i class="fas fa-exclamation-triangle me-1"></i> Force Post (ignore balance changes since count)
+    </button>
+  </form>
+  <div class="text-muted small mt-1">
+    Use this only if the normal Post above was blocked because stock moved after this count was taken.
+  </div>
+</div>
+{% endif %}
+
 <div class="row">
   <div class="col-lg-6">
     <div class="card">

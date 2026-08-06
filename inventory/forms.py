@@ -66,6 +66,42 @@ class StockAdjustmentForm(forms.ModelForm):
 
 
 class StockAdjustmentLineForm(forms.ModelForm):
+    """
+    Physical-count line with two ways to specify the correction:
+      - 'count'    : enter the counted total directly (qty_counted as-is).
+      - 'increase' / 'decrease': enter a +/- delta; qty_counted is derived as
+        qty_system ± delta, using the SAME system-qty read that gets stored
+        on the line (see save()) — so the two numbers are never based on
+        different snapshots of the balance.
+
+    Either way, the stored fields are still just qty_counted/qty_system —
+    this is a data-entry convenience, not a new persisted concept. The
+    balance write itself (post_adjustment in services.py) is unchanged: it
+    always SETs qty_on_hand to the resulting qty_counted, which is what
+    makes a physical-count correction immune to whatever drift preceded it.
+    A pure +/- delta replayed on top of a possibly-wrong running balance
+    would NOT have that property, which is why the delta is resolved to an
+    absolute qty_counted here rather than stored as a delta.
+    """
+    ADJUSTMENT_MODE_CHOICES = [
+        ('count', 'Enter Counted Qty'),
+        ('increase', 'Increase By'),
+        ('decrease', 'Decrease By'),
+    ]
+
+    adjustment_mode = forms.ChoiceField(
+        choices=ADJUSTMENT_MODE_CHOICES, required=False, initial='count',
+        label='Adjustment Type',
+        widget=forms.Select(attrs={'class': 'form-control form-control-sm adj-mode-select'}),
+    )
+    adjustment_delta = forms.DecimalField(
+        required=False, min_value=Decimal('0'), label='Increase/Decrease By',
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control form-control-sm adj-delta-input',
+            'step': '1', 'min': '0', 'placeholder': 'Qty to add/remove',
+        }),
+    )
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         qty_system_widget = self.fields['qty_system'].widget
@@ -75,6 +111,9 @@ class StockAdjustmentLineForm(forms.ModelForm):
             'tabindex': '-1',
             'class': 'form-control form-control-sm bg-light',
         })
+        # qty_counted is derived automatically in increase/decrease mode —
+        # only required when the user enters a physical count directly.
+        self.fields['qty_counted'].required = False
 
     @staticmethod
     def _system_qty(item, location):
@@ -97,24 +136,44 @@ class StockAdjustmentLineForm(forms.ModelForm):
         if item and location:
             cleaned_data['qty_system'] = self._system_qty(item, location)
 
+        mode = cleaned_data.get('adjustment_mode') or 'count'
+        if mode in ('increase', 'decrease'):
+            if cleaned_data.get('adjustment_delta') is None:
+                self.add_error('adjustment_delta', 'Enter the quantity to increase/decrease by.')
+            # qty_counted is resolved in save(), from the freshest system-qty
+            # read at that moment — not here — so it and qty_system always
+            # come from the same snapshot (see class docstring).
+        elif cleaned_data.get('qty_counted') is None:
+            self.add_error('qty_counted', 'Enter the counted quantity.')
+
         return cleaned_data
 
     def save(self, commit=True):
         item = self.cleaned_data.get('item') if hasattr(self, 'cleaned_data') else None
         location = self.cleaned_data.get('location') if hasattr(self, 'cleaned_data') else None
-        self.instance.qty_system = self._system_qty(item, location)
+        system_qty = self._system_qty(item, location)
+        self.instance.qty_system = system_qty
+
+        mode = self.cleaned_data.get('adjustment_mode') or 'count'
+        delta = self.cleaned_data.get('adjustment_delta')
+        if mode == 'increase' and delta is not None:
+            self.instance.qty_counted = system_qty + delta
+        elif mode == 'decrease' and delta is not None:
+            self.instance.qty_counted = system_qty - delta
+        # mode == 'count': qty_counted keeps the value submitted directly.
+
         return super().save(commit=commit)
 
     class Meta:
         model = StockAdjustmentLine
         fields = ['item', 'location', 'qty_counted', 'qty_system', 'unit', 'batch_number', 'notes']
         labels = {
-            'qty_counted': 'Adjusted Qty',
+            'qty_counted': 'Counted Qty',
         }
         widgets = {
             'item': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'location': forms.Select(attrs={'class': 'form-control form-control-sm'}),
-            'qty_counted': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'step': '1', 'min': '0', 'placeholder': 'e.g., 50'}),
+            'qty_counted': forms.NumberInput(attrs={'class': 'form-control form-control-sm qty-counted-input', 'step': '1', 'min': '0', 'placeholder': 'e.g., 50'}),
             'qty_system': forms.NumberInput(attrs={'class': 'form-control form-control-sm bg-light', 'step': '1', 'min': '0', 'placeholder': 'Auto-calculated', 'readonly': 'readonly', 'data-system-qty': '1', 'tabindex': '-1'}),
             'unit': forms.Select(attrs={'class': 'form-control form-control-sm'}),
             'batch_number': forms.TextInput(attrs={'class': 'form-control form-control-sm', 'placeholder': 'Batch # (optional)'}),

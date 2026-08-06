@@ -96,8 +96,9 @@ class StockAdjustmentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='post')
     def post_adjustment(self, request, pk=None):
         adjustment = self.get_object()
+        force = bool(request.data.get('force'))
         try:
-            adjustment = post_adjustment(adjustment, request.user)
+            adjustment = post_adjustment(adjustment, request.user, force=force)
             return Response({'status': 'posted', 'document_number': adjustment.document_number})
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -178,8 +179,9 @@ def adjustment_approve_view(request, pk):
 def adjustment_post_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
     if request.method == 'POST':
+        force = request.POST.get('force') == '1'
         try:
-            obj = post_adjustment(obj, request.user)
+            obj = post_adjustment(obj, request.user, force=force)
             from inventory.services import format_skipped_lines_message
             warning = format_skipped_lines_message(obj)
             if warning:
@@ -661,6 +663,13 @@ def adjustment_edit_view(request, pk):
 @write_denied_for_viewer
 def adjustment_delete_view(request, pk):
     obj = get_object_or_404(StockAdjustment, pk=pk)
+    if obj.status != 'DRAFT':
+        messages.error(
+            request,
+            'Only DRAFT adjustments can be deleted — this one is already '
+            f'{obj.status}. Use Cancel instead to reverse a posted adjustment.',
+        )
+        return redirect('adjustment_list')
     if request.method == 'POST':
         obj.soft_delete()
         messages.success(request, f'Adjustment {obj.document_number} deleted.')

@@ -335,6 +335,9 @@
         <div class="flex-grow-1">
           <div class="ts-action-title">{{ a.label }}</div>
           <div class="ts-action-desc">{{ a.description }}</div>
+          {% if a.key == 'resync_inventory_dry' %}
+          {% include 'core/partials/resync_date_range.html' with a=a %}
+          {% endif %}
           <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}" {% if a.confirm %}data-confirm="{{ a.confirm }}"{% endif %}>
             <i class="fas fa-play me-1"></i> Run
           </button>
@@ -355,6 +358,9 @@
         <div class="flex-grow-1">
           <div class="ts-action-title">{{ a.label }}</div>
           <div class="ts-action-desc">{{ a.description }}</div>
+          {% if a.key == 'resync_inventory' %}
+          {% include 'core/partials/resync_date_range.html' with a=a %}
+          {% endif %}
           <button class="btn btn-sm btn-outline-{{ a.color }} ts-run-btn" data-action="{{ a.key }}" {% if a.confirm %}data-confirm="{{ a.confirm }}"{% endif %}>
             <i class="fas fa-play me-1"></i> Run
           </button>
@@ -1051,6 +1057,34 @@
     }
   });
 
+  // Toggle the date-range inputs based on the "Full Inventory Resync" checkbox.
+  document.querySelectorAll('.ts-resync-full').forEach(function(cb){
+    var key = cb.id.replace(/^full-/, '');
+    var toggle = function(){
+      document.querySelectorAll('#dates-' + key + ', #hint-' + key)
+        .forEach(function(el){ el.style.display = cb.checked ? 'none' : ''; });
+    };
+    cb.addEventListener('change', toggle);
+    toggle();
+  });
+
+  function resyncRangeArgs(action) {
+    // Returns a query-string fragment ('' when the card has no range
+    // controls, e.g. actions other than resync_inventory/_dry) with the
+    // current full/start/end values for the given action's card.
+    var fullCb = document.getElementById('full-' + action);
+    if (!fullCb) return '';
+    var full = fullCb.checked;
+    var parts = '&full=' + (full ? '1' : '0');
+    if (!full) {
+      var start = document.getElementById('start-' + action);
+      var end = document.getElementById('end-' + action);
+      if (start && start.value) parts += '&start_date=' + encodeURIComponent(start.value);
+      if (end && end.value) parts += '&end_date=' + encodeURIComponent(end.value);
+    }
+    return parts;
+  }
+
   document.querySelectorAll('.ts-run-btn').forEach(function(btn){
     btn.addEventListener('click', function(e){
       e.preventDefault();
@@ -1059,6 +1093,21 @@
       var origHtml = this.innerHTML;
       var confirmMsg = this.dataset.confirm;
       var isResync = resyncActions.indexOf(action) !== -1;
+
+      // If scoped to a date range, both dates are required client-side too.
+      var fullCb = document.getElementById('full-' + action);
+      if (fullCb && !fullCb.checked) {
+        var startEl = document.getElementById('start-' + action);
+        var endEl = document.getElementById('end-' + action);
+        if (!(startEl && startEl.value) || !(endEl && endEl.value)) {
+          alert('Enter both a From and To date, or check "Full Inventory Resync".');
+          return;
+        }
+        if (startEl.value > endEl.value) {
+          alert('The From date must be on or before the To date.');
+          return;
+        }
+      }
 
       // Confirm dangerous actions
       if (confirmMsg) {
@@ -1089,7 +1138,7 @@
           'X-CSRFToken': csrfToken,
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: 'action=' + encodeURIComponent(action),
+        body: 'action=' + encodeURIComponent(action) + resyncRangeArgs(action),
         signal: abortCtrl ? abortCtrl.signal : undefined,
       })
       .then(function(r){ return r.json(); })
