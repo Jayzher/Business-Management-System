@@ -33,7 +33,6 @@ urlpatterns = [
     path('supplier-catalog/by-supplier/', views.supplier_catalog_by_supplier_view, name='supplier_catalog_by_supplier'),
     path('supplier-catalog/create/', views.supplier_catalog_create_view, name='supplier_catalog_create'),
     path('supplier-catalog/sync/', views.supplier_catalog_sync_view, name='supplier_catalog_sync'),
-    path('supplier-catalog/sync-grn/', views.supplier_catalog_sync_grn_view, name='supplier_catalog_sync_grn'),
     path('supplier-catalog/<int:pk>/edit/', views.supplier_catalog_edit_view, name='supplier_catalog_edit'),
     path('supplier-catalog/<int:pk>/delete/', views.supplier_catalog_delete_view, name='supplier_catalog_delete'),
 ]
