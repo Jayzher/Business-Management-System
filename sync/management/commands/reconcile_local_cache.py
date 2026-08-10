@@ -85,9 +85,14 @@ class Command(BaseCommand):
             return
 
         from sync.signals import SYNCED_APP_LABELS, set_sync_in_progress
+        from sync.background_sync import pause_worker, resume_worker
 
         # Set sync-in-progress to prevent signal handlers from interfering
         set_sync_in_progress(True)
+        # Pause the background sync worker too — without this, it fights
+        # this command for SQLite's single write lock on every batch,
+        # surfacing as "database is locked" errors mid-reconcile.
+        pause_worker()
 
         try:
             self.stdout.write('=' * 60)
@@ -167,6 +172,7 @@ class Command(BaseCommand):
                 self._backfill_changelog(all_models)
 
         finally:
+            resume_worker()
             set_sync_in_progress(False)
 
     def _reconcile_model(self, model, dry_run) -> dict:

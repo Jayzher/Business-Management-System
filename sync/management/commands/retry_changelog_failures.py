@@ -47,33 +47,38 @@ class Command(BaseCommand):
 
         self.stdout.write(f'Retrying {len(failures)} failed entr{"y" if len(failures) == 1 else "ies"}...')
 
-        resolved, still_failing = 0, 0
-        for failure in failures:
-            if options['dry_run']:
-                self.stdout.write(
-                    f'  would retry {failure.db_table}#{failure.row_pk} '
-                    f'(attempts so far: {failure.attempts})'
-                )
-                continue
-            try:
-                # ChangelogReplayFailure exposes the same attributes
-                # (.action/.app_label/.model_name/.row_pk) that
-                # _apply_changelog_entry expects from a NeonChangeLog entry.
-                _apply_changelog_entry(failure, apps)
-                failure.delete()
-                resolved += 1
-                self.stdout.write(self.style.SUCCESS(
-                    f'  resolved {failure.db_table}#{failure.row_pk}'
-                ))
-            except Exception as exc:
-                still_failing += 1
-                failure.error_message = str(exc)[:2000]
-                failure.last_failed_at = timezone.now()
-                failure.attempts += 1
-                failure.save(update_fields=['error_message', 'last_failed_at', 'attempts'])
-                self.stdout.write(self.style.ERROR(
-                    f'  still failing {failure.db_table}#{failure.row_pk}: {exc}'
-                ))
+        from sync.background_sync import pause_worker, resume_worker
+        pause_worker()
+        try:
+            resolved, still_failing = 0, 0
+            for failure in failures:
+                if options['dry_run']:
+                    self.stdout.write(
+                        f'  would retry {failure.db_table}#{failure.row_pk} '
+                        f'(attempts so far: {failure.attempts})'
+                    )
+                    continue
+                try:
+                    # ChangelogReplayFailure exposes the same attributes
+                    # (.action/.app_label/.model_name/.row_pk) that
+                    # _apply_changelog_entry expects from a NeonChangeLog entry.
+                    _apply_changelog_entry(failure, apps)
+                    failure.delete()
+                    resolved += 1
+                    self.stdout.write(self.style.SUCCESS(
+                        f'  resolved {failure.db_table}#{failure.row_pk}'
+                    ))
+                except Exception as exc:
+                    still_failing += 1
+                    failure.error_message = str(exc)[:2000]
+                    failure.last_failed_at = timezone.now()
+                    failure.attempts += 1
+                    failure.save(update_fields=['error_message', 'last_failed_at', 'attempts'])
+                    self.stdout.write(self.style.ERROR(
+                        f'  still failing {failure.db_table}#{failure.row_pk}: {exc}'
+                    ))
+        finally:
+            resume_worker()
 
         if options['dry_run']:
             return

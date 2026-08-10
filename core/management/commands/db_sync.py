@@ -131,177 +131,186 @@ class Command(BaseCommand):
             self.stdout.write(f'\nTotal: {total_src} rows would be copied.')
             return
 
-        # -- Flush destination ------------------------------------------------
-        self.stdout.write(f'Step 1/5: Migrating & flushing {label_dst}...')
-        from django.core.management import call_command
-
-        # Detect schema drift: migrations marked 'applied' whose columns/tables
-        # are missing (caused by earlier runs that silently swallowed errors).
-        # Unrecord them so `migrate` will re-apply the DDL now.
-        self.stdout.write('  Checking for schema drift on destination...')
+        # Pause the background sync worker for the duration of this
+        # long-lived foreground copy - without this, it fights the
+        # worker thread for SQLite's single write lock on every batch,
+        # surfacing as 'database is locked' errors mid-sync.
+        from sync.background_sync import pause_worker, resume_worker
+        pause_worker()
         try:
-            drift_count = self._unrecord_drifted_migrations(dst)
-            if drift_count > 0:
-                self.stdout.write(f'  Unrecorded {drift_count} drifted migration(s) for re-apply')
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f'  Drift check warning: {e}'))
+            # -- Flush destination ------------------------------------------------
+            self.stdout.write(f'Step 1/5: Migrating & flushing {label_dst}...')
+            from django.core.management import call_command
 
-        # Ensure all tables exist on the destination before flushing
-        # Run migrations with --run-syncdb to create any missing tables
-        self.stdout.write('  Running migrations on destination...')
-        try:
-            call_command('migrate', '--run-syncdb', database=dst,
-                         verbosity=1, stdout=self.stdout, interactive=False)
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f'  Migration FAILED: {e}'))
-            self.stdout.write(self.style.ERROR(
-                '  Destination schema is out of date — aborting before data copy.'
-            ))
-            raise
-        
-        # Clean up any orphaned FKs on destination before sync
-        self.stdout.write('  Cleaning orphaned FKs on destination...')
-        try:
-            deleted = self._cleanup_orphaned_fks(dst)
-            if deleted > 0:
-                self.stdout.write(f'  Cleaned {deleted} orphaned FK(s)')
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f'  Cleanup warning: {e}'))
-        
-        self._truncate_all(dst)
-        self.stdout.write('Flushed.\n')
-
-        # -- Disable FK constraints on destination ----------------------------
-        dst_is_pg = 'postgresql' in settings.DATABASES[dst].get('ENGINE', '')
-        saved_fks = []
-        if dst_is_pg:
-            self.stdout.write('Step 2/5: Dropping FK constraints on PostgreSQL...')
-            saved_fks = self._drop_fk_constraints(dst)
-            self.stdout.write(f'Dropped {len(saved_fks)} FK constraints.\n')
-        else:
-            self.stdout.write('Step 2/5: Disabling FK checks on SQLite...')
-            with connections[dst].cursor() as cursor:
-                cursor.execute('PRAGMA foreign_keys = OFF;')
-            self.stdout.write('FK checks disabled.\n')
-
-        # -- Copy data --------------------------------------------------------
-        self.stdout.write(f'Step 3/5: Copying data {label_src} -> {label_dst}')
-        total_copied = 0
-        errors = []
-        failed_tables = set()
-
-        for model, name, cnt in model_counts:
+            # Detect schema drift: migrations marked 'applied' whose columns/tables
+            # are missing (caused by earlier runs that silently swallowed errors).
+            # Unrecord them so `migrate` will re-apply the DDL now.
+            self.stdout.write('  Checking for schema drift on destination...')
             try:
-                # Use all_objects where available (SoftDeleteModel subclasses)
-                # instead of the filtered default manager. The destination
-                # was just fully truncated, so any soft-deleted row the
-                # filtered manager doesn't see here is not merely hidden from
-                # this copy — it's permanently gone from the destination
-                # afterward, with no way back.
-                objs = list(self._all_manager(model).using(src).all())
-                for obj in objs:
-                    obj._state.adding = True
-                    obj._state.db = dst
+                drift_count = self._unrecord_drifted_migrations(dst)
+                if drift_count > 0:
+                    self.stdout.write(f'  Unrecorded {drift_count} drifted migration(s) for re-apply')
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f'  Drift check warning: {e}'))
 
-                # Wrap this table's batches in one transaction: if a later
-                # batch raises, earlier ones for the SAME table roll back too,
-                # so a failed table ends up fully empty (and reported as
-                # failed) instead of partially populated. A half-populated
-                # parent table is exactly how a child row ends up pointing at
-                # a PK that silently never made it across.
-                with transaction.atomic(using=dst):
-                    for i in range(0, len(objs), BATCH_SIZE):
-                        batch = objs[i:i + BATCH_SIZE]
-                        self._all_manager(model).using(dst).bulk_create(
-                            batch, batch_size=BATCH_SIZE, ignore_conflicts=True,
-                        )
-
-                # Reset this table's PK sequence immediately, not in one big
-                # pass after every table has copied. The truncate reset
-                # Neon's sequence to 1; until it's moved past whatever was
-                # just copied in, any direct-to-Neon insert (bypassing this
-                # command) could be auto-assigned a PK that a still-pending
-                # table's row is about to claim explicitly. ignore_conflicts
-                # would then silently drop that row — its children would
-                # keep referencing a PK that now belongs to something else
-                # entirely. Resetting right after each table's own copy
-                # shrinks that window from "the whole sync" to "this table".
-                if dst_is_pg:
-                    self._reset_sequence_for_model(dst, model)
-
-                total_copied += cnt
-                self.stdout.write(f'  OK    {name}: {cnt} rows')
-            except Exception as exc:
-                msg = f'  ERROR {name}: {exc}'
-                self.stdout.write(msg)
-                errors.append(msg)
-                failed_tables.add(model._meta.db_table)
-
-        # -- Re-enable FK constraints ----------------------------------------
-        if dst_is_pg and saved_fks:
-            self.stdout.write(f'\nStep 4/5: Restoring {len(saved_fks)} FK constraints...')
-            restore_errors = self._restore_fk_constraints(dst, saved_fks)
-            if restore_errors:
-                self.stdout.write(f'{len(restore_errors)} FK constraints could not be restored:')
-                for e in restore_errors:
-                    self.stdout.write(f'  WARN  {e}')
-            else:
-                self.stdout.write('All FK constraints restored.')
-        elif not dst_is_pg:
-            with connections[dst].cursor() as cursor:
-                cursor.execute('PRAGMA foreign_keys = ON;')
-            self.stdout.write('\nStep 4/5: FK checks re-enabled.')
-        else:
-            self.stdout.write('\nStep 4/5: (no FK constraints to restore)')
-
-        # -- Reset sequences (PostgreSQL only) --------------------------------
-        # Every non-empty table already had its sequence reset immediately
-        # after its own copy, in Step 3, to minimize the collision window.
-        # This pass is the catch-all: zero-row tables (never entered that
-        # loop, but were still truncated to empty and need their sequence
-        # back at 1) and failed tables (defensive — reset to whatever
-        # partial/rolled-back state they ended up in).
-        pg_alias = 'neon' if direction == 'local_to_neon' else None
-        if pg_alias:
-            self.stdout.write(f'\nStep 5/5: Resetting remaining PostgreSQL sequences...')
-            for model in all_models:
-                self._reset_sequence_for_model(pg_alias, model)
-            self.stdout.write('Sequences reset.')
-        else:
-            self.stdout.write(f'\nStep 5/5: (SQLite target — no sequence reset needed)')
-
-        # -- Summary ----------------------------------------------------------
-        self.stdout.write('\n' + '=' * 60)
-        self.stdout.write(f'Sync complete! {total_copied} total rows copied.')
-        if errors:
-            self.stdout.write(f'{len(errors)} errors:')
-            for e in errors:
-                self.stdout.write(e)
-        else:
-            self.stdout.write('No errors!')
+            # Ensure all tables exist on the destination before flushing
+            # Run migrations with --run-syncdb to create any missing tables
+            self.stdout.write('  Running migrations on destination...')
+            try:
+                call_command('migrate', '--run-syncdb', database=dst,
+                             verbosity=1, stdout=self.stdout, interactive=False)
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f'  Migration FAILED: {e}'))
+                self.stdout.write(self.style.ERROR(
+                    '  Destination schema is out of date — aborting before data copy.'
+                ))
+                raise
         
-        # -- Post-sync validation -----------------------------------------
-        self.stdout.write('\nValidating FK integrity...')
-        orphans_found = self._validate_fk_integrity(dst)
-        if orphans_found > 0:
-            self.stdout.write(self.style.WARNING(
-                f'  WARNING: {orphans_found} orphaned FK(s) found after sync!'
-            ))
-            self.stdout.write('  Run: python manage.py cleanup_orphaned_fks')
-        else:
-            self.stdout.write('  FK integrity OK')
+            # Clean up any orphaned FKs on destination before sync
+            self.stdout.write('  Cleaning orphaned FKs on destination...')
+            try:
+                deleted = self._cleanup_orphaned_fks(dst)
+                if deleted > 0:
+                    self.stdout.write(f'  Cleaned {deleted} orphaned FK(s)')
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f'  Cleanup warning: {e}'))
+        
+            self._truncate_all(dst)
+            self.stdout.write('Flushed.\n')
 
-        self.stdout.write('=' * 60)
+            # -- Disable FK constraints on destination ----------------------------
+            dst_is_pg = 'postgresql' in settings.DATABASES[dst].get('ENGINE', '')
+            saved_fks = []
+            if dst_is_pg:
+                self.stdout.write('Step 2/5: Dropping FK constraints on PostgreSQL...')
+                saved_fks = self._drop_fk_constraints(dst)
+                self.stdout.write(f'Dropped {len(saved_fks)} FK constraints.\n')
+            else:
+                self.stdout.write('Step 2/5: Disabling FK checks on SQLite...')
+                with connections[dst].cursor() as cursor:
+                    cursor.execute('PRAGMA foreign_keys = OFF;')
+                self.stdout.write('FK checks disabled.\n')
 
-        # -- SyncOutbox reconciliation (local_to_neon only) -------------------
-        # A full local_to_neon push just made Neon match this device's
-        # current local state for every table it touched — any SyncOutbox
-        # row still queued for one of those tables is now moot (Neon already
-        # has this row's current state, in full, not just the queued delta).
-        # Only reconcile tables that actually copied without error; a table
-        # that failed still needs its outbox rows to retry normally later.
-        if direction == 'local_to_neon':
-            self._reconcile_outbox_after_full_push(all_models, failed_tables)
+            # -- Copy data --------------------------------------------------------
+            self.stdout.write(f'Step 3/5: Copying data {label_src} -> {label_dst}')
+            total_copied = 0
+            errors = []
+            failed_tables = set()
+
+            for model, name, cnt in model_counts:
+                try:
+                    # Use all_objects where available (SoftDeleteModel subclasses)
+                    # instead of the filtered default manager. The destination
+                    # was just fully truncated, so any soft-deleted row the
+                    # filtered manager doesn't see here is not merely hidden from
+                    # this copy — it's permanently gone from the destination
+                    # afterward, with no way back.
+                    objs = list(self._all_manager(model).using(src).all())
+                    for obj in objs:
+                        obj._state.adding = True
+                        obj._state.db = dst
+
+                    # Wrap this table's batches in one transaction: if a later
+                    # batch raises, earlier ones for the SAME table roll back too,
+                    # so a failed table ends up fully empty (and reported as
+                    # failed) instead of partially populated. A half-populated
+                    # parent table is exactly how a child row ends up pointing at
+                    # a PK that silently never made it across.
+                    with transaction.atomic(using=dst):
+                        for i in range(0, len(objs), BATCH_SIZE):
+                            batch = objs[i:i + BATCH_SIZE]
+                            self._all_manager(model).using(dst).bulk_create(
+                                batch, batch_size=BATCH_SIZE, ignore_conflicts=True,
+                            )
+
+                    # Reset this table's PK sequence immediately, not in one big
+                    # pass after every table has copied. The truncate reset
+                    # Neon's sequence to 1; until it's moved past whatever was
+                    # just copied in, any direct-to-Neon insert (bypassing this
+                    # command) could be auto-assigned a PK that a still-pending
+                    # table's row is about to claim explicitly. ignore_conflicts
+                    # would then silently drop that row — its children would
+                    # keep referencing a PK that now belongs to something else
+                    # entirely. Resetting right after each table's own copy
+                    # shrinks that window from "the whole sync" to "this table".
+                    if dst_is_pg:
+                        self._reset_sequence_for_model(dst, model)
+
+                    total_copied += cnt
+                    self.stdout.write(f'  OK    {name}: {cnt} rows')
+                except Exception as exc:
+                    msg = f'  ERROR {name}: {exc}'
+                    self.stdout.write(msg)
+                    errors.append(msg)
+                    failed_tables.add(model._meta.db_table)
+
+            # -- Re-enable FK constraints ----------------------------------------
+            if dst_is_pg and saved_fks:
+                self.stdout.write(f'\nStep 4/5: Restoring {len(saved_fks)} FK constraints...')
+                restore_errors = self._restore_fk_constraints(dst, saved_fks)
+                if restore_errors:
+                    self.stdout.write(f'{len(restore_errors)} FK constraints could not be restored:')
+                    for e in restore_errors:
+                        self.stdout.write(f'  WARN  {e}')
+                else:
+                    self.stdout.write('All FK constraints restored.')
+            elif not dst_is_pg:
+                with connections[dst].cursor() as cursor:
+                    cursor.execute('PRAGMA foreign_keys = ON;')
+                self.stdout.write('\nStep 4/5: FK checks re-enabled.')
+            else:
+                self.stdout.write('\nStep 4/5: (no FK constraints to restore)')
+
+            # -- Reset sequences (PostgreSQL only) --------------------------------
+            # Every non-empty table already had its sequence reset immediately
+            # after its own copy, in Step 3, to minimize the collision window.
+            # This pass is the catch-all: zero-row tables (never entered that
+            # loop, but were still truncated to empty and need their sequence
+            # back at 1) and failed tables (defensive — reset to whatever
+            # partial/rolled-back state they ended up in).
+            pg_alias = 'neon' if direction == 'local_to_neon' else None
+            if pg_alias:
+                self.stdout.write(f'\nStep 5/5: Resetting remaining PostgreSQL sequences...')
+                for model in all_models:
+                    self._reset_sequence_for_model(pg_alias, model)
+                self.stdout.write('Sequences reset.')
+            else:
+                self.stdout.write(f'\nStep 5/5: (SQLite target — no sequence reset needed)')
+
+            # -- Summary ----------------------------------------------------------
+            self.stdout.write('\n' + '=' * 60)
+            self.stdout.write(f'Sync complete! {total_copied} total rows copied.')
+            if errors:
+                self.stdout.write(f'{len(errors)} errors:')
+                for e in errors:
+                    self.stdout.write(e)
+            else:
+                self.stdout.write('No errors!')
+        
+            # -- Post-sync validation -----------------------------------------
+            self.stdout.write('\nValidating FK integrity...')
+            orphans_found = self._validate_fk_integrity(dst)
+            if orphans_found > 0:
+                self.stdout.write(self.style.WARNING(
+                    f'  WARNING: {orphans_found} orphaned FK(s) found after sync!'
+                ))
+                self.stdout.write('  Run: python manage.py cleanup_orphaned_fks')
+            else:
+                self.stdout.write('  FK integrity OK')
+
+            self.stdout.write('=' * 60)
+
+            # -- SyncOutbox reconciliation (local_to_neon only) -------------------
+            # A full local_to_neon push just made Neon match this device's
+            # current local state for every table it touched — any SyncOutbox
+            # row still queued for one of those tables is now moot (Neon already
+            # has this row's current state, in full, not just the queued delta).
+            # Only reconcile tables that actually copied without error; a table
+            # that failed still needs its outbox rows to retry normally later.
+            if direction == 'local_to_neon':
+                self._reconcile_outbox_after_full_push(all_models, failed_tables)
+        finally:
+            resume_worker()
 
     def _check_no_pending_outbox(self):
         """Abort neon_to_local if local_cache has un-pushed writes.

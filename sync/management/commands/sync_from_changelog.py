@@ -55,50 +55,65 @@ class Command(BaseCommand):
             self._show_status()
             return
 
-        if options['reset']:
-            self.stdout.write('Resetting checkpoint and running full hydration...')
-            _set_last_synced_log_id(0)
-            failed = _run_full_hydration()
-            if failed:
-                self.stdout.write(self.style.ERROR(
-                    f'Full hydration incomplete — {len(failed)} model(s) failed: '
-                    f'{", ".join(failed)}. Checkpoint left unset; re-run this command.'
-                ))
+        # Pause the background sync worker and flag sync-in-progress for the
+        # duration of the actual local_cache write — the same two guards the
+        # automatic startup changelog thread uses (sync/startup_sync.py).
+        # Without them, this command fights the worker thread and live
+        # signal handlers for SQLite's single write lock, surfacing as
+        # "database is locked" errors mid-sync.
+        from sync.background_sync import pause_worker, resume_worker
+        from sync.signals import set_sync_in_progress
+
+        pause_worker()
+        set_sync_in_progress(True)
+        try:
+            if options['reset']:
+                self.stdout.write('Resetting checkpoint and running full hydration...')
+                _set_last_synced_log_id(0)
+                failed = _run_full_hydration()
+                if failed:
+                    self.stdout.write(self.style.ERROR(
+                        f'Full hydration incomplete — {len(failed)} model(s) failed: '
+                        f'{", ".join(failed)}. Checkpoint left unset; re-run this command.'
+                    ))
+                    return
+                _set_checkpoint_to_latest()
+                self.stdout.write(self.style.SUCCESS('Full hydration complete.'))
                 return
-            _set_checkpoint_to_latest()
-            self.stdout.write(self.style.SUCCESS('Full hydration complete.'))
-            return
 
-        # Normal delta sync
-        last_log_id = _get_last_synced_log_id()
+            # Normal delta sync
+            last_log_id = _get_last_synced_log_id()
 
-        if last_log_id is None:
-            self.stdout.write(
-                'No checkpoint found. Running full hydration first...'
-            )
-            failed = _run_full_hydration()
-            if failed:
-                self.stdout.write(self.style.ERROR(
-                    f'Full hydration incomplete — {len(failed)} model(s) failed: '
-                    f'{", ".join(failed)}. Checkpoint left unset; re-run this command.'
-                ))
+            if last_log_id is None:
+                self.stdout.write(
+                    'No checkpoint found. Running full hydration first...'
+                )
+                failed = _run_full_hydration()
+                if failed:
+                    self.stdout.write(self.style.ERROR(
+                        f'Full hydration incomplete — {len(failed)} model(s) failed: '
+                        f'{", ".join(failed)}. Checkpoint left unset; re-run this command.'
+                    ))
+                    return
+                _set_checkpoint_to_latest()
+                self.stdout.write(self.style.SUCCESS('Full hydration complete.'))
                 return
-            _set_checkpoint_to_latest()
-            self.stdout.write(self.style.SUCCESS('Full hydration complete.'))
-            return
 
-        self.stdout.write(f'Last synced changelog ID: {last_log_id}')
-        self.stdout.write('Fetching changes from Neon...')
+            self.stdout.write(f'Last synced changelog ID: {last_log_id}')
+            self.stdout.write('Fetching changes from Neon...')
 
-        start = timezone.now()
-        applied = _replay_changelog_entries(last_log_id)
-        elapsed = (timezone.now() - start).total_seconds()
+            start = timezone.now()
+            applied = _replay_changelog_entries(last_log_id)
+            elapsed = (timezone.now() - start).total_seconds()
 
-        new_checkpoint = _get_last_synced_log_id()
-        self.stdout.write(self.style.SUCCESS(
-            f'Done! Applied {applied} changes in {elapsed:.1f}s. '
-            f'Checkpoint: {last_log_id} → {new_checkpoint}'
-        ))
+            new_checkpoint = _get_last_synced_log_id()
+            self.stdout.write(self.style.SUCCESS(
+                f'Done! Applied {applied} changes in {elapsed:.1f}s. '
+                f'Checkpoint: {last_log_id} → {new_checkpoint}'
+            ))
+        finally:
+            set_sync_in_progress(False)
+            resume_worker()
 
         if applied > 0:
             try:

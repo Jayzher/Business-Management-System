@@ -82,34 +82,39 @@ class Command(BaseCommand):
         synced = 0
         failed = 0
 
-        for entry in pending:
-            try:
-                model = apps.get_model(entry.app_label, entry.model_name)
+        from sync.background_sync import pause_worker, resume_worker
+        pause_worker()
+        try:
+            for entry in pending:
+                try:
+                    model = apps.get_model(entry.app_label, entry.model_name)
 
-                if entry.action == 'upsert':
-                    self._replay_upsert(model, entry)
-                elif entry.action == 'delete':
-                    self._replay_delete(model, entry)
+                    if entry.action == 'upsert':
+                        self._replay_upsert(model, entry)
+                    elif entry.action == 'delete':
+                        self._replay_delete(model, entry)
 
-                # Mark as synced
-                entry.status = SyncOutboxStatus.SYNCED
-                entry.synced_at = timezone.now()
-                entry.save(using='local_cache')
-                synced += 1
+                    # Mark as synced
+                    entry.status = SyncOutboxStatus.SYNCED
+                    entry.synced_at = timezone.now()
+                    entry.save(using='local_cache')
+                    synced += 1
 
-            except Exception as exc:
-                entry.status = SyncOutboxStatus.PENDING  # Keep pending for retry
-                entry.retry_count += 1
-                entry.error_message = str(exc)[:500]
-                if entry.retry_count > max_retries:
-                    entry.status = SyncOutboxStatus.FAILED
-                    failed += 1
-                entry.save(using='local_cache')
-                self.stderr.write(
-                    self.style.WARNING(
-                        f'  RETRY {entry.db_table}#{entry.row_pk}: {exc}'
+                except Exception as exc:
+                    entry.status = SyncOutboxStatus.PENDING  # Keep pending for retry
+                    entry.retry_count += 1
+                    entry.error_message = str(exc)[:500]
+                    if entry.retry_count > max_retries:
+                        entry.status = SyncOutboxStatus.FAILED
+                        failed += 1
+                    entry.save(using='local_cache')
+                    self.stderr.write(
+                        self.style.WARNING(
+                            f'  RETRY {entry.db_table}#{entry.row_pk}: {exc}'
+                        )
                     )
-                )
+        finally:
+            resume_worker()
 
         self.stdout.write(self.style.SUCCESS(
             f'Drain complete: {synced} synced, {failed} failed, '

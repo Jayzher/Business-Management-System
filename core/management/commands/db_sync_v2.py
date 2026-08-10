@@ -76,22 +76,31 @@ class Command(BaseCommand):
         self.stdout.write('=' * 70)
         self.stdout.write()
 
-        # Cleanup orphaned FKs first if requested
-        if cleanup_orphans:
-            self._cleanup_all_orphans()
+        # Pause the background sync worker for the duration of this
+        # long-lived foreground copy - without this, it fights the
+        # worker thread for SQLite's single write lock on every batch,
+        # surfacing as 'database is locked' errors mid-sync.
+        from sync.background_sync import pause_worker, resume_worker
+        pause_worker()
+        try:
+            # Cleanup orphaned FKs first if requested
+            if cleanup_orphans:
+                self._cleanup_all_orphans()
 
-        if direction == 'bidirectional':
-            # Bidirectional: Neon -> Local first (Neon is source of truth)
-            # Then Local -> Neon (only new local changes)
-            self.stdout.write('Phase 1: Syncing Neon -> Local (source of truth)')
-            self._sync_one_way('neon', 'sqlite', mode, dry_run)
-            self.stdout.write()
-            self.stdout.write('Phase 2: Syncing Local -> Neon (new local changes)')
-            self._sync_one_way('sqlite', 'neon', 'merge', dry_run)  # Always merge for local->neon
-        elif direction == 'local_to_neon':
-            self._sync_one_way('sqlite', 'neon', mode, dry_run)
-        else:  # neon_to_local
-            self._sync_one_way('neon', 'sqlite', mode, dry_run)
+            if direction == 'bidirectional':
+                # Bidirectional: Neon -> Local first (Neon is source of truth)
+                # Then Local -> Neon (only new local changes)
+                self.stdout.write('Phase 1: Syncing Neon -> Local (source of truth)')
+                self._sync_one_way('neon', 'sqlite', mode, dry_run)
+                self.stdout.write()
+                self.stdout.write('Phase 2: Syncing Local -> Neon (new local changes)')
+                self._sync_one_way('sqlite', 'neon', 'merge', dry_run)  # Always merge for local->neon
+            elif direction == 'local_to_neon':
+                self._sync_one_way('sqlite', 'neon', mode, dry_run)
+            else:  # neon_to_local
+                self._sync_one_way('neon', 'sqlite', mode, dry_run)
+        finally:
+            resume_worker()
 
         self.stdout.write()
         self.stdout.write('=' * 70)
