@@ -49,12 +49,36 @@ class Command(BaseCommand):
             action='store_true',
             help='Show what would be copied without writing.',
         )
+        parser.add_argument(
+            '--force',
+            action='store_true',
+            help=(
+                'Proceed with neon_to_local even if local_cache has PENDING '
+                'SyncOutbox rows (writes not yet pushed to Neon). Without '
+                'this flag, such a run is refused to avoid silently wiping '
+                'not-yet-synced local writes — e.g. a just-posted Stock '
+                'Adjustment that Neon has not received yet.'
+            ),
+        )
 
     def handle(self, *args, **options):
         direction = options['direction']
         dry_run = options['dry_run']
+        force = options['force']
 
         self._ensure_both_databases()
+
+        # ── Guard: neon_to_local TRUNCATEs local_cache wholesale. If there
+        # are writes sitting on local_cache that the background sync worker
+        # hasn't pushed to Neon yet (SyncOutbox PENDING — e.g. Neon was
+        # briefly unreachable, or the worker hasn't caught up), that
+        # truncate would silently destroy them: they exist nowhere else,
+        # so a fresh copy from Neon can't bring them back. A just-posted
+        # Stock Adjustment sitting in that backlog would simply vanish.
+        # Refuse by default; --force overrides for an operator who has
+        # confirmed it's safe (or doesn't care, e.g. a throwaway dev DB).
+        if direction == 'neon_to_local' and not dry_run and not force:
+            self._check_no_pending_outbox()
 
         if direction == 'local_to_neon':
             src, dst = 'sqlite', 'neon'
@@ -278,6 +302,46 @@ class Command(BaseCommand):
         # that failed still needs its outbox rows to retry normally later.
         if direction == 'local_to_neon':
             self._reconcile_outbox_after_full_push(all_models, failed_tables)
+
+    def _check_no_pending_outbox(self):
+        """Abort neon_to_local if local_cache has un-pushed writes.
+
+        Raises CommandError (rather than returning a bool) so a caller who
+        forgets to check a return value can't accidentally proceed anyway.
+        """
+        from django.core.management.base import CommandError
+        try:
+            from sync.models import SyncOutbox, SyncOutboxStatus
+            pending = list(
+                SyncOutbox.objects.using('local_cache')
+                .filter(status=SyncOutboxStatus.PENDING)
+                .values('db_table', 'row_pk')[:10]
+            )
+            pending_count = SyncOutbox.objects.using('local_cache').filter(
+                status=SyncOutboxStatus.PENDING,
+            ).count()
+        except Exception as exc:
+            # Can't confirm the outbox is empty — fail closed rather than
+            # risk a silent data-loss truncate.
+            raise CommandError(
+                f'Could not verify SyncOutbox is empty before neon_to_local '
+                f'sync ({exc}). Refusing to proceed. Pass --force to '
+                f'override if you are certain no un-synced local writes exist.'
+            )
+
+        if pending_count:
+            sample = ', '.join(f"{r['db_table']}#{r['row_pk']}" for r in pending)
+            raise CommandError(
+                f'Refusing to run neon_to_local: {pending_count} write(s) on '
+                f'local_cache have not reached Neon yet (SyncOutbox PENDING), '
+                f'e.g. {sample}. A neon_to_local sync TRUNCATEs local_cache '
+                f'and replaces it wholesale from Neon — those un-synced rows '
+                f'(which could include a just-posted Stock Adjustment) would '
+                f'be silently lost since they exist nowhere else yet.\n\n'
+                f'Run `python manage.py drain_sync_outbox` first, or wait for '
+                f'the background worker to catch up, then retry. Pass --force '
+                f'only if you are certain it is safe to discard them.'
+            )
 
     def _reconcile_outbox_after_full_push(self, all_models, failed_tables):
         self.stdout.write('\nReconciling SyncOutbox after full push to Neon...')

@@ -207,8 +207,21 @@ def _build_capital_roi_context(year):
     hold_cash = capital + revenue_collected - invoice_cogs - total_opex
     roi_on_capital = (net_profit / capital * 100) if capital > 0 else Decimal('0')
 
-    # Actual position
-    actual_cash = Decimal('62275')  # TODO: pull from actual cash tracking
+    # Actual position — cumulative net cash ledger position as of `end`
+    # (all-time cash in minus all-time cash out, not just this year's),
+    # using the same APPROVED+PENDING convention as every other cash-basis
+    # figure in this module.
+    actual_cash_in = CashFlowTransaction.objects.filter(
+        flow_type=CashFlowType.CASH_IN,
+        transaction_date__lt=end,
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
+    ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+    actual_cash_out = CashFlowTransaction.objects.filter(
+        flow_type=CashFlowType.CASH_OUT,
+        transaction_date__lt=end,
+        status__in=[CashFlowStatus.APPROVED, 'PENDING'],
+    ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+    actual_cash = actual_cash_in - actual_cash_out
     total_assets = actual_cash + inventory_value + ar
     equity_gain = total_assets - capital
     equity_roi = (equity_gain / capital * 100) if capital > 0 else Decimal('0')
