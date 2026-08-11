@@ -82,10 +82,19 @@ class Command(BaseCommand):
         synced = 0
         failed = 0
 
-        from sync.background_sync import pause_worker, resume_worker
-        pause_worker()
+        from sync.background_sync import (
+            pause_live_worker_only, resume_live_worker_only,
+            drain_wait_if_paused, mark_drain_idle,
+        )
+        pause_live_worker_only()
         try:
             for entry in pending:
+                # Yield to any foreground bulk-write operation that has
+                # called pause_worker() (e.g. the Supplier Catalog sync
+                # view) — without this, this loop's own local_cache writes
+                # race that operation's writes for SQLite's single writer
+                # lock. See project memory, 2026-08-11.
+                drain_wait_if_paused()
                 try:
                     model = apps.get_model(entry.app_label, entry.model_name)
 
@@ -114,7 +123,8 @@ class Command(BaseCommand):
                         )
                     )
         finally:
-            resume_worker()
+            resume_live_worker_only()
+            mark_drain_idle()
 
         self.stdout.write(self.style.SUCCESS(
             f'Drain complete: {synced} synced, {failed} failed, '
@@ -122,13 +132,27 @@ class Command(BaseCommand):
         ))
 
     def _replay_upsert(self, model, entry):
-        """Replay an upsert from local_cache → Neon (default)."""
-        # Try to read the current row from local_cache
-        obj = model._default_manager.using('local_cache').filter(pk=entry.row_pk).first()
+        """Replay an upsert to Neon (default) using the row_data captured on
+        the outbox entry at write time.
 
-        if obj is None:
-            # Row was deleted locally after the upsert was queued — skip
+        Deliberately does NOT read the row back from local_cache first — an
+        earlier version did, and that reintroduced the exact lock-contention
+        bug documented in docs_archive/DATABASE_LOCK_FIX.md (the live
+        background worker in background_sync.py was already fixed to push
+        row_data straight to Neon for the same reason). A read here runs
+        concurrently with this command's own tight per-entry write loop
+        AND with whatever the foreground request is doing, and fights it
+        for SQLite's single writer lock.
+        """
+        row_data = entry.row_data
+        if not row_data:
+            # No row data recorded — nothing to replay.
             return
+
+        obj = model(**row_data)
+        obj.pk = entry.row_pk
+        obj._state.adding = True
+        obj._state.db = 'default'
 
         concrete_fields = [
             f for f in model._meta.concrete_fields if not f.primary_key
@@ -148,8 +172,7 @@ class Command(BaseCommand):
             )
 
         # Log to NeonChangeLog so other devices can catch up
-        from sync.signals import _log_to_neon_changelog, _instance_to_dict
-        row_data = _instance_to_dict(obj)
+        from sync.signals import _log_to_neon_changelog
         _log_to_neon_changelog(
             'upsert', entry.db_table, entry.app_label,
             entry.model_name, entry.row_pk, row_data,

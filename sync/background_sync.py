@@ -59,24 +59,43 @@ _pause_event = threading.Event()
 _idle_event = threading.Event()
 _idle_event.set()  # idle until the first task arrives
 
+# Separate pause/idle pair for an actively-running `drain_sync_outbox` loop.
+# Kept independent from _pause_event/_idle_event above because drain itself
+# calls pause_live_worker_only() (which only touches _pause_event) to pause
+# the live worker while IT writes — sharing one flag would make the drain
+# pause itself. A foreground bulk-write operation calls the full
+# pause_worker() below, which sets BOTH, so it also gets exclusive access
+# against a drain that's mid-run (see project memory: a reintroduced
+# local_cache read in drain_sync_outbox._replay_upsert plus this missing
+# coordination caused repeated "database is locked" errors on
+# supplier-catalog sync, 2026-08-11).
+_drain_pause_event = threading.Event()
+_drain_idle_event = threading.Event()
+_drain_idle_event.set()  # idle until a drain loop actually starts
+
 
 def pause_worker(timeout=10.0):
-    """Pause the worker before a long-lived transaction elsewhere.
+    """Pause ALL local_cache-writing background activity — the live
+    per-save worker AND any actively-running `drain_sync_outbox` loop —
+    before a long-lived foreground transaction elsewhere.
 
-    Blocks until any in-flight batch finishes (batches are capped at 10 tasks
-    and close their connections immediately after, so this is normally
-    near-instant). Also waits for the separate startup changelog-sync thread
-    (sync/startup_sync.py) to finish if it's mid-run — that thread does its
-    own bulk writes/hydration to local_cache independent of this task queue,
-    and races the same SQLite write lock (e.g. right after a server restart,
-    when it fires ~3s after boot).
+    Blocks until any in-flight worker batch finishes (batches are capped at
+    10 tasks and close their connections immediately after, so this is
+    normally near-instant) and until the drain loop reaches a pause point
+    between entries. Also waits for the separate startup changelog-sync
+    thread (sync/startup_sync.py) to finish if it's mid-run — that thread
+    does its own bulk writes/hydration to local_cache independent of this
+    task queue, and races the same SQLite write lock (e.g. right after a
+    server restart, when it fires ~3s after boot).
 
-    Safe to call even if neither background thread was ever started.
-    Returns True once both are confirmed idle, False on timeout (the caller
+    Safe to call even if none of these background activities are running.
+    Returns True once all are confirmed idle, False on timeout (the caller
     should treat that as "proceed cautiously" rather than fail).
     """
     _pause_event.set()
+    _drain_pause_event.set()
     worker_idle = _idle_event.wait(timeout=timeout)
+    drain_idle = _drain_idle_event.wait(timeout=timeout)
 
     try:
         from sync.signals import is_sync_in_progress
@@ -87,12 +106,49 @@ def pause_worker(timeout=10.0):
     except Exception:
         startup_sync_idle = True  # module unavailable — nothing to wait for
 
-    return worker_idle and startup_sync_idle
+    return worker_idle and drain_idle and startup_sync_idle
+
+
+def pause_live_worker_only(timeout=10.0):
+    """Pause just the live per-save worker (not any active drain) — used
+    internally by drain_sync_outbox, which cannot use the full
+    pause_worker() on itself without self-deadlocking against
+    _drain_pause_event."""
+    _pause_event.set()
+    return _idle_event.wait(timeout=timeout)
+
+
+def resume_live_worker_only():
+    _pause_event.clear()
+
+
+def drain_wait_if_paused(poll=0.1):
+    """Called between entries in drain_sync_outbox's loop, before each
+    entry is processed. Blocks while a foreground bulk-write operation has
+    requested exclusive access via pause_worker(), so the drain never
+    writes to local_cache at the same time as that operation.
+
+    Always clears _drain_idle_event before returning (marking the drain
+    "busy" for the entry it's about to process) and sets it while actually
+    waiting out a pause — mirrors _worker_loop's own pause handling below.
+    """
+    while _drain_pause_event.is_set():
+        _drain_idle_event.set()
+        time.sleep(poll)
+    _drain_idle_event.clear()
+
+
+def mark_drain_idle():
+    """Called once by drain_sync_outbox when its loop is fully done (success
+    or error) — marks the drain idle so a later pause_worker() call doesn't
+    wait out a drain run that has already finished."""
+    _drain_idle_event.set()
 
 
 def resume_worker():
-    """Resume a worker previously paused with pause_worker()."""
+    """Resume workers previously paused with pause_worker()."""
     _pause_event.clear()
+    _drain_pause_event.clear()
 
 
 def start_background_worker():

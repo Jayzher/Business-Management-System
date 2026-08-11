@@ -823,7 +823,17 @@ def supplier_catalog_sync_view(request):
             messages.warning(request, 'No items were selected for sync.')
             return redirect('supplier_catalog_sync')
 
-        result = sync_supplier_catalog(item_ids=selected_item_ids)
+        # This can do many update_or_create() calls in a row against
+        # local_cache. Without exclusive access, it races the outbox drain
+        # (sync/management/commands/drain_sync_outbox.py) or the live
+        # background worker for SQLite's single writer lock and can raise
+        # "database is locked" — see project memory, 2026-08-11.
+        from sync.background_sync import pause_worker, resume_worker
+        pause_worker()
+        try:
+            result = sync_supplier_catalog(item_ids=selected_item_ids)
+        finally:
+            resume_worker()
 
         return render(request, 'procurement/supplier_catalog_sync_result.html', {
             'changes': result['changes'],
