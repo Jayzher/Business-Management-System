@@ -91,6 +91,10 @@ MIDDLEWARE = [
     # Prevents "database is locked" on Django Admin deletes with large
     # cascades — see sync/middleware.py for details.
     'sync.middleware.PauseSyncForAdminDeleteMiddleware',
+    # Tags writes with the originating browser tab's WebSocket client id so
+    # that tab can skip re-refreshing itself over its own change — see
+    # sync/middleware.py for details.
+    'sync.middleware.WsClientIdMiddleware',
 ]
 
 ROOT_URLCONF = 'inventory_system.urls'

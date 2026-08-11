@@ -1082,6 +1082,22 @@ WIS.openModal = function(url, size) {
 
 /* ── Dynamic content refresh ───────────────────────────────────────── */
 WIS.refreshContent = function() {
+  /* Preserve scroll position across the content swap below — without this,
+     a page mid-refresh (e.g. from a rapid string of WebSocket data-changed
+     events while browsing a long list) snaps back to the top on every
+     refresh, making it impossible to scroll. Captures both the window
+     scroll and the scroll of the nearest inner scrollable region (a
+     table-responsive wrapper or a DataTable's own scroll body), since
+     wis-table lists commonly scroll inside one of those rather than the
+     window itself. */
+  var savedWindowScroll = window.scrollY;
+  var curContentPre = document.querySelector('.content .container-fluid');
+  var savedInnerScroll = null;
+  if (curContentPre) {
+    var innerScrollElPre = curContentPre.querySelector('.dataTables_scrollBody, .table-responsive');
+    if (innerScrollElPre) savedInnerScroll = innerScrollElPre.scrollTop;
+  }
+
   /* Fetch the current page and replace the main content area dynamically */
   fetch(window.location.href, {
     credentials: 'same-origin',
@@ -1111,6 +1127,13 @@ WIS.refreshContent = function() {
       wisInitFormsetFlags();
       wisInitSelect2(curContent);
       wisAdjustmentInit(curContent);
+
+      /* Restore scroll position now that the new content is in place. */
+      window.scrollTo(0, savedWindowScroll);
+      if (savedInnerScroll !== null) {
+        var innerScrollElPost = curContent.querySelector('.dataTables_scrollBody, .table-responsive');
+        if (innerScrollElPost) innerScrollElPost.scrollTop = savedInnerScroll;
+      }
     }
   })
   .catch(function() { /* Fallback: full reload if dynamic refresh fails */

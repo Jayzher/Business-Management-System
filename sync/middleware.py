@@ -58,3 +58,46 @@ class PauseSyncForAdminDeleteMiddleware:
         if request.POST.get('action') == 'delete_selected':
             return True
         return False
+
+
+class WsClientIdMiddleware:
+    """
+    Reads the per-browser-tab WebSocket client id (see static/js/ws-sync.js)
+    off the incoming request and stashes it in a thread-local for the
+    duration of the request, so sync/signals.py can tag any writes this
+    request causes with "this is where the change came from".
+
+    THE PROBLEM: a write made from a browser tab is already reflected in
+    that tab's own next render (local_cache is written synchronously,
+    before the response is sent) — but the WebSocket broadcast that tells
+    OTHER tabs/devices about the change reaches every subscribed connection
+    identically, including the tab that made the change. That tab ends up
+    reloading its own content over news it already had, which is what made
+    the Supplier Catalog page appear to auto-refresh every second after a
+    bulk sync (see project memory, 2026-08-11).
+
+    THE FIX: ws-sync.js sends its client id as a WebSocket query param on
+    connect, a `X-Ws-Client-Id` header on every fetch() call, and a hidden
+    `_ws_client_id` form field on every plain form submit. This middleware
+    reads whichever is present and makes it available via
+    sync.signals.get_origin_client_id() for the rest of the request. The
+    consumer (sync/consumers.py) compares this against its own connection's
+    client id and skips re-sending to the tab that already knows.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        client_id = (
+            request.headers.get('X-Ws-Client-Id')
+            or request.POST.get('_ws_client_id')
+            or request.GET.get('_ws_client_id')
+            or None
+        )
+        from sync.signals import set_origin_client_id
+        set_origin_client_id(client_id)
+        try:
+            return self.get_response(request)
+        finally:
+            set_origin_client_id(None)

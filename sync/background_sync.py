@@ -228,9 +228,15 @@ def _record_outbox(action: str, table: str, app_label: str,
 
 
 def enqueue_save(sender, pk: int, table: str, app_label: str,
-                 model_name: str, row_data: dict):
+                 model_name: str, row_data: dict, origin_client_id: str | None = None):
     """Enqueue a post-commit save task (non-blocking apart from one local
-    SQLite insert for durability — see module docstring GUARANTEES)."""
+    SQLite insert for durability — see module docstring GUARANTEES).
+
+    origin_client_id identifies the browser tab whose request caused this
+    write (see sync/signals.py get_origin_client_id) — carried through to
+    the eventual WebSocket broadcast so that tab can skip re-refreshing
+    itself over a change it already has (see SyncConsumer.data_changed).
+    """
     outbox_id = _record_outbox('upsert', table, app_label, model_name, pk, row_data)
     _task_queue.put({
         'type': 'save',
@@ -242,11 +248,12 @@ def enqueue_save(sender, pk: int, table: str, app_label: str,
         'row_data': row_data,
         'outbox_id': outbox_id,
         'enqueued_at': time.time(),
+        'origin_client_id': origin_client_id,
     })
 
 
 def enqueue_delete(sender, pk: int, table: str, app_label: str,
-                   model_name: str):
+                   model_name: str, origin_client_id: str | None = None):
     """Enqueue a post-commit delete task (non-blocking apart from one local
     SQLite insert for durability — see module docstring GUARANTEES)."""
     outbox_id = _record_outbox('delete', table, app_label, model_name, pk, None)
@@ -259,6 +266,7 @@ def enqueue_delete(sender, pk: int, table: str, app_label: str,
         'model_name': model_name,
         'outbox_id': outbox_id,
         'enqueued_at': time.time(),
+        'origin_client_id': origin_client_id,
     })
 
 
@@ -360,7 +368,10 @@ def _process_batch(batch: list):
                 )
 
                 # 3. Broadcast via WebSocket
-                broadcast_data_changed(task['table'], 'upsert', [task['row_data']])
+                broadcast_data_changed(
+                    task['table'], 'upsert', [task['row_data']],
+                    origin_client_id=task.get('origin_client_id'),
+                )
 
                 # 4. Clear the durable outbox record(s) for this row — it
                 # reached Neon, so it no longer needs recovery on next boot.
@@ -378,7 +389,10 @@ def _process_batch(batch: list):
                 if task.get('outbox_id') is None:
                     _queue_failed_to_outbox(task, 'upsert', exc)
                 # Still broadcast locally so connected clients see the change
-                broadcast_data_changed(task['table'], 'upsert', [task['row_data']])
+                broadcast_data_changed(
+                    task['table'], 'upsert', [task['row_data']],
+                    origin_client_id=task.get('origin_client_id'),
+                )
 
     # ── Process deletes (push local_cache deletes to Neon) ─────────────
     if deletes:
@@ -402,6 +416,7 @@ def _process_batch(batch: list):
                 # 3. Broadcast via WebSocket
                 broadcast_data_changed(
                     task['table'], 'delete', [{'id': task['pk']}],
+                    origin_client_id=task.get('origin_client_id'),
                 )
 
                 # 4. Clear the durable outbox record(s) for this row.
@@ -416,6 +431,7 @@ def _process_batch(batch: list):
                     _queue_failed_to_outbox(task, 'delete', exc)
                 broadcast_data_changed(
                     task['table'], 'delete', [{'id': task['pk']}],
+                    origin_client_id=task.get('origin_client_id'),
                 )
 
 

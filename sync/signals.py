@@ -50,6 +50,16 @@ _MIRROR_ACTIVE = threading.local()
 _FALLBACK_ACTIVE = threading.local()
 _CHANGELOG_ACTIVE = threading.local()
 
+# The WebSocket client id (see static/js/ws-sync.js) of whichever browser
+# tab caused the current request's writes, if any — set by
+# sync.middleware.WsClientIdMiddleware for the duration of the request.
+# Read here at save/delete-signal time and carried through to the eventual
+# broadcast so that SAME tab can skip re-refreshing itself over a change
+# it already rendered synchronously from its own request/response. Other
+# tabs/devices, which didn't set this thread-local, still get the
+# broadcast normally — this only suppresses the self-echo.
+_ORIGIN_CLIENT_ID = threading.local()
+
 # Flag: set True while startup sync is replaying changelog entries.
 # Prevents the signal handlers from re-mirroring rows that the sync
 # thread is already writing to local_cache (avoids race conditions).
@@ -64,6 +74,14 @@ SYNCED_APP_LABELS = {
 
 def _is_neon_primary() -> bool:
     return getattr(settings, 'SYNC_MODE', 'offline') == 'neon_primary'
+
+
+def get_origin_client_id() -> str | None:
+    return getattr(_ORIGIN_CLIENT_ID, 'value', None)
+
+
+def set_origin_client_id(client_id: str | None) -> None:
+    _ORIGIN_CLIENT_ID.value = client_id
 
 
 def is_fallback_active() -> bool:
@@ -168,7 +186,8 @@ def _broadcast_ws(tables: list[str]) -> None:
         pass
 
 
-def _broadcast_ws_data(table: str, action: str, rows: list[dict]) -> None:
+def _broadcast_ws_data(table: str, action: str, rows: list[dict],
+                       origin_client_id: str | None = None) -> None:
     try:
         from channels.layers import get_channel_layer
         from asgiref.sync import async_to_sync
@@ -183,6 +202,7 @@ def _broadcast_ws_data(table: str, action: str, rows: list[dict]) -> None:
                 'action': action,
                 'rows': rows,
                 'timestamp': timezone.now().isoformat(),
+                'origin_client_id': origin_client_id,
             },
         )
     except Exception:
@@ -194,8 +214,9 @@ def broadcast_table_changed(tables: list[str]) -> None:
     _broadcast_pusher(tables)
 
 
-def broadcast_data_changed(table: str, action: str, rows: list[dict]) -> None:
-    _broadcast_ws_data(table, action, rows)
+def broadcast_data_changed(table: str, action: str, rows: list[dict],
+                           origin_client_id: str | None = None) -> None:
+    _broadcast_ws_data(table, action, rows, origin_client_id=origin_client_id)
     _broadcast_pusher([table])
 
 
@@ -274,20 +295,22 @@ def _log_to_neon_changelog(action: str, table: str, app_label: str,
 
 # ── On-commit orchestrator ─────────────────────────────────────────────
 
-def _on_commit_save(sender, pk, table, app_label, model_name, row_data):
+def _on_commit_save(sender, pk, table, app_label, model_name, row_data, origin_client_id):
     """Enqueue background push to Neon after local_cache write commits.
 
     The write already landed on local_cache (instant for the user).
     This just queues the async push to Neon + changelog + WS broadcast.
     """
     from sync.background_sync import enqueue_save
-    enqueue_save(sender, pk, table, app_label, model_name, row_data)
+    enqueue_save(sender, pk, table, app_label, model_name, row_data,
+                 origin_client_id=origin_client_id)
 
 
-def _on_commit_delete(sender, pk, table, app_label, model_name):
+def _on_commit_delete(sender, pk, table, app_label, model_name, origin_client_id):
     """Enqueue background push of delete to Neon."""
     from sync.background_sync import enqueue_delete
-    enqueue_delete(sender, pk, table, app_label, model_name)
+    enqueue_delete(sender, pk, table, app_label, model_name,
+                    origin_client_id=origin_client_id)
 
 
 # ── Signal receivers ───────────────────────────────────────────────────
@@ -307,8 +330,9 @@ def on_model_save(sender, instance, using, **kwargs):
         pk, table = instance.pk, sender._meta.db_table
         app_label, model_name = sender._meta.app_label, sender._meta.model_name
         row_data = _instance_to_dict(instance)
+        origin_client_id = get_origin_client_id()
         db_transaction.on_commit(
-            lambda: _on_commit_save(sender, pk, table, app_label, model_name, row_data),
+            lambda: _on_commit_save(sender, pk, table, app_label, model_name, row_data, origin_client_id),
             using='local_cache',
         )
         return
@@ -317,8 +341,9 @@ def on_model_save(sender, instance, using, **kwargs):
     if using == 'default' and not _is_neon_primary():
         pk, table = instance.pk, sender._meta.db_table
         row_data = _instance_to_dict(instance)
+        origin_client_id = get_origin_client_id()
         db_transaction.on_commit(
-            lambda: broadcast_data_changed(table, 'upsert', [row_data]),
+            lambda: broadcast_data_changed(table, 'upsert', [row_data], origin_client_id=origin_client_id),
             using='default',
         )
 
@@ -336,8 +361,9 @@ def on_model_delete(sender, instance, using, **kwargs):
     if using == 'local_cache' and _is_neon_primary():
         pk, table = instance.pk, sender._meta.db_table
         app_label, model_name = sender._meta.app_label, sender._meta.model_name
+        origin_client_id = get_origin_client_id()
         db_transaction.on_commit(
-            lambda: _on_commit_delete(sender, pk, table, app_label, model_name),
+            lambda: _on_commit_delete(sender, pk, table, app_label, model_name, origin_client_id),
             using='local_cache',
         )
         return
@@ -345,8 +371,9 @@ def on_model_delete(sender, instance, using, **kwargs):
     # Offline mode
     if using == 'default' and not _is_neon_primary():
         pk, table = instance.pk, sender._meta.db_table
+        origin_client_id = get_origin_client_id()
         db_transaction.on_commit(
-            lambda: broadcast_data_changed(table, 'delete', [{'id': pk}]),
+            lambda: broadcast_data_changed(table, 'delete', [{'id': pk}], origin_client_id=origin_client_id),
             using='default',
         )
 
@@ -428,6 +455,7 @@ def bulk_sync_upsert(model, pks: list, source: str = '') -> int:
     table = model._meta.db_table
     app_label = model._meta.app_label
     model_name = model._meta.model_name
+    origin_client_id = get_origin_client_id()
 
     BATCH_SIZE = 500
     queued = 0
@@ -441,7 +469,8 @@ def bulk_sync_upsert(model, pks: list, source: str = '') -> int:
 
         for obj in objs:
             row_data = _instance_to_dict(obj)
-            enqueue_save(model, obj.pk, table, app_label, model_name, row_data)
+            enqueue_save(model, obj.pk, table, app_label, model_name, row_data,
+                         origin_client_id=origin_client_id)
             queued += 1
 
     return queued
@@ -477,8 +506,10 @@ def bulk_sync_delete(model, pks: list, source: str = '') -> int:
     table = model._meta.db_table
     app_label = model._meta.app_label
     model_name = model._meta.model_name
+    origin_client_id = get_origin_client_id()
 
     for pk in pks:
-        enqueue_delete(model, pk, table, app_label, model_name)
+        enqueue_delete(model, pk, table, app_label, model_name,
+                       origin_client_id=origin_client_id)
 
     return len(pks)

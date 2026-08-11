@@ -43,6 +43,11 @@ class SyncConsumer(AsyncJsonWebsocketConsumer):
       - Web clients: Django session cookie (handled by SessionMiddleware in ASGI)
       - Mobile clients: pass JWT token as query param ?token=<access_token>
 
+    Connect with ?client_id=<id> (see static/js/ws-sync.js) to identify this
+    tab/connection — a data_changed broadcast whose origin_client_id matches
+    this connection's own client_id is not re-sent to it, since that tab
+    already has the change from its own request/response.
+
     Protocol (JSON):
       Server → Client:
         {"type": "table_changed", "tables": ["catalog_item", ...]}
@@ -60,6 +65,12 @@ class SyncConsumer(AsyncJsonWebsocketConsumer):
         super().__init__(*args, **kwargs)
         # None or set of table names; None means "all tables"
         self.subscribed_tables = None
+        # This browser tab's client id (see static/js/ws-sync.js), sent as
+        # a ?client_id= query param on connect. Used to skip re-sending a
+        # broadcast to the very tab whose own HTTP request caused it — see
+        # sync.middleware.WsClientIdMiddleware for how the id gets attached
+        # to the write in the first place.
+        self.client_id = None
 
     async def connect(self):
         user = self.scope.get('user')
@@ -74,6 +85,8 @@ class SyncConsumer(AsyncJsonWebsocketConsumer):
             return
 
         self.scope['user'] = user
+        query_string = self.scope.get('query_string', b'').decode('utf-8')
+        self.client_id = parse_qs(query_string).get('client_id', [None])[0]
         await self.channel_layer.group_add(SYNC_GROUP, self.channel_name)
         await self.accept()
         await self.send_json({
@@ -137,6 +150,15 @@ class SyncConsumer(AsyncJsonWebsocketConsumer):
         if self.subscribed_tables is not None:
             if table not in self.subscribed_tables:
                 return
+
+        # Skip re-notifying the very tab whose own request caused this
+        # change — it already rendered the fresh data from its own
+        # request/response and doesn't need to be told to refresh itself.
+        # Other tabs/devices (which won't share this client_id) still get
+        # the broadcast normally.
+        origin = event.get('origin_client_id')
+        if origin and self.client_id and origin == self.client_id:
+            return
 
         await self.send_json({
             'type': 'data_changed',

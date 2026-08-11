@@ -28,9 +28,17 @@
   var RECONNECT_BASE = 1000;       // Initial reconnect delay (ms)
   var RECONNECT_MAX  = 30000;      // Max reconnect delay (ms)
   var REFRESH_DEBOUNCE = 800;      // Debounce rapid events (ms)
+  var REFRESH_MAX_WAIT = 4000;     // Upper bound on how long a sustained event
+                                    // flood (e.g. a bulk sync trickling through
+                                    // the background worker) can keep postponing
+                                    // a refresh — without this, continuous events
+                                    // spaced under REFRESH_DEBOUNCE apart reset
+                                    // the debounce forever and the page never
+                                    // settles enough to scroll.
   var PING_INTERVAL  = 25000;      // Keepalive ping every 25s
   var CATCHUP_URL    = '/api/sync/catchup/';
   var STORAGE_KEY    = 'ws_sync_last_event_ms';
+  var CLIENT_ID_KEY  = 'ws_sync_client_id';
 
   // ── State ─────────────────────────────────────────────────────────
   var ws = null;
@@ -38,15 +46,41 @@
   var reconnectTimer = null;
   var pingTimer = null;
   var refreshTimer = null;
+  var refreshMaxWaitTimer = null;
   var pendingTables = [];
   var isConnected = false;
   var wasConnectedBefore = false;  // True after first successful connect
   var catchupInProgress = false;
 
   // ── Helpers ───────────────────────────────────────────────────────
+
+  // A per-tab id (sessionStorage, not shared with other tabs even in the
+  // same browser/session) sent to the server on every write this tab makes
+  // — as a WS query param, a fetch() header, and a hidden form field — so
+  // the server can tag the resulting broadcast with "this tab already
+  // knows" and this same connection can skip re-refreshing itself over its
+  // own change. See sync/middleware.py WsClientIdMiddleware and
+  // sync/consumers.py SyncConsumer.data_changed for the server side.
+  function getClientId() {
+    try {
+      var id = sessionStorage.getItem(CLIENT_ID_KEY);
+      if (!id) {
+        id = (window.crypto && window.crypto.randomUUID)
+          ? window.crypto.randomUUID()
+          : 'tab-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+        sessionStorage.setItem(CLIENT_ID_KEY, id);
+      }
+      return id;
+    } catch (e) {
+      return null; // sessionStorage unavailable — self-echo suppression just won't apply
+    }
+  }
+
   function getWsUrl() {
     var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return protocol + '//' + window.location.host + '/ws/sync/';
+    var clientId = getClientId();
+    var qs = clientId ? ('?client_id=' + encodeURIComponent(clientId)) : '';
+    return protocol + '//' + window.location.host + '/ws/sync/' + qs;
   }
 
   function log(msg) {
@@ -73,6 +107,59 @@
     return match ? match[1] : '';
   }
 
+  // ── Attach the client id to every write this tab makes ─────────────
+  // Two delivery paths, covering both ways this app submits data:
+  //   1. fetch()-based AJAX (the modal/toolbar form-submit helpers in
+  //      base.html) — add a request header.
+  //   2. Plain <form> submissions that navigate the browser normally (no
+  //      JS interception) — a header can't be attached to those, so inject
+  //      a hidden input instead, before the browser sends the request.
+  // Same-origin only, so this never leaks the id to third-party requests.
+
+  function isSameOrigin(url) {
+    try {
+      return new URL(url, window.location.href).origin === window.location.origin;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  (function patchFetchWithClientId() {
+    if (!window.fetch || window.fetch.__wsClientIdPatched) return;
+    var originalFetch = window.fetch;
+    var patched = function (input, init) {
+      try {
+        var url = (typeof input === 'string') ? input : (input && input.url);
+        var clientId = getClientId();
+        if (clientId && url && isSameOrigin(url)) {
+          init = init || {};
+          var headers = new Headers(init.headers || (typeof input !== 'string' && input.headers) || {});
+          headers.set('X-Ws-Client-Id', clientId);
+          init = Object.assign({}, init, { headers: headers });
+        }
+      } catch (e) { /* fall through to unmodified call */ }
+      return originalFetch.call(window, input, init);
+    };
+    patched.__wsClientIdPatched = true;
+    window.fetch = patched;
+  })();
+
+  document.addEventListener('submit', function (event) {
+    var form = event.target;
+    if (!form || form.tagName !== 'FORM') return;
+    var clientId = getClientId();
+    if (!clientId) return;
+    var input = form.querySelector('input[name="_ws_client_id"]');
+    if (!input) {
+      input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = '_ws_client_id';
+      form.appendChild(input);
+    }
+    input.value = clientId;
+  }, true /* capture phase — run before any bubble-phase submit handler
+             (e.g. wisHandleFormSubmit) reads the form's field values */);
+
   // ── Connection indicator ──────────────────────────────────────────
   function updateIndicator(connected) {
     isConnected = connected;
@@ -88,6 +175,37 @@
   }
 
   // ── Debounced page refresh ────────────────────────────────────────
+  function doRefresh() {
+    clearTimeout(refreshTimer);
+    clearTimeout(refreshMaxWaitTimer);
+    refreshTimer = null;
+    refreshMaxWaitTimer = null;
+
+    var changed = pendingTables.slice();
+    pendingTables = [];
+
+    var body = document.body;
+    if (body && body.dataset && body.dataset.wsNoRefresh === 'true') {
+      log('Auto-refresh disabled for this page');
+      return;
+    }
+
+    // Fire custom event so individual pages can react
+    var evt = new CustomEvent('ws:table-changed', { detail: { tables: changed } });
+    document.dispatchEvent(evt);
+
+    // Default: refresh the page content area
+    if (typeof WIS !== 'undefined' && typeof WIS.refreshContent === 'function') {
+      log('Refreshing content for: ' + changed.join(', '));
+      WIS.refreshContent();
+    }
+
+    // Show a subtle toast
+    if (typeof WIS !== 'undefined' && typeof WIS.toast === 'function') {
+      WIS.toast('Data updated', 'info');
+    }
+  }
+
   function scheduleRefresh(tables) {
     for (var i = 0; i < tables.length; i++) {
       if (pendingTables.indexOf(tables[i]) === -1) {
@@ -95,31 +213,19 @@
       }
     }
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(function () {
-      var changed = pendingTables.slice();
-      pendingTables = [];
+    refreshTimer = setTimeout(doRefresh, REFRESH_DEBOUNCE);
 
-      var body = document.body;
-      if (body && body.dataset && body.dataset.wsNoRefresh === 'true') {
-        log('Auto-refresh disabled for this page');
-        return;
-      }
-
-      // Fire custom event so individual pages can react
-      var evt = new CustomEvent('ws:table-changed', { detail: { tables: changed } });
-      document.dispatchEvent(evt);
-
-      // Default: refresh the page content area
-      if (typeof WIS !== 'undefined' && typeof WIS.refreshContent === 'function') {
-        log('Refreshing content for: ' + changed.join(', '));
-        WIS.refreshContent();
-      }
-
-      // Show a subtle toast
-      if (typeof WIS !== 'undefined' && typeof WIS.toast === 'function') {
-        WIS.toast('Data updated', 'info');
-      }
-    }, REFRESH_DEBOUNCE);
+    // A sustained flood of events (e.g. a bulk sync trickling through the
+    // background worker, one broadcast per row/batch) keeps resetting the
+    // debounce above before it ever fires, which would otherwise starve
+    // the page of a refresh indefinitely — or, worse, let it fire back-to
+    // -back the instant the flood pauses for a beat, reloading the content
+    // area every second or so. This timer guarantees a refresh happens at
+    // least once every REFRESH_MAX_WAIT ms regardless of how continuous
+    // the event stream is, started on the first event of a burst.
+    if (!refreshMaxWaitTimer) {
+      refreshMaxWaitTimer = setTimeout(doRefresh, REFRESH_MAX_WAIT);
+    }
   }
 
   // ── Catch-up: fetch missed changes after reconnect ────────────────
