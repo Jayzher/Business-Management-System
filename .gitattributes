@@ -1,0 +1,5 @@
+# SQLite Lossless 3-Way Merge Configuration
+db.sqlite3 merge=sqlite3
+*.sqlite3 merge=sqlite3
+*.sqlite3-wal merge=binary
+*.sqlite3-shm merge=binary

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Improved Bidirectional Database Sync with Conflict Resolution
 ==============================================================
 
@@ -321,33 +321,57 @@ class Command(BaseCommand):
         has_timestamp = has_updated_at or has_modified_at
         timestamp_field = 'updated_at' if has_updated_at else 'modified_at' if has_modified_at else None
 
+        # Get concrete fields for comparison
+        concrete_fields = [f.name for f in model._meta.concrete_fields if not f.primary_key]
+
         to_insert = []
         to_update = []
 
+        # Prefetch destination objects for fast lookup
+        dst_obj_map = {}
+        if dst_pks:
+            for obj in model.objects.using(dst_alias).all():
+                dst_obj_map[obj.pk] = obj
+
         for src_obj in src_objs:
-            if src_obj.pk in dst_pks:
-                # Record exists in destination - check if we should update
+            if src_obj.pk in dst_obj_map:
+                dst_obj = dst_obj_map[src_obj.pk]
+                should_update = False
+
                 if has_timestamp:
-                    # Compare timestamps
-                    try:
-                        dst_obj = model.objects.using(dst_alias).get(pk=src_obj.pk)
-                        src_ts = getattr(src_obj, timestamp_field)
-                        dst_ts = getattr(dst_obj, timestamp_field)
-                        
-                        if src_ts and dst_ts and src_ts > dst_ts:
-                            # Source is newer - update
-                            to_update.append(src_obj)
+                    src_ts = getattr(src_obj, timestamp_field, None)
+                    dst_ts = getattr(dst_obj, timestamp_field, None)
+                    if src_ts and dst_ts:
+                        if src_ts > dst_ts:
+                            should_update = True
+                        elif dst_ts > src_ts:
+                            should_update = False
                         else:
-                            # Destination is newer or same - skip
-                            skipped += 1
-                    except Exception:
-                        # If comparison fails, skip
-                        skipped += 1
+                            # Timestamps equal, check if fields differ
+                            should_update = any(
+                                getattr(src_obj, f, None) != getattr(dst_obj, f, None)
+                                for f in concrete_fields
+                            )
+                    elif src_ts and not dst_ts:
+                        should_update = True
+                    else:
+                        should_update = any(
+                            getattr(src_obj, f, None) != getattr(dst_obj, f, None)
+                            for f in concrete_fields
+                        )
                 else:
-                    # No timestamp - skip (keep destination)
+                    # No timestamp field - check if any field values differ
+                    should_update = any(
+                        getattr(src_obj, f, None) != getattr(dst_obj, f, None)
+                        for f in concrete_fields
+                    )
+
+                if should_update:
+                    to_update.append(src_obj)
+                else:
                     skipped += 1
             else:
-                # Record doesn't exist - insert
+                # Record doesn't exist in destination - insert
                 to_insert.append(src_obj)
 
         # Perform inserts
@@ -358,10 +382,19 @@ class Command(BaseCommand):
             
             for i in range(0, len(to_insert), BATCH_SIZE):
                 batch = to_insert[i:i + BATCH_SIZE]
-                model.objects.using(dst_alias).bulk_create(
-                    batch, batch_size=BATCH_SIZE
-                )
-            inserted = len(to_insert)
+                try:
+                    model.objects.using(dst_alias).bulk_create(
+                        batch, batch_size=BATCH_SIZE, ignore_conflicts=True
+                    )
+                    inserted += len(batch)
+                except Exception as exc:
+                    # Fallback to individual save
+                    for obj in batch:
+                        try:
+                            obj.save(using=dst_alias)
+                            inserted += 1
+                        except Exception:
+                            skipped += 1
 
         # Perform updates
         if to_update:
@@ -371,8 +404,14 @@ class Command(BaseCommand):
                 try:
                     obj.save(using=dst_alias)
                     updated += 1
-                except Exception:
-                    skipped += 1
+                except Exception as exc:
+                    # Try update_fields fallback
+                    try:
+                        update_field_names = [f for f in concrete_fields if hasattr(obj, f)]
+                        obj.save(using=dst_alias, update_fields=update_field_names)
+                        updated += 1
+                    except Exception:
+                        skipped += 1
 
         return (inserted, updated, skipped)
 
