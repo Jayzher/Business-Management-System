@@ -12,7 +12,12 @@ def pos_sale_cogs(pos_sale):
     total = Decimal('0')
 
     # Regular sale lines
-    for line in pos_sale.lines.select_related('item', 'item__default_unit', 'unit').all():
+    if hasattr(pos_sale, '_prefetched_objects_cache') and 'lines' in pos_sale._prefetched_objects_cache:
+        lines = pos_sale.lines.all()
+    else:
+        lines = pos_sale.lines.select_related('item', 'item__default_unit', 'unit').all()
+
+    for line in lines:
         try:
             if line.item and line.unit:
                 cogs = calculate_line_cogs_with_conversion(line.item, line.qty, line.unit)
@@ -22,9 +27,14 @@ def pos_sale_cogs(pos_sale):
             continue
 
     # Bundle lines (PriceList bundles)
-    for bundle in pos_sale.bundle_lines.prefetch_related(
-        'price_list__items__item', 'price_list__items__item__default_unit', 'price_list__items__unit'
-    ).all():
+    if hasattr(pos_sale, '_prefetched_objects_cache') and 'bundle_lines' in pos_sale._prefetched_objects_cache:
+        bundles = pos_sale.bundle_lines.all()
+    else:
+        bundles = pos_sale.bundle_lines.prefetch_related(
+            'price_list__items__item', 'price_list__items__item__default_unit', 'price_list__items__unit'
+        ).all()
+
+    for bundle in bundles:
         try:
             for pli in bundle.price_list.items.all():
                 if pli.item and pli.unit:
@@ -61,7 +71,12 @@ def sales_order_cogs(sales_order, qty_field='qty_delivered'):
     total = Decimal('0')
 
     # Regular order lines — costed at the chosen quantity field (see docstring).
-    for line in sales_order.lines.select_related('item', 'item__default_unit', 'unit').all():
+    if hasattr(sales_order, '_prefetched_objects_cache') and 'lines' in sales_order._prefetched_objects_cache:
+        lines = sales_order.lines.all()
+    else:
+        lines = sales_order.lines.select_related('item', 'item__default_unit', 'unit').all()
+
+    for line in lines:
         try:
             if line.item and line.unit:
                 qty = getattr(line, qty_field, None) or Decimal('0')
@@ -72,9 +87,14 @@ def sales_order_cogs(sales_order, qty_field='qty_delivered'):
             continue
 
     # Price list bundle lines
-    for bundle in sales_order.price_list_lines.prefetch_related(
-        'price_list__items__item', 'price_list__items__item__default_unit', 'price_list__items__unit'
-    ).all():
+    if hasattr(sales_order, '_prefetched_objects_cache') and 'price_list_lines' in sales_order._prefetched_objects_cache:
+        bundles = sales_order.price_list_lines.all()
+    else:
+        bundles = sales_order.price_list_lines.prefetch_related(
+            'price_list__items__item', 'price_list__items__item__default_unit', 'price_list__items__unit'
+        ).all()
+
+    for bundle in bundles:
         try:
             for pli in bundle.price_list.items.all():
                 if pli.item and pli.unit:
@@ -107,12 +127,17 @@ def service_invoice_cogs(invoice):
     Gracefully handles missing items (orphaned FKs) by skipping them.
     """
     total = Decimal('0')
-    for svc in invoice.customer_services.prefetch_related(
-        'lines__item', 'lines__item__default_unit', 'lines__unit',
-        'bundles__price_list__items__item', 'bundles__price_list__items__item__default_unit',
-        'bundles__price_list__items__unit',
-        'other_materials',  # Added to prefetch
-    ).all():
+    if hasattr(invoice, '_prefetched_objects_cache') and 'customer_services' in invoice._prefetched_objects_cache:
+        services = invoice.customer_services.all()
+    else:
+        services = invoice.customer_services.prefetch_related(
+            'lines__item', 'lines__item__default_unit', 'lines__unit',
+            'bundles__price_list__items__item', 'bundles__price_list__items__item__default_unit',
+            'bundles__price_list__items__unit',
+            'other_materials',  # Added to prefetch
+        ).all()
+
+    for svc in services:
         # Product lines (skip scrap / waste)
         for line in svc.lines.all():
             try:
@@ -151,26 +176,35 @@ def service_invoice_cogs(invoice):
 
 
 def _sales_order_has_posted_fulfillment(sales_order):
-    """True if the SO has any POSTED delivery or pickup — i.e. its lines'
-    qty_delivered reflects real fulfillment. When False, an invoice for this SO
-    was necessarily billed at qty_ordered (a direct SO invoice paid before any
-    fulfillment), so its COGS must be costed at qty_ordered too."""
+    """True if the SO has any POSTED delivery or pickup with non-zero delivered quantity.
+    When False, an invoice for this SO was necessarily billed at qty_ordered (a direct SO
+    invoice paid before any fulfillment), so its COGS must be costed at qty_ordered too."""
     from core.models import DocumentStatus
-    return (
-        sales_order.deliveries.filter(status=DocumentStatus.POSTED).exists()
-        or sales_order.pickups.filter(status=DocumentStatus.POSTED).exists()
-    )
+    if hasattr(sales_order, '_prefetched_objects_cache') and 'deliveries' in sales_order._prefetched_objects_cache and 'pickups' in sales_order._prefetched_objects_cache:
+        has_posted = (
+            any(d.status == DocumentStatus.POSTED for d in sales_order.deliveries.all())
+            or any(p.status == DocumentStatus.POSTED for p in sales_order.pickups.all())
+        )
+    else:
+        has_posted = (
+            sales_order.deliveries.filter(status=DocumentStatus.POSTED).exists()
+            or sales_order.pickups.filter(status=DocumentStatus.POSTED).exists()
+        )
+    if not has_posted:
+        return False
+    # If lines have no delivered quantity (qty_delivered_total == 0), using qty_delivered
+    # will collapse COGS to 0 against real invoice revenue. So require qty_delivered_total > 0.
+    return sales_order.qty_delivered_total > 0
+
 
 
 def compute_invoice_cogs(invoice):
     """Compute COGS from the linked source document with unit conversions.
 
     For SO-linked invoices, COGS is costed at qty_delivered when the SO has
-    real (posted) fulfillment, and at qty_ordered otherwise — so a direct SO
-    invoice that was billed and paid before any delivery/pickup was posted
-    (qty_delivered still 0) is costed at what it actually charged instead of
-    collapsing to 0. Both branches cost through the SO's own line/item FKs, so
-    they're robust to renamed/synthetic invoice-line codes.
+    real (posted) fulfillment with non-zero delivered quantity, and at qty_ordered otherwise.
+    If costing at qty_delivered evaluates to 0 but qty_ordered yields a positive COGS,
+    it falls back to qty_ordered to ensure COGS is never wrongly zeroed out for billed orders.
     """
     if invoice.pos_sale_id:
         cogs = pos_sale_cogs(invoice.pos_sale)
@@ -178,6 +212,11 @@ def compute_invoice_cogs(invoice):
         so = invoice.sales_order
         qty_field = 'qty_delivered' if _sales_order_has_posted_fulfillment(so) else 'qty_ordered'
         cogs = sales_order_cogs(so, qty_field=qty_field)
+        if cogs == Decimal('0'):
+            ordered_cogs = sales_order_cogs(so, qty_field='qty_ordered')
+            if ordered_cogs > Decimal('0'):
+                cogs = ordered_cogs
     else:
         cogs = service_invoice_cogs(invoice)
     return cogs.quantize(Decimal('0.01'))
+

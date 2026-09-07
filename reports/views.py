@@ -735,6 +735,8 @@ def financial_statement_view(request):
             'sales_order__lines__unit',
             'sales_order__price_list_lines__price_list__items__item',
             'sales_order__price_list_lines__price_list__items__unit',
+            'sales_order__deliveries',
+            'sales_order__pickups',
             'customer_services__lines__item',
             'customer_services__lines__unit',
             'customer_services__bundles__price_list__items__item',
@@ -850,7 +852,7 @@ def financial_statement_view(request):
         ratio = invoice_period_ratio[inv.pk]
         proportional_cogs = invoice_period_cogs[inv.pk]
 
-        if hasattr(inv, 'customer_services') and inv.customer_services.exists():
+        if hasattr(inv, 'customer_services') and len(inv.customer_services.all()) > 0:
             debug_services_with_partial += 1
             partial_services_revenue += period_paid
             partial_services_cogs += proportional_cogs
@@ -1064,7 +1066,7 @@ def financial_statement_view(request):
         elif inv.pos_sale_id:
             source_type = 'POS'
             ref = inv.pos_sale.sale_no
-        elif hasattr(inv, 'customer_services') and inv.customer_services.exists():
+        elif hasattr(inv, 'customer_services') and len(inv.customer_services.all()) > 0:
             source_type = 'SVC'
             services = inv.customer_services.all()
             ref = services[0].service_number if services else ''

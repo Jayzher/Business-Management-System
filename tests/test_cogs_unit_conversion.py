@@ -16,6 +16,7 @@ from core.cogs import pos_sale_cogs, sales_order_cogs, service_invoice_cogs
 
 
 class COGSWithUnitConversionTestCase(TestCase):
+    databases = '__all__'
     """Test COGS calculations with unit conversions."""
     
     def setUp(self):

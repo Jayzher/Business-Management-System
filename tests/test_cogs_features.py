@@ -22,6 +22,7 @@ User = get_user_model()
 
 
 class InvoiceCOGSFieldTest(TestCase):
+    databases = '__all__'
     """Invoice model has grand_total_cogs field."""
 
     def test_field_exists(self):
@@ -35,6 +36,7 @@ class InvoiceCOGSFieldTest(TestCase):
 
 
 class SyncInvoiceCOGSCommandTest(TestCase):
+    databases = '__all__'
     """sync_invoice_cogs management command runs without errors."""
 
     def _setup_user(self):
@@ -59,6 +61,7 @@ class SyncInvoiceCOGSCommandTest(TestCase):
 
 
 class CustomFiltersTest(TestCase):
+    databases = '__all__'
     """get_item and subtract custom template filters work correctly."""
 
     def test_get_item_filter(self):
@@ -77,6 +80,7 @@ class CustomFiltersTest(TestCase):
 
 
 class SODetailCOGSViewTest(TestCase):
+    databases = '__all__'
     """SO detail view returns correct COGS context."""
 
     @classmethod
@@ -175,6 +179,7 @@ class SODetailCOGSViewTest(TestCase):
 
 
 class FinancialStatementBreakdownTest(TestCase):
+    databases = '__all__'
     """Financial statement view passes breakdown_rows and template renders modal."""
 
     @classmethod
@@ -217,6 +222,7 @@ class FinancialStatementBreakdownTest(TestCase):
 
 
 class InvoiceCOGSRegressionTest(TestCase):
+    databases = '__all__'
     @classmethod
     def setUpTestData(cls):
         import datetime
@@ -253,12 +259,13 @@ class InvoiceCOGSRegressionTest(TestCase):
         wh = Warehouse.objects.create(name='REG WH', code='REGWH')
         Location.objects.create(name='REG Main', code='REGMAIN', warehouse=wh)
 
+        today_date = timezone.now().date()
         cls.so = SalesOrder.objects.create(
             document_number='SO-REG-001',
             status=DocumentStatus.APPROVED,
             customer=customer,
             warehouse=wh,
-            order_date=datetime.date.today(),
+            order_date=today_date,
             created_by=cls.user,
         )
         SalesOrderLine.objects.create(
@@ -272,15 +279,22 @@ class InvoiceCOGSRegressionTest(TestCase):
 
         cls.invoice = Invoice.objects.create(
             invoice_number='REG-INV-001',
-            date=datetime.date.today(),
+            date=today_date,
             sales_order=cls.so,
             customer_name=customer.name,
             subtotal=Decimal('600.00'),
             grand_total=Decimal('600.00'),
             is_paid=True,
             paid_at=timezone.now(),
-            paid_date=datetime.date.today(),
+            paid_date=today_date,
             grand_total_cogs=Decimal('9999.99'),
+            created_by=cls.user,
+        )
+        from core.models import InvoicePayment
+        InvoicePayment.objects.create(
+            invoice=cls.invoice,
+            date=today_date,
+            amount=Decimal('600.00'),
             created_by=cls.user,
         )
 
@@ -288,8 +302,8 @@ class InvoiceCOGSRegressionTest(TestCase):
             service_number='SVC-REG-001',
             service_name='Regression Service',
             customer_name=customer.name,
-            service_date=datetime.date.today(),
-            completion_date=datetime.date.today(),
+            service_date=today_date,
+            completion_date=today_date,
             status='COMPLETED',
             warehouse=wh,
             invoice=cls.invoice,
@@ -325,7 +339,28 @@ class InvoiceCOGSRegressionTest(TestCase):
         self.assertEqual(resp.context['pos_cogs'], Decimal('200.00'))
         self.assertEqual(resp.context['dash_formulas']['combined_profit'], Decimal('400.00'))
 
+    def test_so_cogs_not_zero_when_qty_delivered_zero(self):
+        """Test that compute_invoice_cogs does not return 0 when an SO has a posted delivery/pickup
+        but line.qty_delivered is 0, correctly falling back to qty_ordered COGS."""
+        from sales.models import DeliveryNote
+        from core.models import DocumentStatus
+        from core.cogs import compute_invoice_cogs
+
+        # Create a posted delivery note for the sales order with 0 delivered qty on line
+        dn = DeliveryNote.objects.create(
+            sales_order=self.so,
+            customer=self.so.customer,
+            warehouse=self.so.warehouse,
+            delivery_date=timezone.now().date(),
+            status=DocumentStatus.POSTED,
+            created_by=self.user,
+        )
+        # Verify compute_invoice_cogs still returns non-zero COGS
+        cogs = compute_invoice_cogs(self.invoice)
+        self.assertEqual(cogs, Decimal('200.00'))
+
 
 if __name__ == '__main__':
     import unittest
     unittest.main()
+
