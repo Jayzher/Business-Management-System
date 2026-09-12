@@ -191,13 +191,15 @@ StockAdjustmentLineFormSet = inlineformset_factory(
 class DamagedReportForm(forms.ModelForm):
     class Meta:
         model = DamagedReport
-        fields = ['warehouse', 'notes']
+        fields = ['warehouse', 'damage_date', 'notes']
         widgets = {
             'warehouse': forms.Select(attrs={'class': 'form-control'}),
+            'damage_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
         help_texts = {
             'warehouse': 'Warehouse where damage was discovered.',
+            'damage_date': 'Date when the damage occurred.',
             'notes': 'Summary of damage incident.',
         }
 

@@ -19,6 +19,7 @@
         <tr>
           <th>{% sort_link 'document_number' 'Report #' sort dir %}</th>
           <th>{% sort_link 'warehouse' 'Warehouse' sort dir %}</th>
+          <th>{% sort_link 'damage_date' 'Damage Date' sort dir %}</th>
           <th>{% sort_link 'status' 'Status' sort dir %}</th>
           <th>{% sort_link 'created_by' 'Created By' sort dir %}</th>
           <th>{% sort_link 'created_at' 'Created At' sort dir %}</th>
@@ -30,6 +31,7 @@
         <tr>
           <td>{{ r.document_number }}</td>
           <td>{{ r.warehouse.code }} - {{ r.warehouse.name }}</td>
+          <td>{{ r.damage_date|date:"M d, Y"|default:"-" }}</td>
           <td>
             {% if r.status == 'DRAFT' %}<span class="badge bg-secondary">Draft</span>
             {% elif r.status == 'POSTED' %}<span class="badge bg-success">Posted</span>
@@ -45,7 +47,7 @@
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="6" class="text-center text-muted">No damaged reports.</td></tr>
+        <tr><td colspan="7" class="text-center text-muted">No damaged reports.</td></tr>
         {% endfor %}
       </tbody>
     </table>

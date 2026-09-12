@@ -25,6 +25,7 @@
             {% endif %}
           </td></tr>
           <tr><th>Warehouse</th><td>{{ report.warehouse.code }} - {{ report.warehouse.name }}</td></tr>
+          <tr><th>Damage Date</th><td>{{ report.damage_date|date:"M d, Y"|default:"-" }}</td></tr>
           <tr><th>Notes</th><td>{{ report.notes|default:"-" }}</td></tr>
         </table>
       </div>

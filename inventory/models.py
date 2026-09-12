@@ -134,6 +134,7 @@ class StockAdjustmentLine(models.Model):
 class DamagedReport(TransactionalDocument):
     """Damaged stock report (header)."""
     warehouse = models.ForeignKey('warehouses.Warehouse', on_delete=models.PROTECT, related_name='damaged_reports')
+    damage_date = models.DateField(null=True, blank=True, help_text='Date when the damage occurred')
 
     class Meta:
         ordering = ['-created_at']
