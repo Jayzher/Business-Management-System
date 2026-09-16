@@ -5,6 +5,7 @@ __pycache__/
 
 # Virtual envs
 .env
+env/
 venv/
 ENV/
 .env.bak
