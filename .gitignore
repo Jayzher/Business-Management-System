@@ -50,3 +50,5 @@ staticfiles/
 coverage.xml
 *.egg-info/
 
+# Local backups
+_db_backups/
